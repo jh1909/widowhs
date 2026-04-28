@@ -40,10 +40,8 @@ jobs:
       - name: Build
         run: npm run build
         env:
-          # Hier werden deine Repository Variables in den Build-Prozess geladen!
-          # Vite ersetzt import.meta.env.* dann durch diese Werte.
-          VITE_SUPABASE_URL: ${{ vars.NEXT_PUBLIC_SUPABASE_URL }}
-          VITE_SUPABASE_ANON_KEY: ${{ vars.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
+          VITE_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL || vars.NEXT_PUBLIC_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || vars.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
           
       - name: Setup Pages
         uses: actions/configure-pages@v4
