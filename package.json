@@ -4,15 +4,15 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "tsx server.ts",
+    "dev": "vite --port=3000 --host=0.0.0.0",
     "build": "vite build",
     "preview": "vite preview",
     "clean": "rm -rf dist",
-    "lint": "tsc --noEmit",
-    "start": "node server.ts"
+    "lint": "tsc --noEmit"
   },
   "dependencies": {
     "@google/genai": "^1.29.0",
+    "@supabase/supabase-js": "^2.105.1",
     "@tailwindcss/vite": "^4.1.14",
     "@types/multer": "^2.1.0",
     "@vitejs/plugin-react": "^5.0.4",
@@ -24,6 +24,7 @@
     "lucide-react": "^0.546.0",
     "motion": "^12.23.24",
     "multer": "^2.1.1",
+    "papaparse": "^5.5.3",
     "react": "^19.0.1",
     "react-dom": "^19.0.1",
     "react-router-dom": "^7.14.2",
@@ -33,6 +34,7 @@
   "devDependencies": {
     "@types/express": "^4.17.21",
     "@types/node": "^22.14.0",
+    "@types/papaparse": "^5.5.2",
     "autoprefixer": "^10.4.21",
     "tailwindcss": "^4.1.14",
     "tsx": "^4.21.0",

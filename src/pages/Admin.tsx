@@ -1,5 +1,7 @@
 import { useState, useRef } from "react";
 import { Link, Route, Routes, useLocation, Navigate } from "react-router-dom";
+import Papa from "papaparse";
+import { supabase } from "../lib/supabase";
 import { 
   LayoutGrid, 
   BarChart2, 
@@ -49,7 +51,6 @@ export default function Admin() {
 
 function AdminPanel() {
   const [file, setFile] = useState<File | null>(null);
-  const [apiKey, setApiKey] = useState("");
   const [uploading, setUploading] = useState(false);
   const [status, setStatus] = useState<"idle" | "success" | "error">("idle");
   const [message, setMessage] = useState("");
@@ -69,35 +70,91 @@ function AdminPanel() {
     setStatus("idle");
     setMessage("");
 
-    const formData = new FormData();
-    formData.append("csv", file);
+    Papa.parse(file, {
+      header: true,
+      skipEmptyLines: true,
+      complete: async (results) => {
+        try {
+          const parsedMatches = results.data.map((row: any) => ({
+            match_id: row.match_id || "unknown",
+            player_name: row.player_name || "Unknown",
+            kills: parseInt(row.kills) || 0,
+            headshots: parseInt(row.headshots) || 0,
+            won: row.won === "1" || String(row.won).toLowerCase() === "true" || String(row.won).toLowerCase() === "yes",
+            time_seconds: parseInt(row.time_seconds) || 0,
+          }));
+          
+          if (parsedMatches.length === 0) {
+            setStatus("error");
+            setMessage("Empty CSV or formatting issue. Check headers.");
+            setUploading(false);
+            return;
+          }
 
-    try {
-      const response = await fetch("/api/admin/upload-csv", {
-        method: "POST",
-        headers: {
-          "x-api-key": apiKey || "dev-server-key"
-        },
-        body: formData,
-      });
+          // Aggregate Player Stats
+          const playerStats: Record<string, any> = {};
+          parsedMatches.forEach(m => {
+            if (!playerStats[m.player_name]) {
+              playerStats[m.player_name] = { name: m.player_name, matches: 0, wins: 0, kills: 0, headshots: 0 };
+            }
+            playerStats[m.player_name].matches += 1;
+            if (m.won) playerStats[m.player_name].wins += 1;
+            playerStats[m.player_name].kills += m.kills;
+            playerStats[m.player_name].headshots += m.headshots;
+          });
 
-      const data = await response.json();
+          // Convert to leaderboard format
+          const newPlayers = Object.values(playerStats).map(p => {
+            const winr = p.matches > 0 ? (p.wins / p.matches) * 100 : 0;
+            const hsp = p.kills > 0 ? (p.headshots / p.kills) * 100 : 0;
+            const losses = p.matches - p.wins;
+            const elo = 2000 + (p.wins * 25) - (losses * 15) + p.kills;
+            
+            return {
+              name: p.name,
+              tag: elo > 3000 ? "PRO" : "",
+              matches: p.matches,
+              winrate: winr.toFixed(1) + "%",
+              hs: hsp.toFixed(1) + "%",
+              elo: elo.toLocaleString("en-US")
+            };
+          });
 
-      if (response.ok && data.success) {
-        setStatus("success");
-        setMessage(`Successfully imported ${data.count} players.`);
-        setFile(null);
-        if (fileInputRef.current) fileInputRef.current.value = "";
-      } else {
+          // Sort by ELO descending
+          newPlayers.sort((a, b) => {
+            const eloA = parseInt(a.elo.replace(/,/g, ""));
+            const eloB = parseInt(b.elo.replace(/,/g, ""));
+            return eloB - eloA;
+          });
+
+          // Assign ranks
+          const finalPlayers = newPlayers.map((p, idx) => ({ ...p, rank: idx + 1 }));
+
+          // Upsert to Supabase
+          const { error } = await supabase
+            .from("players")
+            .upsert(finalPlayers, { onConflict: "name" });
+
+          if (error) throw error;
+
+          setStatus("success");
+          setMessage(`Successfully processed ${parsedMatches.length} matches and updated ${finalPlayers.length} players. Ensure 'players' table exists in Supabase.`);
+          setFile(null);
+          if (fileInputRef.current) fileInputRef.current.value = "";
+        } catch (error: any) {
+          console.error(error);
+          setStatus("error");
+          setMessage(error.message || "An unexpected error occurred during database upsert.");
+        } finally {
+          setUploading(false);
+        }
+      },
+      error: (error) => {
         setStatus("error");
-        setMessage(data.error || "Failed to upload CSV.");
+        setMessage(`CSV Parsing Error: ${error.message}`);
+        setUploading(false);
       }
-    } catch (error: any) {
-      setStatus("error");
-      setMessage(error.message || "An unexpected error occurred.");
-    } finally {
-      setUploading(false);
-    }
+    });
   };
 
   return (
@@ -112,17 +169,6 @@ function AdminPanel() {
         <p className="font-sans text-[13px] text-zinc-400 mb-6">
           Upload a CSV file to overwrite the global player statistics and recalculate leaderboards. Ensure your CSV has headers exactly matching: <code className="bg-white/10 px-1 py-0.5 rounded text-toxic-purple mx-1">match_id,player_name,kills,headshots,won,time_seconds</code>
         </p>
-
-        <div className="mb-6">
-          <label className="block text-[11px] font-bold text-zinc-500 uppercase tracking-widest mb-2 font-sans text-left">Server API Key</label>
-          <input 
-            type="password" 
-            value={apiKey}
-            onChange={(e) => setApiKey(e.target.value)}
-            placeholder="Enter SERVER_API_KEY"
-            className="w-full bg-surface-container border border-surface-container-highest rounded px-4 py-3 text-[13px] text-white focus:outline-none focus:border-toxic-purple focus:ring-1 focus:ring-toxic-purple/50 transition-all font-mono"
-          />
-        </div>
 
         <div 
           className={cn(
@@ -169,24 +215,24 @@ function AdminPanel() {
           <div className="flex items-center gap-2">
             {status === "success" && (
               <>
-                <CheckCircle className="w-5 h-5 text-green-500" />
+                <CheckCircle className="w-5 h-5 text-green-500 min-w-5 shrink-0" />
                 <span className="text-sm text-green-400">{message}</span>
               </>
             )}
             {status === "error" && (
               <>
-                <XCircle className="w-5 h-5 text-red-500" />
-                <span className="text-sm text-red-400">{message}</span>
+                <XCircle className="w-5 h-5 text-red-500 min-w-5 shrink-0" />
+                <span className="text-sm text-red-400 max-w-sm truncate whitespace-normal leading-tight">{message}</span>
               </>
             )}
           </div>
           <button 
             disabled={!file || uploading}
             onClick={handleUpload}
-            className="bg-toxic-purple hover:bg-[#842bd2] text-white font-bold py-2 px-6 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+            className="bg-toxic-purple hover:bg-[#842bd2] text-white font-bold py-2 px-6 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 shrink-0"
           >
             {uploading && <Loader2 className="w-4 h-4 animate-spin" />}
-            {uploading ? "Uploading..." : "Import Data"}
+            {uploading ? "Processing..." : "Import Data"}
           </button>
         </div>
       </div>

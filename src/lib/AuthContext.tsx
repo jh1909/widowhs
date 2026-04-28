@@ -1,9 +1,11 @@
 import React, { createContext, useContext, useState, useEffect } from "react";
+import { supabase } from "./supabase";
 
 export type User = {
   id: string;
   username: string;
-  discriminator: string;
+  discriminator?: string;
+  avatar_url?: string;
 };
 
 type AuthContextType = {
@@ -18,56 +20,47 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
 
   useEffect(() => {
-    // Check if there's a user in localStorage
-    const storedUser = localStorage.getItem("auth_user");
-    if (storedUser) {
-      try {
-        setUser(JSON.parse(storedUser));
-      } catch (e) {
-        // ignore
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) {
+        setUser({
+          id: session.user.id,
+          username: session.user.user_metadata?.full_name || session.user.user_metadata?.name || 'User',
+          avatar_url: session.user.user_metadata?.avatar_url
+        });
       }
-    }
+    });
 
-    // Listen for the OAUTH_AUTH_SUCCESS message from popup
-    const handleMessage = (event: MessageEvent) => {
-      // Strict origin check for production
-      if (event.origin !== window.location.origin) {
-        return;
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.user) {
+        setUser({
+          id: session.user.id,
+          username: session.user.user_metadata?.full_name || session.user.user_metadata?.name || 'User',
+          avatar_url: session.user.user_metadata?.avatar_url
+        });
+      } else {
+        setUser(null);
       }
-      
-      if (event.data?.type === 'OAUTH_AUTH_SUCCESS' && event.data.user) {
-        const u = event.data.user;
-        setUser(u);
-        localStorage.setItem("auth_user", JSON.stringify(u));
-      }
-    };
-    window.addEventListener('message', handleMessage);
-    return () => window.removeEventListener('message', handleMessage);
+    });
+
+    return () => subscription.unsubscribe();
   }, []);
 
   const login = async () => {
-    try {
-      const res = await fetch("/api/auth/discord/url");
-      
-      if (!res.ok) {
-        const err = await res.json();
-        alert(err.error || "Failed to initialize Discord Login. Check environment variables.");
-        return;
+    // Determine the redirect URL dynamically to support deployment properly
+    const redirectTo = `${window.location.origin}/`;
+    
+    await supabase.auth.signInWithOAuth({
+      provider: 'discord',
+      options: {
+        redirectTo
       }
-
-      const data = await res.json();
-      if (data.url) {
-        window.open(data.url, 'oauth_popup', 'width=600,height=700');
-      }
-    } catch (e) {
-      console.error("Login failed", e);
-      alert("Failed to connect to authentication server.");
-    }
+    });
   };
 
-  const logout = () => {
-    setUser(null);
-    localStorage.removeItem("auth_user");
+  const logout = async () => {
+    await supabase.auth.signOut();
   };
 
   return (
@@ -84,3 +77,4 @@ export function useAuth() {
   }
   return context;
 }
+

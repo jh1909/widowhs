@@ -2,6 +2,7 @@ import { Star, User, Key, MessageSquare, Radio, ChevronLeft, ChevronRight, Searc
 import { Link } from "react-router-dom";
 import { useState, useEffect, useMemo } from "react";
 import { useAuth } from "../lib/AuthContext";
+import { supabase } from "../lib/supabase";
 
 type Player = { 
   rank: number; 
@@ -21,18 +22,36 @@ export default function Leaderboard() {
   const [copied, setCopied] = useState(false);
   const [leaderboardData, setLeaderboardData] = useState<Player[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch("/api/leaderboard")
-      .then(res => res.json())
-      .then(data => {
-        setLeaderboardData(data);
+    async function fetchLeaderboard() {
+      try {
+        const { data, error } = await supabase
+          .from("players")
+          .select("*")
+          .order("rank", { ascending: true });
+
+        if (error) {
+          throw error;
+        }
+
+        if (data && data.length > 0) {
+          setLeaderboardData(data);
+        } else {
+          // Provide mock data if table is empty or missing, just to show how it looks
+          // But actually, it's better to show an empty state.
+          setLeaderboardData([]);
+        }
+      } catch (err: any) {
+        console.error("Failed to load leaderboard from Supabase", err);
+        setError("Failed to load leaderboard. Please make sure the 'players' table exists in your Supabase project.");
+      } finally {
         setLoading(false);
-      })
-      .catch(err => {
-        console.error("Failed to load leaderboard", err);
-        setLoading(false);
-      });
+      }
+    }
+
+    fetchLeaderboard();
   }, []);
 
   // Derive real user stats based on auth status and leaderboard data
@@ -100,8 +119,26 @@ export default function Leaderboard() {
                 </tr>
               </thead>
               <tbody className="font-mono text-[13px] font-medium text-on-surface">
+                {/* Loading State */}
+                {loading && (
+                  <tr>
+                    <td colSpan={6} className="py-8 text-center text-zinc-500 font-sans">
+                      Loading player data...
+                    </td>
+                  </tr>
+                )}
+                
+                {/* Error State */}
+                {!loading && error && (
+                  <tr>
+                    <td colSpan={6} className="py-8 text-center text-red-400 font-sans">
+                      {error}
+                    </td>
+                  </tr>
+                )}
+
                 {/* Current User Stats */}
-                {!searchTerm && currentUserStats && (
+                {!loading && !error && !searchTerm && currentUserStats && (
                   <tr className="bg-toxic-purple/10 border-b border-toxic-purple/30 relative">
                     <td className="py-4 px-6 text-center text-toxic-purple font-bold">
                       {currentUserStats.rank}
