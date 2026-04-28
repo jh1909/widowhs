@@ -1,0 +1,111 @@
+import { ArrowLeft, Target, Flame, Zap, Swords, Trophy, Timer, Verified } from "lucide-react";
+import { Link, useParams } from "react-router-dom";
+
+export default function Profile() {
+  const { id } = useParams();
+  const playerName = id ? id.toUpperCase() : "KEPHRII";
+
+  return (
+    <main className="flex-grow w-full max-w-[1280px] mx-auto px-6 py-12 flex flex-col gap-12">
+      {/* Navigation Back Action */}
+      <div className="flex items-center">
+        <Link to="/" className="inline-flex items-center gap-2 text-on-surface-variant hover:text-[#9d4edd] transition-colors duration-200 ease-out font-mono font-medium text-[14px]">
+          <ArrowLeft className="w-[18px] h-[18px]" />
+          Back to Leaderboard
+        </Link>
+      </div>
+
+      {/* Profile Header */}
+      <header className="flex flex-col md:flex-row md:items-end justify-between gap-6 pb-6 border-b border-[#4d4353]">
+        <div className="flex flex-col gap-3">
+          <div className="flex items-center gap-4">
+            <h1 className="font-sans text-[48px] font-bold text-on-surface uppercase tracking-tighter leading-none">{playerName}</h1>
+            <Verified className="text-[#9d4edd] w-8 h-8 fill-[#9d4edd]" />
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-[#9d4edd]/10 border border-[#9d4edd]/30 rounded">
+              <span className="w-2 h-2 rounded-full bg-[#ce8df2] animate-pulse"></span>
+              <span className="font-mono text-[12px] font-bold text-[#f2daff] uppercase tracking-widest">Grandmaster</span>
+            </div>
+            <span className="font-mono text-[14px] text-on-surface-variant border-l border-[#4d4353] pl-3">Rank #4 Global</span>
+          </div>
+        </div>
+        
+        <div className="flex flex-col items-start md:items-end gap-1 bg-surface-container/30 border border-[#4d4353] rounded-lg p-4 backdrop-blur-[12px]">
+          <span className="font-mono text-[12px] font-bold text-on-surface-variant uppercase tracking-widest">Win/Loss Ratio</span>
+          <div className="flex items-baseline gap-2">
+            <span className="font-sans text-[32px] font-semibold text-on-surface leading-none">68.4%</span>
+            <span className="font-mono text-[14px] text-[#ce8df2]">+2.1%</span>
+          </div>
+        </div>
+      </header>
+
+      {/* Stats Grid (Bento/Glassmorphism style) */}
+      <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
+        <StatCard title="HS Accuracy %" value="42.8%" icon={<Target />} />
+        <StatCard title="Highest Killstreak" value="34" icon={<Flame />} />
+        <StatCard title="Critical Hits" value="14,892" icon={<Zap />} />
+        <StatCard title="Total Damage" value="2.4M" icon={<Swords />} />
+        <StatCard title="Games Won" value="1,042" icon={<Trophy />} />
+        <StatCard title="Avg. Life" value="03:45" icon={<Timer />} />
+      </section>
+
+      {/* Performance Graph Section */}
+      <section className="flex flex-col gap-3 mt-4">
+        <h3 className="font-sans text-[24px] font-semibold text-on-surface uppercase tracking-tight">Performance History</h3>
+        <div className="w-full bg-surface-container/30 backdrop-blur-[12px] border border-[#4d4353] rounded-xl p-6 h-[300px] flex flex-col relative overflow-hidden">
+          <div className="flex justify-between items-center mb-6">
+            <span className="font-mono text-[12px] font-bold text-on-surface-variant uppercase tracking-widest">Elo Progression (Last 30 Days)</span>
+            <div className="flex gap-2 items-center">
+              <span className="w-2 h-2 rounded-full bg-[#9d4edd]"></span>
+              <span className="font-mono text-[14px] text-on-surface">Rank Rating</span>
+            </div>
+          </div>
+          
+          <div className="flex-grow w-full relative">
+            <div className="absolute inset-0 flex flex-col justify-between z-0">
+              <div className="w-full border-t border-[#4d4353]/30 h-0"></div>
+              <div className="w-full border-t border-[#4d4353]/30 h-0"></div>
+              <div className="w-full border-t border-[#4d4353]/30 h-0"></div>
+              <div className="w-full border-t border-[#4d4353]/30 h-0"></div>
+            </div>
+            
+            <svg className="absolute inset-0 w-full h-full z-10 preserve-3d" preserveAspectRatio="none" viewBox="0 0 1000 200">
+              <defs>
+                <linearGradient id="graphGradient" x1="0" x2="0" y1="0" y2="1">
+                  <stop offset="0%" stopColor="#9d4edd" stopOpacity="0.3"></stop>
+                  <stop offset="100%" stopColor="#9d4edd" stopOpacity="0"></stop>
+                </linearGradient>
+              </defs>
+              <path d="M0,150 L100,140 L200,160 L300,120 L400,130 L500,90 L600,100 L700,60 L800,80 L900,40 L1000,20 L1000,200 L0,200 Z" fill="url(#graphGradient)"></path>
+              <path className="drop-shadow-[0_0_8px_rgba(157,78,221,0.5)]" d="M0,150 L100,140 L200,160 L300,120 L400,130 L500,90 L600,100 L700,60 L800,80 L900,40 L1000,20" fill="none" stroke="#9D4EDD" strokeLinecap="round" strokeLinejoin="round" strokeWidth="3"></path>
+            </svg>
+            
+            <div className="absolute top-[20px] right-0 w-3 h-3 bg-background border-2 border-[#9d4edd] rounded-full z-20 transform translate-x-1.5 -translate-y-1.5 shadow-[0_0_12px_#9d4edd]"></div>
+          </div>
+          
+          <div className="flex justify-between mt-4 border-t border-[#4d4353] pt-2">
+            <span className="font-mono text-[10px] text-[#998d9e]">Oct 01</span>
+            <span className="font-mono text-[10px] text-[#998d9e]">Oct 15</span>
+            <span className="font-mono text-[10px] text-[#998d9e]">Oct 30</span>
+          </div>
+        </div>
+      </section>
+    </main>
+  );
+}
+
+function StatCard({ title, value, icon }: { title: string, value: string, icon: React.ReactNode }) {
+  return (
+    <div className="bg-surface-container/40 backdrop-blur-[12px] border border-[#4d4353] rounded-xl p-6 flex flex-col gap-4 hover:bg-surface-container/60 transition-colors duration-200 ease-out relative overflow-hidden group">
+      <div className="absolute inset-0 bg-gradient-to-br from-[#9d4edd]/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-200"></div>
+      <div className="flex justify-between items-start relative z-10 text-[#998d9e]">
+        <span className="font-mono text-[12px] font-bold text-on-surface-variant uppercase tracking-widest">{title}</span>
+        {icon}
+      </div>
+      <div className="flex items-baseline gap-2 relative z-10">
+        <span className="font-mono text-[40px] leading-none font-bold text-on-surface">{value}</span>
+      </div>
+    </div>
+  );
+}

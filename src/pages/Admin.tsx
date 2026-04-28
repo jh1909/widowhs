@@ -1,0 +1,430 @@
+import { useState, useRef } from "react";
+import { Link, Route, Routes, useLocation, Navigate } from "react-router-dom";
+import { 
+  LayoutGrid, 
+  BarChart2, 
+  ShieldAlert, 
+  Monitor, 
+  FileText,
+  Power,
+  Search,
+  Bell,
+  Menu,
+  Users,
+  TrendingUp,
+  Gavel,
+  Cpu,
+  ArrowRight,
+  Edit2,
+  Ban,
+  Trash2,
+  Globe,
+  UploadCloud,
+  CheckCircle,
+  XCircle,
+  Loader2
+} from "lucide-react";
+import { cn } from "../lib/utils";
+
+export default function Admin() {
+  return (
+    <div className="flex h-screen overflow-hidden bg-background">
+      <AdminSidebar />
+      <div className="flex-1 flex flex-col h-screen overflow-hidden relative">
+        <AdminHeader />
+        <div className="flex-1 overflow-y-auto w-full">
+          <Routes>
+            <Route path="/" element={<Navigate to="dashboard" replace />} />
+            <Route path="dashboard" element={<Dashboard />} />
+            <Route path="analytics" element={<Placeholder title="Analytics" />} />
+            <Route path="panel" element={<AdminPanel />} />
+            <Route path="server" element={<Placeholder title="Server Status" />} />
+            <Route path="audit" element={<Placeholder title="Audit Logs" />} />
+          </Routes>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AdminPanel() {
+  const [file, setFile] = useState<File | null>(null);
+  const [apiKey, setApiKey] = useState("");
+  const [uploading, setUploading] = useState(false);
+  const [status, setStatus] = useState<"idle" | "success" | "error">("idle");
+  const [message, setMessage] = useState("");
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      setFile(e.target.files[0]);
+      setStatus("idle");
+    }
+  };
+
+  const handleUpload = async () => {
+    if (!file) return;
+
+    setUploading(true);
+    setStatus("idle");
+    setMessage("");
+
+    const formData = new FormData();
+    formData.append("csv", file);
+
+    try {
+      const response = await fetch("/api/admin/upload-csv", {
+        method: "POST",
+        headers: {
+          "x-api-key": apiKey || "dev-server-key"
+        },
+        body: formData,
+      });
+
+      const data = await response.json();
+
+      if (response.ok && data.success) {
+        setStatus("success");
+        setMessage(`Successfully imported ${data.count} players.`);
+        setFile(null);
+        if (fileInputRef.current) fileInputRef.current.value = "";
+      } else {
+        setStatus("error");
+        setMessage(data.error || "Failed to upload CSV.");
+      }
+    } catch (error: any) {
+      setStatus("error");
+      setMessage(error.message || "An unexpected error occurred.");
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  return (
+    <div className="p-6 lg:p-10 space-y-8 h-full max-w-5xl mx-auto">
+      <div>
+        <h2 className="font-sans text-2xl font-bold text-white tracking-tight">Admin Panel</h2>
+        <p className="font-sans text-xs text-zinc-500 mt-1">Manage core system data, imports, and global settings.</p>
+      </div>
+
+      <div className="bg-[#111114] border border-surface-container-highest rounded-md overflow-hidden p-6 max-w-2xl">
+        <h3 className="font-sans text-[18px] font-bold text-white mb-2">Import Match Data</h3>
+        <p className="font-sans text-[13px] text-zinc-400 mb-6">
+          Upload a CSV file to overwrite the global player statistics and recalculate leaderboards. Ensure your CSV has headers exactly matching: <code className="bg-white/10 px-1 py-0.5 rounded text-toxic-purple mx-1">match_id,player_name,kills,headshots,won,time_seconds</code>
+        </p>
+
+        <div className="mb-6">
+          <label className="block text-[11px] font-bold text-zinc-500 uppercase tracking-widest mb-2 font-sans text-left">Server API Key</label>
+          <input 
+            type="password" 
+            value={apiKey}
+            onChange={(e) => setApiKey(e.target.value)}
+            placeholder="Enter SERVER_API_KEY"
+            className="w-full bg-surface-container border border-surface-container-highest rounded px-4 py-3 text-[13px] text-white focus:outline-none focus:border-toxic-purple focus:ring-1 focus:ring-toxic-purple/50 transition-all font-mono"
+          />
+        </div>
+
+        <div 
+          className={cn(
+            "border-2 border-dashed rounded-lg p-10 flex flex-col items-center justify-center transition-colors",
+            file ? "border-toxic-purple/50 bg-toxic-purple/5" : "border-surface-container hover:border-toxic-purple/30 hover:bg-surface-container-low cursor-pointer"
+          )}
+          onClick={() => !file && fileInputRef.current?.click()}
+        >
+          <input 
+            type="file" 
+            ref={fileInputRef}
+            onChange={handleFileChange}
+            accept=".csv"
+            className="hidden" 
+          />
+          
+          <UploadCloud className={cn("w-10 h-10 mb-4", file ? "text-toxic-purple" : "text-zinc-500")} />
+          
+          {file ? (
+            <div className="text-center font-sans">
+              <p className="text-white font-bold">{file.name}</p>
+              <p className="text-zinc-500 text-xs mt-1">{(file.size / 1024).toFixed(2)} KB</p>
+              <button 
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setFile(null);
+                  setStatus("idle");
+                  if (fileInputRef.current) fileInputRef.current.value = "";
+                }}
+                className="text-xs text-red-400 hover:text-red-300 mt-3 underline"
+              >
+                Remove selection
+              </button>
+            </div>
+          ) : (
+            <div className="text-center font-sans">
+              <p className="text-zinc-300 font-bold">Click or drag CSV file to upload</p>
+              <p className="text-zinc-600 text-xs mt-2">Maximum file size: 5MB</p>
+            </div>
+          )}
+        </div>
+
+        <div className="mt-6 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            {status === "success" && (
+              <>
+                <CheckCircle className="w-5 h-5 text-green-500" />
+                <span className="text-sm text-green-400">{message}</span>
+              </>
+            )}
+            {status === "error" && (
+              <>
+                <XCircle className="w-5 h-5 text-red-500" />
+                <span className="text-sm text-red-400">{message}</span>
+              </>
+            )}
+          </div>
+          <button 
+            disabled={!file || uploading}
+            onClick={handleUpload}
+            className="bg-toxic-purple hover:bg-[#842bd2] text-white font-bold py-2 px-6 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+          >
+            {uploading && <Loader2 className="w-4 h-4 animate-spin" />}
+            {uploading ? "Uploading..." : "Import Data"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Placeholder({ title }: { title: string }) {
+  return (
+    <div className="p-6 lg:p-10 h-full flex items-center justify-center">
+      <div className="text-center">
+        <h2 className="font-sans text-2xl font-bold text-white mb-2">{title}</h2>
+        <p className="text-zinc-500 font-sans text-sm">This module is currently active and collecting telemetry data.</p>
+      </div>
+    </div>
+  );
+}
+
+function AdminHeader() {
+  return (
+    <header className="h-16 flex items-center justify-between px-6 border-b border-surface-container-highest z-30 bg-surface-dim/80 backdrop-blur-xl shrink-0">
+      <div className="flex items-center">
+        <button className="md:hidden text-zinc-400 hover:text-white mr-4">
+          <Menu className="w-6 h-6" />
+        </button>
+        <Link to="/" className="md:hidden text-lg font-black text-white italic tracking-tighter border-l-4 border-toxic-purple pl-2">
+          WIDOWMAKER
+        </Link>
+      </div>
+
+      <div className="flex-1 max-w-md ml-4 md:ml-0 hidden md:block">
+        <div className="relative flex items-center w-full toxic-glow-focus rounded transition-all duration-200 bg-surface-container border border-surface-container-highest">
+          <Search className="absolute left-3 text-zinc-500 w-[18px] h-[18px]" />
+          <input
+            className="w-full bg-transparent border-none text-zinc-200 font-mono text-[13px] placeholder:text-zinc-600 py-2 pl-10 pr-4 focus:ring-0 focus:outline-none"
+            placeholder="SEARCH UIDs OR USERNAMES..."
+            type="text"
+          />
+        </div>
+      </div>
+
+      <div className="flex items-center space-x-4 ml-4">
+        <button className="text-zinc-500 hover:text-purple-400 transition-colors relative">
+          <Bell className="w-5 h-5" />
+          <span className="absolute top-0 right-0 w-2 h-2 bg-toxic-purple rounded-full"></span>
+        </button>
+        <div className="h-8 w-8 rounded bg-surface-container-highest flex items-center justify-center border border-toxic-purple/20 text-purple-400 font-sans font-bold text-[11px] uppercase tracking-widest cursor-pointer">
+          AD
+        </div>
+      </div>
+    </header>
+  );
+}
+
+function AdminSidebar() {
+  const location = useLocation();
+  const currentPath = location.pathname;
+
+  return (
+    <nav className="bg-[#111114] w-64 border-r border-toxic-purple/10 shadow-[-10px_0_20px_0_rgba(168,85,247,0.05)_inset] flex-col py-8 fixed md:relative h-full z-40 hidden md:flex shrink-0">
+      <div className="px-6 mb-10">
+        <Link to="/" className="block">
+          <h1 className="font-sans text-[22px] text-toxic-purple font-black tracking-tighter italic border-l-4 border-toxic-purple pl-2 leading-none hover:text-[#D8B4FE] transition-colors">
+            SYSTEM<br />ROOT
+          </h1>
+        </Link>
+        <p className="font-sans font-bold text-[11px] text-zinc-500 uppercase tracking-widest mt-4">ADMINISTRATOR</p>
+      </div>
+      
+      <ul className="flex-1 px-4 space-y-2">
+        <SidebarItem icon={<LayoutGrid />} label="Dashboard" to="/admin/dashboard" active={currentPath.includes("dashboard")} />
+        <SidebarItem icon={<BarChart2 />} label="Analytics" to="/admin/analytics" active={currentPath.includes("analytics")} />
+        <SidebarItem icon={<ShieldAlert />} label="Admin Panel" to="/admin/panel" active={currentPath.includes("panel")} />
+        <SidebarItem icon={<Monitor />} label="Server Status" to="/admin/server" active={currentPath.includes("server")} />
+        <SidebarItem icon={<FileText />} label="Audit Logs" to="/admin/audit" active={currentPath.includes("audit")} />
+      </ul>
+      
+      <div className="px-6 mt-auto flex flex-col gap-2">
+        <Link to="/" className="w-full bg-toxic-purple/10 text-toxic-purple font-sans font-bold text-[11px] uppercase tracking-widest py-3 px-4 rounded flex items-center justify-center space-x-2 border border-toxic-purple/20 hover:bg-toxic-purple/20 hover:border-toxic-purple/30 transition-all cursor-pointer">
+          <Globe className="w-4 h-4" />
+          <span>MAIN SITE</span>
+        </Link>
+        <button className="w-full bg-transparent border border-surface-container-highest text-zinc-500 font-sans font-bold text-[11px] uppercase tracking-widest py-3 px-4 rounded flex items-center justify-center space-x-2 hover:bg-surface-container-highest hover:text-white transition-colors cursor-pointer">
+          <Power className="w-4 h-4" />
+          <span>LOGOUT</span>
+        </button>
+      </div>
+    </nav>
+  );
+}
+
+function SidebarItem({ icon, label, to, active }: { icon: React.ReactNode, label: string, to: string, active: boolean }) {
+  return (
+    <li>
+      <Link
+        to={to}
+        className={cn(
+          "flex items-center space-x-3 px-4 py-3 rounded font-sans font-bold text-[11px] uppercase tracking-widest transition-all duration-200 ease-in-out group",
+          active 
+            ? "bg-toxic-purple/10 text-purple-400 border-r-2 border-toxic-purple" 
+            : "text-zinc-600 hover:bg-toxic-purple/5 hover:text-purple-300 hover:translate-x-1"
+        )}
+      >
+        <span className="w-[18px] h-[18px]">{icon}</span>
+        <span>{label}</span>
+      </Link>
+    </li>
+  );
+}
+
+function Dashboard() {
+  return (
+    <div className="p-6 lg:p-10 space-y-8 h-full">
+      <div>
+        <h2 className="font-sans text-2xl font-bold text-white">Dashboard Overview</h2>
+        <p className="font-sans text-xs text-zinc-500 mt-1">Real-time telemetry and active administrative alerts.</p>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="bg-[#111114] border border-surface-container-highest rounded-md p-6 toxic-border-top toxic-bloom flex flex-col justify-between">
+          <div className="flex items-start justify-between mb-4">
+            <div className="flex items-center space-x-2">
+              <Users className="text-toxic-purple w-5 h-5 pointer-events-none" />
+              <span className="font-sans font-bold text-[11px] text-zinc-400 uppercase tracking-widest">Total Players</span>
+            </div>
+            <span className="px-2 py-1 bg-toxic-purple/10 text-toxic-purple font-mono text-[10px] rounded flex items-center space-x-1 border border-toxic-purple/20">
+              <TrendingUp className="w-3 h-3" />
+              <span>+4.2%</span>
+            </span>
+          </div>
+          <div>
+            <div className="font-sans text-4xl font-extrabold text-white tracking-tight">142,893</div>
+            <div className="font-mono text-[13px] text-zinc-500 mt-2">Peak Concurrent: 18,204</div>
+          </div>
+        </div>
+
+        <div className="bg-[#111114] border border-surface-container-highest rounded-md p-6 flex flex-col justify-between">
+          <div className="flex items-start justify-between mb-4">
+            <div className="flex items-center space-x-2">
+              <Gavel className="text-red-500 w-5 h-5" />
+              <span className="font-sans font-bold text-[11px] text-zinc-400 uppercase tracking-widest">Active Bans</span>
+            </div>
+            <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse"></span>
+          </div>
+          <div>
+            <div className="font-sans text-4xl font-extrabold text-white tracking-tight">1,204</div>
+            <div className="font-mono text-[13px] text-zinc-500 mt-2">Appeals Pending: 34</div>
+          </div>
+        </div>
+
+        <div className="bg-[#111114] border border-surface-container-highest rounded-md p-6 flex flex-col justify-between">
+          <div className="flex items-start justify-between mb-4">
+            <div className="flex items-center space-x-2">
+              <Cpu className="text-blue-500 w-5 h-5" />
+              <span className="font-sans font-bold text-[11px] text-zinc-400 uppercase tracking-widest">Server Load</span>
+            </div>
+            <span className="font-mono text-[10px] text-blue-400 uppercase">US-EAST</span>
+          </div>
+          <div>
+            <div className="font-sans text-4xl font-extrabold text-white tracking-tight">78%</div>
+            <div className="mt-3 w-full bg-surface-container-highest rounded-full h-[4px] relative">
+              <div className="absolute top-0 left-0 h-full bg-blue-500 rounded-full w-[78%] shadow-[0_0_10px_rgba(59,130,246,0.5)]"></div>
+            </div>
+            <div className="font-mono text-[13px] text-zinc-500 mt-2 flex justify-between">
+              <span>Ping: 24ms</span>
+              <span>Status: Optimal</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="bg-[#111114] border border-surface-container-highest rounded-md overflow-hidden">
+        <div className="p-6 border-b border-surface-container-highest flex justify-between items-center">
+          <h3 className="font-sans text-[18px] font-bold text-white">Recent Player Activity</h3>
+          <button className="font-sans font-bold text-[11px] text-purple-400 hover:text-purple-300 uppercase tracking-widest flex items-center space-x-1 cursor-pointer">
+            <span>View All</span>
+            <ArrowRight className="w-3.5 h-3.5" />
+          </button>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse min-w-[700px]">
+            <thead>
+              <tr className="bg-surface-container-low border-b border-surface-container-highest">
+                <th className="py-3 px-6 font-sans font-bold text-[11px] text-zinc-500 uppercase tracking-widest">Player UID</th>
+                <th className="py-3 px-6 font-sans font-bold text-[11px] text-zinc-500 uppercase tracking-widest">Status</th>
+                <th className="py-3 px-6 font-sans font-bold text-[11px] text-zinc-500 uppercase tracking-widest">Match ID</th>
+                <th className="py-3 px-6 font-sans font-bold text-[11px] text-zinc-500 uppercase tracking-widest">Action Time</th>
+                <th className="py-3 px-6 font-sans font-bold text-[11px] text-zinc-500 uppercase tracking-widest text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="font-mono text-[13px] text-zinc-300 divide-y divide-surface-container-highest/50">
+              <ActivityRow id="849201" initial="U" status="In-Match" matchId="M-49201-A" time="2 mins ago" type="green" />
+              <ActivityRow id="993021" initial="X" status="Offline" matchId="-" time="14 mins ago" type="zinc" />
+              <ActivityRow id="102934" initial="K" status="Banned" matchId="M-39201-B" time="1 hr ago" type="red" />
+            </tbody>
+          </table>
+        </div>
+      </div>
+      
+      <div className="h-8"></div>
+    </div>
+  );
+}
+
+function ActivityRow({ id, initial, status, matchId, time, type }: any) {
+  return (
+    <tr className="hover:bg-toxic-purple/5 transition-colors group">
+      <td className="py-3 px-6 flex items-center space-x-2">
+        <div className="w-6 h-6 rounded bg-surface-container flex items-center justify-center text-[10px] font-sans font-bold text-zinc-500 border border-zinc-800">
+          {initial}
+        </div>
+        <span className="text-white">UID-{id}</span>
+      </td>
+      <td className="py-3 px-6">
+        <span className={cn(
+          "inline-flex items-center px-2 py-0.5 rounded text-[10px] uppercase font-sans font-bold border",
+          type === 'green' && "bg-green-500/10 text-green-400 border-green-500/20",
+          type === 'zinc' && "bg-zinc-500/10 text-zinc-400 border-zinc-500/20",
+          type === 'red' && "bg-red-500/10 text-red-400 border-red-500/20"
+        )}>
+          {status}
+        </span>
+      </td>
+      <td className="py-3 px-6 text-zinc-500">{matchId}</td>
+      <td className="py-3 px-6 text-zinc-500">{time}</td>
+      <td className="py-3 px-6 text-right">
+        <div className="flex items-center justify-end space-x-2 opacity-0 group-hover:opacity-100 transition-opacity">
+          <button className="p-1 text-zinc-500 hover:text-white transition-colors cursor-pointer" title="Edit">
+            <Edit2 className="w-4 h-4" />
+          </button>
+          <button className="p-1 text-zinc-500 hover:text-red-400 transition-colors cursor-pointer" title="Ban">
+            <Ban className="w-4 h-4" />
+          </button>
+          <button className="p-1 text-zinc-500 hover:text-red-600 transition-colors cursor-pointer" title="Delete">
+            <Trash2 className="w-4 h-4" />
+          </button>
+        </div>
+      </td>
+    </tr>
+  );
+}
