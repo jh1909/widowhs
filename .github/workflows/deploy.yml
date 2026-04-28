@@ -1,0 +1,58 @@
+name: Deploy to GitHub Pages
+
+on:
+  # Löst den Workflow bei jedem Push auf den "main" Branch aus
+  push:
+    branches: ["main"]
+  # Erlaubt das manuelle Starten des Workflows über die GitHub UI
+  workflow_dispatch:
+
+# Setzt die nötigen Berechtigungen für GitHub Pages
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Sorgt dafür, dass alte Deployments abgebrochen werden, wenn ein neues startet
+concurrency:
+  group: "pages"
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          
+      - name: Install dependencies
+        run: npm install
+        
+      - name: Build
+        run: npm run build
+        env:
+          # Hier werden deine Repository Variables in den Build-Prozess geladen!
+          # Vite ersetzt import.meta.env.* dann durch diese Werte.
+          VITE_SUPABASE_URL: ${{ vars.NEXT_PUBLIC_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ vars.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
+          
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
+        
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: './dist'
+          
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
