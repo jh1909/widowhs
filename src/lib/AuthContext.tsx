@@ -22,11 +22,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session?.user) {
+        const username = session.user.user_metadata?.full_name || session.user.user_metadata?.name || 'User';
         setUser({
           id: session.user.id,
-          username: session.user.user_metadata?.full_name || session.user.user_metadata?.name || 'User',
+          username: username,
           avatar_url: session.user.user_metadata?.avatar_url
         });
+        
+        // Ensure user exists in players table
+        supabase.from('players').insert([{
+           name: username,
+           matches: 0,
+           winrate: "0%",
+           hs: "0%",
+           elo: "0",
+           rank: 99999
+        }]).then(() => {});
       }
     });
 
@@ -34,11 +45,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
       if (session?.user) {
+        const username = session.user.user_metadata?.full_name || session.user.user_metadata?.name || 'User';
         setUser({
           id: session.user.id,
-          username: session.user.user_metadata?.full_name || session.user.user_metadata?.name || 'User',
+          username: username,
           avatar_url: session.user.user_metadata?.avatar_url
         });
+
+        // Ensure user exists in players table
+        supabase.from('players').insert([{
+           name: username,
+           matches: 0,
+           winrate: "0%",
+           hs: "0%",
+           elo: "0",
+           rank: 99999
+        }]).then(() => {});
       } else {
         setUser(null);
       }

@@ -1,15 +1,22 @@
-import { ArrowLeft, Target, Flame, Zap, Swords, Trophy, Timer, Verified, AlertTriangle } from "lucide-react";
-import { Link, useParams } from "react-router-dom";
+import { ArrowLeft, Target, Flame, Zap, Swords, Trophy, Timer, Verified, AlertTriangle, Edit2, Check, X } from "lucide-react";
+import { Link, useParams, useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
+import { useAuth } from "../lib/AuthContext";
 
 export default function Profile() {
   const { id } = useParams();
+  const navigate = useNavigate();
+  const { user } = useAuth();
   const playerName = id ? id.toUpperCase() : "UNKNOWN";
   
   const [loading, setLoading] = useState(true);
   const [player, setPlayer] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
+  
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [editNameValue, setEditNameValue] = useState("");
+  const [editLoading, setEditLoading] = useState(false);
 
   useEffect(() => {
     async function fetchPlayerData() {
@@ -35,6 +42,45 @@ export default function Profile() {
 
     fetchPlayerData();
   }, [id]);
+
+  const handleUpdateName = async () => {
+    if (!editNameValue.trim() || editNameValue.trim() === player.name) {
+      setIsEditingName(false);
+      return;
+    }
+    setEditLoading(true);
+    try {
+      // First check if the new name already exists
+      const { data: existing } = await supabase
+          .from("players")
+          .select("name")
+          .ilike("name", editNameValue.trim())
+          .single();
+          
+      if (existing) {
+        alert("This name is already taken by another player.");
+        setEditLoading(false);
+        return;
+      }
+
+      // Update the name
+      const { error } = await supabase
+        .from("players")
+        .update({ name: editNameValue.trim() })
+        .eq("name", player.name);
+
+      if (error) throw error;
+      
+      setIsEditingName(false);
+      // Navigate to the new URL
+      navigate(`/player/${encodeURIComponent(editNameValue.trim())}`);
+    } catch (err: any) {
+      console.error("Error updating name:", err);
+      alert("Failed to update name.");
+    } finally {
+      setEditLoading(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -77,8 +123,52 @@ export default function Profile() {
       <header className="flex flex-col md:flex-row md:items-end justify-between gap-6 pb-6 border-b border-[#4d4353]">
         <div className="flex flex-col gap-3">
           <div className="flex items-center gap-4">
-            <h1 className="font-sans text-[48px] font-bold text-on-surface uppercase tracking-tighter leading-none">{player.name}</h1>
-            {player.tag && player.tag === "PRO" && <Verified className="text-[#9d4edd] w-8 h-8 fill-[#9d4edd]" />}
+            {isEditingName ? (
+              <div className="flex items-center gap-2">
+                <input 
+                  type="text"
+                  value={editNameValue}
+                  onChange={(e) => setEditNameValue(e.target.value)}
+                  className="bg-surface-container/50 border border-toxic-purple/50 rounded px-3 py-1 font-sans text-[32px] md:text-[48px] font-bold text-white uppercase tracking-tighter w-[300px] focus:outline-none focus:border-toxic-purple"
+                  autoFocus
+                  disabled={editLoading}
+                />
+                <button 
+                  onClick={handleUpdateName}
+                  disabled={editLoading}
+                  className="p-2 bg-green-500/20 text-green-400 hover:bg-green-500/30 rounded transition-colors disabled:opacity-50"
+                  title="Save Name"
+                >
+                  <Check className="w-6 h-6" />
+                </button>
+                <button 
+                  onClick={() => setIsEditingName(false)}
+                  disabled={editLoading}
+                  className="p-2 bg-red-500/20 text-red-400 hover:bg-red-500/30 rounded transition-colors disabled:opacity-50"
+                  title="Cancel"
+                >
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+            ) : (
+              <>
+                <h1 className="font-sans text-[48px] font-bold text-on-surface uppercase tracking-tighter leading-none">{player.name}</h1>
+                {player.tag && player.tag === "PRO" && <Verified className="text-[#9d4edd] w-8 h-8 fill-[#9d4edd]" />}
+                
+                {((user && user.username.toLowerCase() === player.name.toLowerCase()) || (user && ['notprx'].includes(user.username.toLowerCase()))) && (
+                  <button 
+                    onClick={() => {
+                      setEditNameValue(player.name);
+                      setIsEditingName(true);
+                    }}
+                    className="p-2 ml-2 bg-surface-container hover:bg-surface-container-high rounded text-zinc-400 hover:text-toxic-purple transition-colors cursor-pointer"
+                    title="Edit Display Name"
+                  >
+                    <Edit2 className="w-5 h-5" />
+                  </button>
+                )}
+              </>
+            )}
           </div>
           <div className="flex items-center gap-3">
             <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-[#9d4edd]/10 border border-[#9d4edd]/30 rounded">
