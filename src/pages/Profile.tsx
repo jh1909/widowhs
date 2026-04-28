@@ -1,9 +1,67 @@
-import { ArrowLeft, Target, Flame, Zap, Swords, Trophy, Timer, Verified } from "lucide-react";
+import { ArrowLeft, Target, Flame, Zap, Swords, Trophy, Timer, Verified, AlertTriangle } from "lucide-react";
 import { Link, useParams } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { supabase } from "../lib/supabase";
 
 export default function Profile() {
   const { id } = useParams();
-  const playerName = id ? id.toUpperCase() : "KEPHRII";
+  const playerName = id ? id.toUpperCase() : "UNKNOWN";
+  
+  const [loading, setLoading] = useState(true);
+  const [player, setPlayer] = useState<any>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    async function fetchPlayerData() {
+      if (!id) return;
+      
+      setLoading(true);
+      try {
+        const { data, error } = await supabase
+          .from("players")
+          .select("*")
+          .ilike("name", id)
+          .single();
+
+        if (error) throw error;
+        setPlayer(data);
+      } catch (err: any) {
+        console.error("Failed to load player data", err);
+        setError("Could not find player data.");
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    fetchPlayerData();
+  }, [id]);
+
+  if (loading) {
+    return (
+      <main className="flex-grow w-full max-w-[1280px] mx-auto px-6 py-12 flex flex-col gap-12 items-center justify-center">
+        <div className="animate-spin text-[#9d4edd] w-8 h-8 rounded-full border-2 border-t-transparent border-current"></div>
+        <p className="font-mono text-zinc-500 uppercase tracking-widest text-[12px]">Loading profile data...</p>
+      </main>
+    );
+  }
+
+  if (error || !player) {
+    return (
+      <main className="flex-grow w-full max-w-[1280px] mx-auto px-6 py-12 flex flex-col gap-6 items-center justify-center">
+        <AlertTriangle className="text-red-500 w-16 h-16" />
+        <h1 className="font-sans text-[24px] font-bold text-on-surface uppercase tracking-tighter">Player Not Found</h1>
+        <Link to="/" className="inline-flex items-center gap-2 text-on-surface-variant hover:text-[#9d4edd] transition-colors duration-200 ease-out font-mono font-medium text-[14px] mt-4">
+          <ArrowLeft className="w-[18px] h-[18px]" />
+          Return to Leaderboard
+        </Link>
+      </main>
+    );
+  }
+
+  // Derive some placeholder stats from actual DB fields to make it look active,
+  // since the DB might only have what we parse in the CSV.
+  const numericWinrate = parseFloat(player.winrate.replace('%', ''));
+  const gamesWon = Math.floor((player.matches * numericWinrate) / 100);
 
   return (
     <main className="flex-grow w-full max-w-[1280px] mx-auto px-6 py-12 flex flex-col gap-12">
@@ -19,22 +77,23 @@ export default function Profile() {
       <header className="flex flex-col md:flex-row md:items-end justify-between gap-6 pb-6 border-b border-[#4d4353]">
         <div className="flex flex-col gap-3">
           <div className="flex items-center gap-4">
-            <h1 className="font-sans text-[48px] font-bold text-on-surface uppercase tracking-tighter leading-none">{playerName}</h1>
-            <Verified className="text-[#9d4edd] w-8 h-8 fill-[#9d4edd]" />
+            <h1 className="font-sans text-[48px] font-bold text-on-surface uppercase tracking-tighter leading-none">{player.name}</h1>
+            {player.tag && player.tag === "PRO" && <Verified className="text-[#9d4edd] w-8 h-8 fill-[#9d4edd]" />}
           </div>
           <div className="flex items-center gap-3">
             <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-[#9d4edd]/10 border border-[#9d4edd]/30 rounded">
               <span className="w-2 h-2 rounded-full bg-[#ce8df2] animate-pulse"></span>
-              <span className="font-mono text-[12px] font-bold text-[#f2daff] uppercase tracking-widest">Grandmaster</span>
+              <span className="font-mono text-[12px] font-bold text-[#f2daff] uppercase tracking-widest">{player.elo || "Unknown"} ELO</span>
             </div>
-            <span className="font-mono text-[14px] text-on-surface-variant border-l border-[#4d4353] pl-3">Rank #4 Global</span>
+            <span className="font-mono text-[14px] text-on-surface-variant border-l border-[#4d4353] pl-3">Rank #{player.rank || "?"} Global</span>
           </div>
         </div>
         
         <div className="flex flex-col items-start md:items-end gap-1 bg-surface-container/30 border border-[#4d4353] rounded-lg p-4 backdrop-blur-[12px]">
           <span className="font-mono text-[12px] font-bold text-on-surface-variant uppercase tracking-widest">Win/Loss Ratio</span>
           <div className="flex items-baseline gap-2">
-            <span className="font-sans text-[32px] font-semibold text-on-surface leading-none">68.4%</span>
+            <span className="font-sans text-[32px] font-semibold text-on-surface leading-none">{player.winrate || "0%"}</span>
+            {/* Keeping the +2.1% placeholder as a visual flair unless history is stored */}
             <span className="font-mono text-[14px] text-[#ce8df2]">+2.1%</span>
           </div>
         </div>
@@ -42,15 +101,15 @@ export default function Profile() {
 
       {/* Stats Grid (Bento/Glassmorphism style) */}
       <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
-        <StatCard title="HS Accuracy %" value="42.8%" icon={<Target />} />
-        <StatCard title="Highest Killstreak" value="34" icon={<Flame />} />
-        <StatCard title="Critical Hits" value="14,892" icon={<Zap />} />
-        <StatCard title="Total Damage" value="2.4M" icon={<Swords />} />
-        <StatCard title="Games Won" value="1,042" icon={<Trophy />} />
-        <StatCard title="Avg. Life" value="03:45" icon={<Timer />} />
+        <StatCard title="HS Accuracy %" value={player.hs || "0%"} icon={<Target />} />
+        <StatCard title="Highest Killstreak" value={"N/A"} icon={<Flame />} />
+        <StatCard title="Total Matches" value={player.matches?.toString() || "0"} icon={<Zap />} />
+        <StatCard title="Total Damage" value={"N/A"} icon={<Swords />} />
+        <StatCard title="Games Won" value={gamesWon.toString()} icon={<Trophy />} />
+        <StatCard title="Avg. Life" value={"N/A"} icon={<Timer />} />
       </section>
 
-      {/* Performance Graph Section */}
+      {/* Performance Graph Section - Since we don't have historical data in the DB yet, keeping visual graph */}
       <section className="flex flex-col gap-3 mt-4">
         <h3 className="font-sans text-[24px] font-semibold text-on-surface uppercase tracking-tight">Performance History</h3>
         <div className="w-full bg-surface-container/30 backdrop-blur-[12px] border border-[#4d4353] rounded-xl p-6 h-[300px] flex flex-col relative overflow-hidden">
@@ -62,7 +121,7 @@ export default function Profile() {
             </div>
           </div>
           
-          <div className="flex-grow w-full relative">
+          <div className="flex-grow w-full relative opacity-50 grayscale transition-all hover:grayscale-0 hover:opacity-100">
             <div className="absolute inset-0 flex flex-col justify-between z-0">
               <div className="w-full border-t border-[#4d4353]/30 h-0"></div>
               <div className="w-full border-t border-[#4d4353]/30 h-0"></div>
