@@ -49,7 +49,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const login = async () => {
     // Determine the redirect URL dynamically to support deployment properly
-    const redirectTo = `${window.location.origin}/`;
+    const redirectTo = `${window.location.origin}${window.location.pathname}`;
     
     await supabase.auth.signInWithOAuth({
       provider: 'discord',
