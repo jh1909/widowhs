@@ -2,6 +2,7 @@ import { useState, useRef } from "react";
 import { Link, Route, Routes, useLocation, Navigate } from "react-router-dom";
 import Papa from "papaparse";
 import { supabase } from "../lib/supabase";
+import { useAuth } from "../lib/AuthContext";
 import { 
   LayoutGrid, 
   BarChart2, 
@@ -29,6 +30,26 @@ import {
 import { cn } from "../lib/utils";
 
 export default function Admin() {
+  const { user } = useAuth();
+  
+  // Replace this array with other admin usernames or connect to your database in the future
+  const adminUsers = ['notprx'];
+  const isAdmin = user && user.username && adminUsers.includes(user.username.toLowerCase());
+
+  if (!isAdmin) {
+    return (
+      <div className="flex flex-col h-screen items-center justify-center bg-background text-center p-6 text-white font-sans">
+        <ShieldAlert className="w-16 h-16 text-toxic-purple mb-4" />
+        <h1 className="text-3xl font-black italic tracking-tighter mb-2">ACCESS DENIED</h1>
+        <p className="text-zinc-500 mb-6 max-w-md">You do not have the required administrative privileges to view this module. Please login with an authorized discord account (e.g., as notprx).</p>
+        <Link to="/" className="bg-toxic-purple hover:bg-[#842bd2] text-white font-bold py-2 px-6 rounded-md transition-colors flex items-center gap-2">
+          <ArrowRight className="w-5 h-5" />
+          <span>Return to Leaderboard</span>
+        </Link>
+      </div>
+    );
+  }
+
   return (
     <div className="flex h-screen overflow-hidden bg-background">
       <AdminSidebar />
@@ -259,7 +280,7 @@ function AdminHeader() {
           <Menu className="w-6 h-6" />
         </button>
         <Link to="/" className="md:hidden text-lg font-black text-white italic tracking-tighter border-l-4 border-toxic-purple pl-2">
-          WIDOWMAKER
+          WIDOW HS
         </Link>
       </div>
 

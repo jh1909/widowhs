@@ -35,7 +35,7 @@ export default function App() {
 function Footer() {
   return (
     <footer className="bg-[#09090b] text-toxic-purple font-mono text-[10px] text-zinc-500 uppercase tracking-widest w-full border-t border-toxic-purple/10 flex flex-col md:flex-row justify-between items-center px-8 py-6 mt-auto">
-      <div>© 2026 WIDOWMAKER HS. PROTOCOL V.2.0.4</div>
+      <div>© 2026 WIDOW HS. PROTOCOL V.2.0.4</div>
       <div className="flex gap-4 mt-4 md:mt-0 underline-offset-4">
         <Link className="text-zinc-600 hover:text-toxic-purple hover:underline transition-colors" to="#">Privacy Policy</Link>
         <Link className="text-zinc-600 hover:text-toxic-purple hover:underline transition-colors" to="#">Terms of Service</Link>

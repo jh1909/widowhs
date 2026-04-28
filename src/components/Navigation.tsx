@@ -11,7 +11,7 @@ export default function Navigation() {
     <nav className="bg-zinc-950/80 backdrop-blur-xl text-toxic-purple font-sans tracking-tight font-bold uppercase text-xs sticky top-0 w-full border-b border-toxic-purple/20 shadow-[0_4px_20px_rgba(168,85,247,0.05)] transition-all duration-200 ease-in-out flex justify-between items-center h-16 px-6 z-50">
       <div className="flex items-center gap-8">
         <div className="text-xl font-black text-white italic tracking-tighter border-l-4 border-toxic-purple pl-2">
-          WIDOWMAKER HS
+          WIDOW HS
         </div>
         <div className="hidden md:flex gap-6 items-center">
           <Link
