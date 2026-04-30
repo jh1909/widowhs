@@ -1,20 +1,16 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# WIDOW HS.
 
-# Run and deploy your AI Studio app
+WIDOW HS is an Overwatch custom game, designed to measure your Widowmaker accuracy, kills, and mechanics against others. This project acts as the official leaderboard and statistics tracker. 
 
-This contains everything you need to run your app locally.
+## Features
+- Global leaderboard
+- Detailed player statistics and matching metrics
+- Secure matching and tracking
+- Discord integration
 
-View your app in AI Studio: https://ai.studio/apps/c085f57b-1b1d-493d-9936-401dac2b250a
+## Community & Support
+Join our official Discord community for events, feature updates, and to talk with other players!
+- [WIDOW HS Discord](https://discord.gg/) *(Update link when available)*
 
-## Run Locally
-
-**Prerequisites:**  Node.js
-
-
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+## Technology
+This front-end is built using React, Vite, and Tailwind CSS. The backend connects to Supabase for an integrated database solution and Discord OAuth for authentication.

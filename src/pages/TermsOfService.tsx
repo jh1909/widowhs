@@ -44,10 +44,6 @@ export default function TermsOfService() {
           <p>
             We reserve the right to change these Terms of Service at any time. We will inform users in advance about significant changes.
           </p>
-
-          <p className="text-sm mt-8 border-t border-zinc-700 pt-4 text-zinc-500">
-            <em>Notice: This is a standard template. Please verify it to ensure compliance with local regulations in case of doubt.</em>
-          </p>
         </div>
       </div>
     </main>

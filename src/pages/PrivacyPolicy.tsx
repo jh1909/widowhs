@@ -48,10 +48,6 @@ export default function PrivacyPolicy() {
           <p>
             You have the right to receive information about your personal data stored by us at any time. You also have the right to correction, blocking, or, apart from the prescribed data storage for business processing, deletion of your personal data.
           </p>
-
-          <p className="text-sm mt-8 border-t border-zinc-700 pt-4 text-zinc-500">
-            <em>Notice: This is a standard template. Please verify it to ensure compliance with local regulations.</em>
-          </p>
         </div>
       </div>
     </main>

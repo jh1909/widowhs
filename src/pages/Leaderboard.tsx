@@ -240,7 +240,7 @@ export default function Leaderboard() {
                 ) : (
                   <tr>
                     <td colSpan={7} className="py-8 text-center text-zinc-500 font-sans">
-                      No players found matching "{searchTerm}"
+                      {searchTerm ? `No players found matching "${searchTerm}"` : "No players found"}
                     </td>
                   </tr>
                 )}
