@@ -26,7 +26,7 @@ export default function Navigation() {
             Leaderboard
           </Link>
           <Link
-            to={`/profile/${user ? user.username.toLowerCase() : 'kephrii'}`}
+            to={`/profile/${user ? user.username.toLowerCase() : 'me'}`}
             className={cn(
               "px-2 py-1 transition-all duration-200",
               location.pathname.startsWith("/profile")

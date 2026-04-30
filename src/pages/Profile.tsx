@@ -1,4 +1,4 @@
-import { ArrowLeft, Target, Flame, Zap, Swords, Trophy, Timer, Verified, AlertTriangle, Edit2, Check, X } from "lucide-react";
+import { ArrowLeft, Target, Flame, Zap, Swords, Trophy, Timer, Verified, AlertTriangle, Edit2, Check, X, Lock } from "lucide-react";
 import { Link, useParams, useNavigate } from "react-router-dom";
 import { useEffect, useState, useMemo } from "react";
 import { supabase } from "../lib/supabase";
@@ -8,7 +8,7 @@ import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 export default function Profile() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, login } = useAuth();
   const playerName = id ? id.toUpperCase() : "UNKNOWN";
   
   const [loading, setLoading] = useState(true);
@@ -52,12 +52,20 @@ export default function Profile() {
     async function fetchPlayerData() {
       if (!id) return;
       
+      if (id === "me" && !user) {
+        setLoading(false);
+        setPlayer(null);
+        return;
+      }
+      
+      const targetId = id === "me" && user ? user.username : id;
+      
       setLoading(true);
       try {
         const { data, error } = await supabase
           .from("players")
           .select("*")
-          .ilike("name", id)
+          .ilike("name", targetId)
           .limit(1);
 
         if (error) {
@@ -67,7 +75,7 @@ export default function Profile() {
         if (data && data.length > 0) {
           setPlayer(data[0]);
           setError(null);
-        } else if (user && user.username.toLowerCase() === id.toLowerCase()) {
+        } else if (user && user.username.toLowerCase() === targetId.toLowerCase()) {
           // Fallback for missing user profile if it's the logged-in user
           setPlayer({
               name: user.username,
@@ -152,6 +160,19 @@ export default function Profile() {
       <main className="flex-grow w-full max-w-[1280px] mx-auto px-6 py-12 flex flex-col gap-12 items-center justify-center">
         <div className="animate-spin text-[#9d4edd] w-8 h-8 rounded-full border-2 border-t-transparent border-current"></div>
         <p className="font-mono text-zinc-500 uppercase tracking-widest text-[12px]">Loading profile data...</p>
+      </main>
+    );
+  }
+
+  if (id === "me" && !user) {
+    return (
+      <main className="flex-grow w-full max-w-[1280px] mx-auto px-6 py-12 flex flex-col gap-6 items-center justify-center">
+        <Lock className="text-zinc-500 w-16 h-16" />
+        <h1 className="font-sans text-[24px] font-bold text-on-surface uppercase tracking-tighter">Profile Not Available</h1>
+        <p className="text-zinc-400 font-sans max-w-md text-center">Please log in to view your profile.</p>
+        <button onClick={login} className="mt-4 bg-toxic-purple hover:bg-[#842bd2] text-white font-bold py-2 px-6 rounded-md transition-colors font-mono uppercase tracking-widest text-sm">
+          Login via Discord
+        </button>
       </main>
     );
   }
