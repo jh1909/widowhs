@@ -535,8 +535,14 @@ function SidebarItem({ icon, label, to, active }: { icon: React.ReactNode, label
 function Dashboard() {
   const { user } = useAuth();
   const [totalPlayers, setTotalPlayers] = useState<number | null>(null);
-  const [recentPlayers, setRecentPlayers] = useState<any[]>([]);
   const [bannedPlayers, setBannedPlayers] = useState<number>(0);
+
+  const [players, setPlayers] = useState<any[]>([]);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalFiltered, setTotalFiltered] = useState(0);
+  const PAGE_SIZE = 10;
 
   const logAudit = async (action: string, details: string) => {
     await supabase.from("audit_logs").insert([{
@@ -546,13 +552,64 @@ function Dashboard() {
     }]);
   };
 
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchTerm);
+      setCurrentPage(1);
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
+
+  const loadPlayers = async () => {
+    try {
+      let query = supabase.from('players').select('*', { count: 'exact' });
+      if (debouncedSearch) {
+        query = query.ilike('name', `%${debouncedSearch}%`);
+      }
+      
+      const from = (currentPage - 1) * PAGE_SIZE;
+      const to = from + PAGE_SIZE - 1;
+      
+      query = query.order('rank', { ascending: true }).range(from, to);
+      
+      const { data, count, error } = await query;
+      if (!error) {
+        setPlayers(data || []);
+        if (count !== null) setTotalFiltered(count);
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  useEffect(() => {
+    loadPlayers();
+  }, [debouncedSearch, currentPage]);
+
+  useEffect(() => {
+    async function fetchDashboardData() {
+      try {
+        const [{ count: playersCount }, { count: bannedCount }] = await Promise.all([
+          supabase.from('players').select('*', { count: 'exact', head: true }),
+          supabase.from('players').select('*', { count: 'exact', head: true }).eq('is_banned', true)
+        ]);
+        
+        setTotalPlayers(playersCount || 0);
+        setBannedPlayers(bannedCount || 0);
+      } catch (err) {
+        console.error("Error fetching dashboard data:", err);
+      }
+    }
+    fetchDashboardData();
+  }, []);
+
   const handleDelete = async (playerName: string) => {
     if (window.confirm(`Are you sure you want to completely delete player '${playerName}'?`)) {
       const { error } = await supabase.from('players').delete().eq('name', playerName);
       if (!error) {
-        setRecentPlayers(prev => prev.filter(p => p.name !== playerName));
         if (totalPlayers) setTotalPlayers(prev => prev! - 1);
         logAudit("DELETE_PLAYER", `Deleted player ${playerName} from the database.`);
+        loadPlayers();
       } else {
         alert("Failed to delete user: " + error.message);
       }
@@ -567,9 +624,9 @@ function Dashboard() {
     if (window.confirm(`Are you sure you want to ${actionLabel} player '${player.name}'?`)) {
       const { error } = await supabase.from('players').update({ is_banned: newStatus }).eq('name', player.name);
       if (!error) {
-        setRecentPlayers(prev => prev.map(p => p.name === player.name ? { ...p, is_banned: newStatus } : p));
         setBannedPlayers(prev => newStatus ? prev + 1 : prev - 1);
         logAudit(`${newStatus ? 'BAN' : 'UNBAN'}_PLAYER`, `${newStatus ? 'Banned' : 'Unbanned'} player ${player.name}.`);
+        loadPlayers();
       } else {
         alert(`Failed to ${actionLabel} user: ` + error.message);
       }
@@ -598,45 +655,15 @@ function Dashboard() {
       .eq('name', editingPlayer.name);
 
     if (!error) {
-      setRecentPlayers(prev => prev.map(p => 
-        p.name === editingPlayer.name 
-          ? { ...p, name: editForm.name, is_admin: editForm.is_admin } 
-          : p
-      ));
       logAudit("EDIT_PLAYER", `Updated player ${editingPlayer.name}. New name: ${editForm.name}, Role: ${editForm.is_admin ? 'Admin' : 'Player'}.`);
       setEditingPlayer(null);
+      loadPlayers();
     } else {
       alert("Failed to edit user: " + error.message);
     }
   };
 
-  useEffect(() => {
-    async function fetchDashboardData() {
-      try {
-        const [{ count: players }, { count: banned }] = await Promise.all([
-          supabase.from('players').select('*', { count: 'exact', head: true }),
-          supabase.from('players').select('*', { count: 'exact', head: true }).eq('is_banned', true)
-        ]);
-        
-        setTotalPlayers(players || 0);
-        setBannedPlayers(banned || 0);
-
-        // Fetch some recent/top players for activity mock
-        const { data: topPlayers } = await supabase
-          .from('players')
-          .select('*')
-          .order('rank', { ascending: true })
-          .limit(3);
-          
-        if (topPlayers) {
-          setRecentPlayers(topPlayers);
-        }
-      } catch (err) {
-        console.error("Error fetching dashboard data:", err);
-      }
-    }
-    fetchDashboardData();
-  }, []);
+  const totalPages = Math.max(1, Math.ceil(totalFiltered / PAGE_SIZE));
 
   return (
     <div className="p-6 lg:p-10 space-y-8 h-full">
@@ -645,7 +672,7 @@ function Dashboard() {
         <p className="font-sans text-xs text-zinc-500 mt-1">Real-time telemetry and active administrative alerts.</p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div className="bg-[#111114] border border-surface-container-highest rounded-md p-6 toxic-border-top toxic-bloom flex flex-col justify-between">
           <div className="flex items-start justify-between mb-4">
             <div className="flex items-center space-x-2">
@@ -676,35 +703,21 @@ function Dashboard() {
             <div className="font-mono text-[13px] text-zinc-500 mt-2">Players restricted from ranking</div>
           </div>
         </div>
-
-        <div className="bg-[#111114] border border-surface-container-highest rounded-md p-6 flex flex-col justify-between">
-          <div className="flex items-start justify-between mb-4">
-            <div className="flex items-center space-x-2">
-              <Cpu className="text-blue-500 w-5 h-5" />
-              <span className="font-sans font-bold text-[11px] text-zinc-400 uppercase tracking-widest">System Load</span>
-            </div>
-            <span className="font-mono text-[10px] text-blue-400 uppercase">US-EAST</span>
-          </div>
-          <div>
-            <div className="font-sans text-4xl font-extrabold text-white tracking-tight">12%</div>
-            <div className="mt-3 w-full bg-surface-container-highest rounded-full h-[4px] relative">
-              <div className="absolute top-0 left-0 h-full bg-blue-500 rounded-full w-[12%] shadow-[0_0_10px_rgba(59,130,246,0.5)]"></div>
-            </div>
-            <div className="font-mono text-[13px] text-zinc-500 mt-2 flex justify-between">
-              <span>Ping: 24ms</span>
-              <span>Status: Optimal</span>
-            </div>
-          </div>
-        </div>
       </div>
 
-      <div className="bg-[#111114] border border-surface-container-highest rounded-md overflow-hidden">
-        <div className="p-6 border-b border-surface-container-highest flex justify-between items-center">
-          <h3 className="font-sans text-[18px] font-bold text-white">Recent Top Player Activity</h3>
-          <button className="font-sans font-bold text-[11px] text-purple-400 hover:text-purple-300 uppercase tracking-widest flex items-center space-x-1 cursor-pointer">
-            <span>View All</span>
-            <ArrowRight className="w-3.5 h-3.5" />
-          </button>
+      <div className="bg-[#111114] border border-surface-container-highest rounded-md flex flex-col">
+        <div className="p-6 border-b border-surface-container-highest sm:flex justify-between items-center space-y-4 sm:space-y-0">
+          <h3 className="font-sans text-[18px] font-bold text-white">Player Management</h3>
+          <div className="relative toxic-glow-focus rounded transition-all duration-200 bg-surface-container border border-surface-container-highest w-full sm:w-64">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500 w-[16px] h-[16px]" />
+            <input
+              type="text"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="Search players..."
+              className="w-full bg-transparent border-none text-zinc-200 font-mono text-[13px] placeholder:text-zinc-600 py-2 pl-9 pr-4 focus:ring-0 focus:outline-none"
+            />
+          </div>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse min-w-[700px]">
@@ -718,15 +731,15 @@ function Dashboard() {
               </tr>
             </thead>
             <tbody className="font-mono text-[13px] text-zinc-300 divide-y divide-surface-container-highest/50">
-              {recentPlayers.length > 0 ? (
-                recentPlayers.map((player) => (
+              {players.length > 0 ? (
+                players.map((player) => (
                   <ActivityRow 
                     key={player.name}
                     id={player.name} 
                     initial={player.name[0]?.toUpperCase() || "?"} 
                     status={player.is_banned ? "Banned" : "Ranked"} 
-                    rank={`#${player.rank}`} 
-                    matches={player.matches.toString()} 
+                    rank={Number(player.rank) >= 999999 ? "-" : `#${player.rank}`} 
+                    matches={player.matches?.toString() || "0"} 
                     type={player.is_banned ? "red" : "green"} 
                     onEdit={() => handleEdit(player)}
                     onBan={() => handleBan(player)}
@@ -735,14 +748,33 @@ function Dashboard() {
                 ))
               ) : (
                 <tr>
-                  <td colSpan={5} className="py-6 px-6 text-center text-zinc-500">No players found. Import data first.</td>
+                  <td colSpan={5} className="py-6 px-6 text-center text-zinc-500">No players found.</td>
                 </tr>
               )}
             </tbody>
           </table>
         </div>
+        <div className="p-4 border-t border-surface-container-highest flex items-center justify-between text-zinc-500 text-xs font-mono">
+          <span>Showing {(currentPage - 1) * PAGE_SIZE + players.length > 0 ? (currentPage - 1) * PAGE_SIZE + 1 : 0} to {(currentPage - 1) * PAGE_SIZE + players.length} of {totalFiltered} players</span>
+          <div className="flex items-center space-x-2">
+            <button 
+              onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+              disabled={currentPage === 1}
+              className="px-3 py-1 bg-surface-container border border-surface-container-highest rounded hover:bg-surface-container-highest hover:text-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              Prev
+            </button>
+            <span className="px-2 text-zinc-400">Page {currentPage} of {totalPages}</span>
+            <button 
+              onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+              disabled={currentPage === totalPages || totalFiltered === 0}
+              className="px-3 py-1 bg-surface-container border border-surface-container-highest rounded hover:bg-surface-container-highest hover:text-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              Next
+            </button>
+          </div>
+        </div>
       </div>
-      
       
       {editingPlayer && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
