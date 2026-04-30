@@ -180,7 +180,7 @@ export default function Leaderboard() {
                 {paginatedData.length > 0 ? (
                   paginatedData.map((player) => (
                     <tr
-                      key={player.rank}
+                      key={player.name}
                       className={`
                         relative group transition-colors border-b border-toxic-purple/10
                         ${player.rank === 1 ? 'toxic-glow bg-toxic-purple/5' : 'hover:bg-surface-container-highest'}

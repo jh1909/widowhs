@@ -106,8 +106,8 @@ export default function Profile() {
       }
 
       setIsEditingName(false);
-      // Navigate to the new URL
-      navigate(`/player/${encodeURIComponent(editNameValue.trim())}`);
+      // Force reload to the new URL so AuthContext picks up the new name from the database
+      window.location.href = `/player/${encodeURIComponent(editNameValue.trim())}`;
     } catch (err: any) {
       console.error("Error updating name:", err);
       alert("Failed to update name.");

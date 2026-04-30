@@ -22,43 +22,68 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     let hasEnsuredUser = false;
 
-    const ensurePlayerExists = async (username: string, userId: string) => {
+    const ensurePlayerExists = async (discordName: string, userId: string) => {
       if (hasEnsuredUser) return;
       hasEnsuredUser = true;
 
       try {
-        // 1. Check if the player already exists in the database by name
-        const { data, error: selectError } = await supabase
+        // 1. Check if the player already exists in the database by user_id
+        const { data: userById, error: userByIdError } = await supabase
           .from('players')
           .select('user_id, name')
-          .ilike('name', username)
+          .eq('user_id', userId)
           .maybeSingle();
 
-        if (selectError && selectError.code !== 'PGRST116') {
-          console.error("Error checking player existence:", selectError);
+        if (userByIdError && userByIdError.code !== 'PGRST116') {
+          console.error("Error checking player by id:", userByIdError);
+        }
+
+        if (userById) {
+          // Update the context with the saved name, rather than the Discord name
+          setUser(prev => prev ? { ...prev, username: userById.name } : null);
           return;
         }
 
-        // 2. If data exists but user_id is null, link it
-        if (data && !data.user_id) {
-          await supabase.from('players').update({ user_id: userId }).eq('name', data.name);
+        // 2. If not found by user_id, search by their Discord name to link an old profile
+        let { data: userByName, error: selectError } = await supabase
+          .from('players')
+          .select('user_id, name')
+          .ilike('name', discordName)
+          .maybeSingle();
+
+        if (selectError && selectError.code !== 'PGRST116') {
+          console.error("Error checking player by name:", selectError);
+          return;
         }
 
-        // 3. If no data exists, insert a new placeholder profile
-        if (!data) {
-          const { error: insertError } = await supabase.from('players').upsert([{
-            name: username,
-            user_id: userId,
-            matches: 0,
-            winrate: "-",
-            hs: "-",
-            elo: "-",
-            rank: 999999
-          }], { onConflict: 'name', ignoreDuplicates: true });
+        // 3. If data exists but user_id is null, link it
+        if (userByName && !userByName.user_id) {
+          await supabase.from('players').update({ user_id: userId }).eq('name', userByName.name);
+          setUser(prev => prev ? { ...prev, username: userByName.name } : null);
+          return;
+        }
+        
+        let finalName = discordName;
+        // If the name is already taken by someone else
+        if (userByName && userByName.user_id && userByName.user_id !== userId) {
+          finalName = `${discordName}_${Math.floor(Math.random() * 10000)}`;
+        }
 
-          if (insertError && insertError.code !== '23505') {
-            console.error("Error inserting player:", insertError);
-          }
+        // 4. If no data exists, insert a new placeholder profile
+        const { error: insertError } = await supabase.from('players').insert([{
+          name: finalName,
+          user_id: userId,
+          matches: 0,
+          winrate: "-",
+          hs: "-",
+          elo: "-",
+          rank: 999999
+        }]);
+
+        if (insertError) {
+          console.error("Error inserting player:", insertError);
+        } else {
+          setUser(prev => prev ? { ...prev, username: finalName } : null);
         }
       } catch (err) {
         console.error("Unexpected error ensuring player exists:", err);
