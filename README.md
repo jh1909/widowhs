@@ -10,7 +10,8 @@ WIDOW HS is an Overwatch custom game, designed to measure your Widowmaker accura
 
 ## Community & Support
 Join our official Discord community for events, feature updates, and to talk with other players!
-- [WIDOW HS Discord](https://discord.gg/) *(Update link when available)*
+- [WIDOW HS Discord](discord.gg/PKYGBFV
+)
 
 ## Technology
 This front-end is built using React, Vite, and Tailwind CSS. The backend connects to Supabase for an integrated database solution and Discord OAuth for authentication.
