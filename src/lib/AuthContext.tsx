@@ -74,8 +74,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           name: finalName,
           user_id: userId,
           matches: 0,
-          winrate: "-",
-          hs: "-",
+          score: 0,
+          deaths: 0,
+          kdr: "-",
+          accuracy: "-",
+          kpm: "-",
+          crouches: 0,
+          time_in_lobby: 0,
           elo: "-",
           rank: 999999
         }]);

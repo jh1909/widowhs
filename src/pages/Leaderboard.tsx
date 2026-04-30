@@ -76,7 +76,7 @@ export default function Leaderboard() {
 
   const filteredData = useMemo(() => {
     return leaderboardData.filter((player) =>
-      player.name.toLowerCase().includes(searchTerm.toLowerCase())
+      player.name.toLowerCase().includes(searchTerm.toLowerCase()) && Number(player.rank) < 999999
     );
   }, [searchTerm, leaderboardData]);
 
@@ -100,7 +100,6 @@ export default function Leaderboard() {
         <header className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
           <div>
             <h1 className="font-sans text-4xl md:text-[48px] font-extrabold tracking-tight text-on-surface">Global Rankings</h1>
-            <p className="font-sans text-sm text-on-surface-variant mt-2">Season 14 - Top 500 Eligible Players</p>
           </div>
           <div className="relative w-full sm:w-64">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500 w-4 h-4" />
@@ -123,17 +122,18 @@ export default function Leaderboard() {
                 <tr className="border-b border-toxic-purple/10 text-on-surface-variant text-[11px] font-bold uppercase tracking-widest bg-surface-container-low">
                   <th className="py-4 px-6 w-16 text-center">Rank</th>
                   <th className="py-4 px-6">Player</th>
+                  <th className="py-4 px-6 text-right">Score</th>
+                  <th className="py-4 px-6 text-right">KDR</th>
+                  <th className="py-4 px-6 text-right">Acc%</th>
+                  <th className="py-4 px-6 text-right">KPM</th>
                   <th className="py-4 px-6 text-right">Elo</th>
-                  <th className="py-4 px-6 text-right">Winrate</th>
-                  <th className="py-4 px-6 text-right">HS%</th>
-                  <th className="py-4 px-6 text-right">Matches</th>
                 </tr>
               </thead>
               <tbody className="font-mono text-[13px] font-medium text-on-surface">
                 {/* Loading State */}
                 {loading && (
                   <tr>
-                    <td colSpan={6} className="py-8 text-center text-zinc-500 font-sans">
+                    <td colSpan={7} className="py-8 text-center text-zinc-500 font-sans">
                       Loading player data...
                     </td>
                   </tr>
@@ -142,7 +142,7 @@ export default function Leaderboard() {
                 {/* Error State */}
                 {!loading && error && (
                   <tr>
-                    <td colSpan={6} className="py-8 text-center text-red-400 font-sans">
+                    <td colSpan={7} className="py-8 text-center text-red-400 font-sans">
                       {error}
                     </td>
                   </tr>
@@ -152,7 +152,7 @@ export default function Leaderboard() {
                 {!loading && !error && !searchTerm && currentUserStats && (
                   <tr className="bg-toxic-purple/10 border-b border-toxic-purple/30 relative">
                     <td className="py-4 px-6 text-center text-toxic-purple font-bold">
-                      {currentUserStats.rank}
+                      {Number(currentUserStats.rank) >= 999999 ? "-" : currentUserStats.rank}
                     </td>
                     <td className="py-4 px-6 flex items-center gap-3">
                       <div className="w-8 h-8 rounded bg-surface-container-highest border border-toxic-purple/20 flex items-center justify-center overflow-hidden">
@@ -169,16 +169,17 @@ export default function Leaderboard() {
                         {currentUserStats.tag}
                       </span>
                     </td>
-                    <td className="py-4 px-6 text-right font-semibold text-[#f2daff]">{currentUserStats.elo}</td>
-                    <td className="py-4 px-6 text-right">{currentUserStats.winrate}</td>
-                    <td className="py-4 px-6 text-right">{currentUserStats.hs}</td>
-                    <td className="py-4 px-6 text-right">{currentUserStats.matches}</td>
+                    <td className="py-4 px-6 text-right font-semibold text-[#f2daff]">{currentUserStats.score || "-"}</td>
+                    <td className="py-4 px-6 text-right">{currentUserStats.kdr || "-"}</td>
+                    <td className="py-4 px-6 text-right">{currentUserStats.accuracy || "-"}</td>
+                    <td className="py-4 px-6 text-right text-on-surface-variant">{currentUserStats.kpm || "-"}</td>
+                    <td className="py-4 px-6 text-right text-purple-400 font-semibold">{currentUserStats.elo || "-"}</td>
                   </tr>
                 )}
 
                 {/* Paginated Leaderboard */}
                 {paginatedData.length > 0 ? (
-                  paginatedData.map((player) => (
+                  paginatedData.map((player: any) => (
                     <tr
                       key={player.name}
                       className={`
@@ -193,7 +194,7 @@ export default function Leaderboard() {
                             <span className="text-purple-400 font-bold">1</span>
                           </div>
                         ) : (
-                          player.rank
+                          Number(player.rank) >= 999999 ? "-" : player.rank
                         )}
                       </td>
                       <td className="py-4 px-6 flex items-center gap-3">
@@ -220,22 +221,25 @@ export default function Leaderboard() {
                         )}
                       </td>
                       <td className={`py-4 px-6 text-right font-semibold ${player.rank === 1 ? 'text-purple-300' : ''}`}>
-                        {player.elo}
+                        {player.score || "-"}
                       </td>
                       <td className={`py-4 px-6 text-right ${player.rank === 1 ? 'text-green-400' : ''}`}>
-                        {player.winrate}
+                        {player.kdr || "-"}
                       </td>
                       <td className={`py-4 px-6 text-right ${player.rank === 1 ? 'text-purple-400' : ''}`}>
-                        {player.hs}
+                        {player.accuracy || "-"}
                       </td>
                       <td className="py-4 px-6 text-right text-on-surface-variant">
-                        {player.matches}
+                        {player.kpm || "-"}
+                      </td>
+                      <td className={`py-4 px-6 text-right font-semibold ${player.rank === 1 ? 'text-toxic-purple font-bold' : 'text-purple-400/80'}`}>
+                        {player.elo || "-"}
                       </td>
                     </tr>
                   ))
                 ) : (
                   <tr>
-                    <td colSpan={6} className="py-8 text-center text-zinc-500 font-sans">
+                    <td colSpan={7} className="py-8 text-center text-zinc-500 font-sans">
                       No players found matching "{searchTerm}"
                     </td>
                   </tr>
@@ -318,10 +322,9 @@ export default function Leaderboard() {
         {/* Join Discord Widget */}
         <div className="glass-panel rounded-md glow-top p-4 bg-gradient-to-br from-purple-900/20 to-transparent border-toxic-purple/30">
           <h3 className="font-sans font-bold text-white mb-2 text-lg">Join the Elite</h3>
-          <p className="font-sans text-[12px] text-on-surface-variant mb-4">Connect with top players, find scrims, and get real-time updates.</p>
-          <button className="w-full bg-[#A855F7] hover:bg-[#842bd2] text-white font-bold py-2 px-4 rounded-md transition-colors flex items-center justify-center gap-2 shadow-[0_0_15px_rgba(168,85,247,0.3)] cursor-pointer">
+          <a href="https://discord.gg/PKYGBFV" target="_blank" rel="noopener noreferrer" className="w-full bg-[#A855F7] hover:bg-[#842bd2] text-white font-bold py-2 px-4 rounded-md transition-colors flex items-center justify-center gap-2 shadow-[0_0_15px_rgba(168,85,247,0.3)] cursor-pointer">
             <MessageSquare className="w-5 h-5" /> Join Discord
-          </button>
+          </a>
         </div>
 
         {/* Live Lobbies Widget */}

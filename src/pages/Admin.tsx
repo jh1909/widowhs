@@ -96,14 +96,17 @@ function AdminPanel() {
       skipEmptyLines: true,
       complete: async (results) => {
         try {
+          // Player, score (kills), deaths, kdr, accuracy, kills/min, crouches, time in lobby
           const parsedMatches = results.data.map((row: any) => ({
-            match_id: row.match_id || "unknown",
-            player_name: row.player_name || "Unknown",
-            kills: parseInt(row.kills) || 0,
-            headshots: parseInt(row.headshots) || 0,
-            won: row.won === "1" || String(row.won).toLowerCase() === "true" || String(row.won).toLowerCase() === "yes",
-            time_seconds: parseInt(row.time_seconds) || 0,
-          }));
+            player_name: row['Player'] || row['player'] || row['player_name'] || "Unknown",
+            score: parseFloat(row['score (kills)'] || row['score'] || row['kills']) || 0,
+            deaths: parseFloat(row['deaths']) || 0,
+            kdr: parseFloat(row['kdr']) || 0,
+            accuracy: parseFloat(row['accuracy']) || 0,
+            kpm: parseFloat(row['kills/min'] || row['kpm']) || 0,
+            crouches: parseFloat(row['crouches']) || 0,
+            time_in_lobby: parseFloat(row['time in lobby'] || row['time_in_lobby']) || 0,
+          })).filter((m: any) => m.player_name !== "Unknown");
           
           if (parsedMatches.length === 0) {
             setStatus("error");
@@ -116,27 +119,48 @@ function AdminPanel() {
           const playerStats: Record<string, any> = {};
           parsedMatches.forEach(m => {
             if (!playerStats[m.player_name]) {
-              playerStats[m.player_name] = { name: m.player_name, matches: 0, wins: 0, kills: 0, headshots: 0 };
+              playerStats[m.player_name] = { 
+                name: m.player_name, 
+                matches: 0, 
+                score: 0, 
+                deaths: 0, 
+                kdr_sum: 0, 
+                accuracy_sum: 0, 
+                kpm_sum: 0, 
+                crouches: 0, 
+                time_in_lobby: 0 
+              };
             }
             playerStats[m.player_name].matches += 1;
-            if (m.won) playerStats[m.player_name].wins += 1;
-            playerStats[m.player_name].kills += m.kills;
-            playerStats[m.player_name].headshots += m.headshots;
+            playerStats[m.player_name].score += m.score;
+            playerStats[m.player_name].deaths += m.deaths;
+            playerStats[m.player_name].kdr_sum += m.kdr;
+            playerStats[m.player_name].accuracy_sum += m.accuracy;
+            playerStats[m.player_name].kpm_sum += m.kpm;
+            playerStats[m.player_name].crouches += m.crouches;
+            playerStats[m.player_name].time_in_lobby += m.time_in_lobby;
           });
 
           // Convert to leaderboard format
           const newPlayers = Object.values(playerStats).map(p => {
-            const winr = p.matches > 0 ? (p.wins / p.matches) * 100 : 0;
-            const hsp = p.kills > 0 ? (p.headshots / p.kills) * 100 : 0;
-            const losses = p.matches - p.wins;
-            const elo = 2000 + (p.wins * 25) - (losses * 15) + p.kills;
+            const avg_kdr = p.matches > 0 ? (p.kdr_sum / p.matches) : 0;
+            const avg_acc = p.matches > 0 ? (p.accuracy_sum / p.matches) : 0;
+            const avg_kpm = p.matches > 0 ? (p.kpm_sum / p.matches) : 0;
+            
+            // Simple generic ELO based on Kills and Deaths
+            const elo = 2000 + (p.score * 5) - (p.deaths * 2);
             
             return {
               name: p.name,
               tag: elo > 3000 ? "PRO" : "",
               matches: p.matches,
-              winrate: winr.toFixed(1) + "%",
-              hs: hsp.toFixed(1) + "%",
+              score: p.score,
+              deaths: p.deaths,
+              kdr: avg_kdr.toFixed(2),
+              accuracy: avg_acc.toFixed(2) + "%",
+              kpm: avg_kpm.toFixed(2),
+              crouches: p.crouches,
+              time_in_lobby: p.time_in_lobby,
               elo: elo.toLocaleString("en-US")
             };
           });
@@ -188,7 +212,7 @@ function AdminPanel() {
       <div className="bg-[#111114] border border-surface-container-highest rounded-md overflow-hidden p-6 max-w-2xl">
         <h3 className="font-sans text-[18px] font-bold text-white mb-2">Import Match Data</h3>
         <p className="font-sans text-[13px] text-zinc-400 mb-6">
-          Upload a CSV file to overwrite the global player statistics and recalculate leaderboards. Ensure your CSV has headers exactly matching: <code className="bg-white/10 px-1 py-0.5 rounded text-toxic-purple mx-1">match_id,player_name,kills,headshots,won,time_seconds</code>
+          Upload a CSV file to overwrite the global player statistics and recalculate leaderboards. Ensure your CSV has columns like: <code className="bg-white/10 px-1 py-0.5 rounded text-toxic-purple mx-1">Player, score (kills), deaths, kdr, accuracy, kills/min, crouches, time in lobby</code>
         </p>
 
         <div 

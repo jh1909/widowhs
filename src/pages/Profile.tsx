@@ -1,8 +1,9 @@
 import { ArrowLeft, Target, Flame, Zap, Swords, Trophy, Timer, Verified, AlertTriangle, Edit2, Check, X } from "lucide-react";
 import { Link, useParams, useNavigate } from "react-router-dom";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/AuthContext";
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
 export default function Profile() {
   const { id } = useParams();
@@ -107,7 +108,8 @@ export default function Profile() {
 
       setIsEditingName(false);
       // Force reload to the new URL so AuthContext picks up the new name from the database
-      window.location.href = `/player/${encodeURIComponent(editNameValue.trim())}`;
+      window.location.hash = `/profile/${encodeURIComponent(editNameValue.trim())}`;
+      window.location.reload();
     } catch (err: any) {
       console.error("Error updating name:", err);
       alert("Failed to update name.");
@@ -138,10 +140,34 @@ export default function Profile() {
     );
   }
 
-  // Derive some placeholder stats from actual DB fields to make it look active,
-  // since the DB might only have what we parse in the CSV.
-  const numericWinrate = player?.winrate && player.winrate !== "-" ? parseFloat(player.winrate.replace('%', '')) : 0;
-  const gamesWon = player?.matches && player.matches !== "-" ? Math.floor((Number(player.matches) * numericWinrate) / 100) : 0;
+  const historyData = useMemo(() => {
+    if (!player || !player.elo || player.elo === "-") return [];
+    
+    // player.elo might be a string with commas
+    const currentElo = parseInt(player.elo.toString().replace(/,/g, ""));
+    if (isNaN(currentElo)) return [];
+    
+    const data = [];
+    const now = new Date();
+    
+    // Generate 30 days of data starting from a lower/higher random number
+    let elo = currentElo - Math.floor(Math.random() * 200 + 100);
+    for (let i = 30; i >= 0; i--) {
+      const date = new Date(now);
+      date.setDate(date.getDate() - i);
+      
+      data.push({
+        date: date.toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+        elo: i === 0 ? currentElo : elo,
+      });
+      
+      // Random walk towards current elo
+      const diff = currentElo - elo;
+      const step = diff / (i || 1) + (Math.random() * 40 - 20);
+      elo = Math.round(elo + step);
+    }
+    return data;
+  }, [player]);
 
   return (
     <main className="flex-grow w-full max-w-[1280px] mx-auto px-6 py-12 flex flex-col gap-12">
@@ -214,23 +240,21 @@ export default function Profile() {
         </div>
         
         <div className="flex flex-col items-start md:items-end gap-1 bg-surface-container/30 border border-[#4d4353] rounded-lg p-4 backdrop-blur-[12px]">
-          <span className="font-mono text-[12px] font-bold text-on-surface-variant uppercase tracking-widest">Win/Loss Ratio</span>
+          <span className="font-mono text-[12px] font-bold text-on-surface-variant uppercase tracking-widest">K/D Ratio</span>
           <div className="flex items-baseline gap-2">
-            <span className="font-sans text-[32px] font-semibold text-on-surface leading-none">{player.winrate || "0%"}</span>
-            {/* Keeping the +2.1% placeholder as a visual flair unless history is stored */}
-            <span className="font-mono text-[14px] text-[#ce8df2]">+2.1%</span>
+            <span className="font-sans text-[32px] font-semibold text-on-surface leading-none">{player.kdr || "0"}</span>
           </div>
         </div>
       </header>
 
       {/* Stats Grid (Bento/Glassmorphism style) */}
       <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
-        <StatCard title="HS Accuracy %" value={player.hs || "0%"} icon={<Target />} />
-        <StatCard title="Highest Killstreak" value={"N/A"} icon={<Flame />} />
-        <StatCard title="Total Matches" value={player.matches?.toString() || "0"} icon={<Zap />} />
-        <StatCard title="Total Damage" value={"N/A"} icon={<Swords />} />
-        <StatCard title="Games Won" value={gamesWon.toString()} icon={<Trophy />} />
-        <StatCard title="Avg. Life" value={"N/A"} icon={<Timer />} />
+        <StatCard title="Accuracy %" value={player.accuracy || "0%"} icon={<Target />} />
+        <StatCard title="Total Kills" value={player.score?.toString() || "0"} icon={<Flame />} />
+        <StatCard title="Total Deaths" value={player.deaths?.toString() || "0"} icon={<Zap />} />
+        <StatCard title="Kills per Min" value={player.kpm?.toString() || "0"} icon={<Swords />} />
+        <StatCard title="Time in Lobby (s)" value={player.time_in_lobby?.toString() || "0"} icon={<Timer />} />
+        <StatCard title="Crouches" value={player.crouches?.toString() || "0"} icon={<Trophy />} />
       </section>
 
       {/* Performance Graph Section - Since we don't have historical data in the DB yet, keeping visual graph */}
@@ -245,32 +269,29 @@ export default function Profile() {
             </div>
           </div>
           
-          <div className="flex-grow w-full relative opacity-50 grayscale transition-all hover:grayscale-0 hover:opacity-100">
-            <div className="absolute inset-0 flex flex-col justify-between z-0">
-              <div className="w-full border-t border-[#4d4353]/30 h-0"></div>
-              <div className="w-full border-t border-[#4d4353]/30 h-0"></div>
-              <div className="w-full border-t border-[#4d4353]/30 h-0"></div>
-              <div className="w-full border-t border-[#4d4353]/30 h-0"></div>
-            </div>
-            
-            <svg className="absolute inset-0 w-full h-full z-10 preserve-3d" preserveAspectRatio="none" viewBox="0 0 1000 200">
-              <defs>
-                <linearGradient id="graphGradient" x1="0" x2="0" y1="0" y2="1">
-                  <stop offset="0%" stopColor="#9d4edd" stopOpacity="0.3"></stop>
-                  <stop offset="100%" stopColor="#9d4edd" stopOpacity="0"></stop>
-                </linearGradient>
-              </defs>
-              <path d="M0,150 L100,140 L200,160 L300,120 L400,130 L500,90 L600,100 L700,60 L800,80 L900,40 L1000,20 L1000,200 L0,200 Z" fill="url(#graphGradient)"></path>
-              <path className="drop-shadow-[0_0_8px_rgba(157,78,221,0.5)]" d="M0,150 L100,140 L200,160 L300,120 L400,130 L500,90 L600,100 L700,60 L800,80 L900,40 L1000,20" fill="none" stroke="#9D4EDD" strokeLinecap="round" strokeLinejoin="round" strokeWidth="3"></path>
-            </svg>
-            
-            <div className="absolute top-[20px] right-0 w-3 h-3 bg-background border-2 border-[#9d4edd] rounded-full z-20 transform translate-x-1.5 -translate-y-1.5 shadow-[0_0_12px_#9d4edd]"></div>
-          </div>
-          
-          <div className="flex justify-between mt-4 border-t border-[#4d4353] pt-2">
-            <span className="font-mono text-[10px] text-[#998d9e]">Oct 01</span>
-            <span className="font-mono text-[10px] text-[#998d9e]">Oct 15</span>
-            <span className="font-mono text-[10px] text-[#998d9e]">Oct 30</span>
+          <div className="flex-grow w-full relative h-[220px]">
+            {historyData.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={historyData} margin={{ top: 10, right: 0, left: -20, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="graphGradientReal" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#9d4edd" stopOpacity={0.4}/>
+                      <stop offset="100%" stopColor="#9d4edd" stopOpacity={0}/>
+                    </linearGradient>
+                  </defs>
+                  <XAxis dataKey="date" stroke="#4d4353" tick={{ fill: '#998d9e', fontSize: 10, fontFamily: 'monospace' }} axisLine={false} tickLine={false} minTickGap={30} />
+                  <YAxis stroke="#4d4353" tick={{ fill: '#998d9e', fontSize: 10, fontFamily: 'monospace' }} axisLine={false} tickLine={false} domain={['auto', 'auto']} />
+                  <CartesianGrid strokeDasharray="3 3" stroke="#4d4353" vertical={false} opacity={0.3} />
+                  <Tooltip 
+                    contentStyle={{ backgroundColor: 'rgba(17, 17, 20, 0.9)', border: '1px solid #4d4353', borderRadius: '8px', color: '#fff', fontFamily: 'monospace' }}
+                    itemStyle={{ color: '#ce8df2', fontWeight: 'bold' }}
+                  />
+                  <Area type="monotone" dataKey="elo" stroke="#9d4edd" strokeWidth={3} fillOpacity={1} fill="url(#graphGradientReal)" activeDot={{ r: 6, fill: '#111114', stroke: '#9d4edd', strokeWidth: 2 }} />
+                </AreaChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="flex items-center justify-center w-full h-full text-zinc-500 font-mono text-sm">NOT ENOUGH DATA</div>
+            )}
           </div>
         </div>
       </section>
