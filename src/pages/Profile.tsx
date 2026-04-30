@@ -19,6 +19,35 @@ export default function Profile() {
   const [editNameValue, setEditNameValue] = useState("");
   const [editLoading, setEditLoading] = useState(false);
 
+  const historyData = useMemo(() => {
+    if (!player || !player.elo || player.elo === "-") return [];
+    
+    // player.elo might be a string with commas
+    const currentElo = parseInt(player.elo.toString().replace(/,/g, ""));
+    if (isNaN(currentElo)) return [];
+    
+    const data = [];
+    const now = new Date();
+    
+    // Generate 30 days of data starting from a lower/higher random number
+    let elo = currentElo - Math.floor(Math.random() * 200 + 100);
+    for (let i = 30; i >= 0; i--) {
+      const date = new Date(now);
+      date.setDate(date.getDate() - i);
+      
+      data.push({
+        date: date.toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+        elo: i === 0 ? currentElo : elo,
+      });
+      
+      // Random walk towards current elo
+      const diff = currentElo - elo;
+      const step = diff / (i || 1) + (Math.random() * 40 - 20);
+      elo = Math.round(elo + step);
+    }
+    return data;
+  }, [player]);
+
   useEffect(() => {
     async function fetchPlayerData() {
       if (!id) return;
@@ -139,35 +168,6 @@ export default function Profile() {
       </main>
     );
   }
-
-  const historyData = useMemo(() => {
-    if (!player || !player.elo || player.elo === "-") return [];
-    
-    // player.elo might be a string with commas
-    const currentElo = parseInt(player.elo.toString().replace(/,/g, ""));
-    if (isNaN(currentElo)) return [];
-    
-    const data = [];
-    const now = new Date();
-    
-    // Generate 30 days of data starting from a lower/higher random number
-    let elo = currentElo - Math.floor(Math.random() * 200 + 100);
-    for (let i = 30; i >= 0; i--) {
-      const date = new Date(now);
-      date.setDate(date.getDate() - i);
-      
-      data.push({
-        date: date.toLocaleDateString("en-US", { month: "short", day: "numeric" }),
-        elo: i === 0 ? currentElo : elo,
-      });
-      
-      // Random walk towards current elo
-      const diff = currentElo - elo;
-      const step = diff / (i || 1) + (Math.random() * 40 - 20);
-      elo = Math.round(elo + step);
-    }
-    return data;
-  }, [player]);
 
   return (
     <main className="flex-grow w-full max-w-[1280px] mx-auto px-6 py-12 flex flex-col gap-12">
