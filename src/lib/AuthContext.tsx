@@ -22,15 +22,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     let hasEnsuredUser = false;
 
-    const ensurePlayerExists = async (username: string) => {
+    const ensurePlayerExists = async (username: string, userId: string) => {
       if (hasEnsuredUser) return;
       hasEnsuredUser = true;
 
       try {
-        // 1. Check if the player already exists in the database
+        // 1. Check if the player already exists in the database by name
         const { data, error: selectError } = await supabase
           .from('players')
-          .select('name')
+          .select('user_id, name')
           .ilike('name', username)
           .maybeSingle();
 
@@ -39,10 +39,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           return;
         }
 
-        // 2. If no data exists, insert a new placeholder profile
+        // 2. If data exists but user_id is null, link it
+        if (data && !data.user_id) {
+          await supabase.from('players').update({ user_id: userId }).eq('name', data.name);
+        }
+
+        // 3. If no data exists, insert a new placeholder profile
         if (!data) {
           const { error: insertError } = await supabase.from('players').upsert([{
             name: username,
+            user_id: userId,
             matches: 0,
             winrate: "-",
             hs: "-",
@@ -50,7 +56,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             rank: 999999
           }], { onConflict: 'name', ignoreDuplicates: true });
 
-          // Ignore duplicate constraint failures gracefully
           if (insertError && insertError.code !== '23505') {
             console.error("Error inserting player:", insertError);
           }
@@ -69,7 +74,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           avatar_url: session.user.user_metadata?.avatar_url
         });
         
-        ensurePlayerExists(username);
+        ensurePlayerExists(username, session.user.id);
       }
     });
 
@@ -84,7 +89,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           avatar_url: session.user.user_metadata?.avatar_url
         });
 
-        ensurePlayerExists(username);
+        ensurePlayerExists(username, session.user.id);
       } else {
         setUser(null);
       }
