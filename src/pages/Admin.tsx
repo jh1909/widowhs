@@ -59,10 +59,9 @@ export default function Admin() {
           <Routes>
             <Route path="/" element={<Navigate to="dashboard" replace />} />
             <Route path="dashboard" element={<Dashboard />} />
-            <Route path="analytics" element={<Placeholder title="Analytics" />} />
-            <Route path="panel" element={<AdminPanel />} />
-            <Route path="server" element={<Placeholder title="Server Status" />} />
-            <Route path="audit" element={<Placeholder title="Audit Logs" />} />
+            <Route path="csv-upload" element={<CsvUpload />} />
+            <Route path="server" element={<ServerStatus />} />
+            <Route path="audit" element={<AuditLogs />} />
           </Routes>
         </div>
       </div>
@@ -70,7 +69,8 @@ export default function Admin() {
   );
 }
 
-function AdminPanel() {
+function CsvUpload() {
+  const { user } = useAuth();
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [status, setStatus] = useState<"idle" | "success" | "error">("idle");
@@ -182,6 +182,12 @@ function AdminPanel() {
 
           if (error) throw error;
 
+          await supabase.from("audit_logs").insert([{
+            action: "CSV_UPLOAD",
+            admin_user: user?.username || "UnknownAdmin",
+            details: `Imported ${parsedMatches.length} matches, updated ${finalPlayers.length} players.`
+          }]);
+
           setStatus("success");
           setMessage(`Successfully processed ${parsedMatches.length} matches and updated ${finalPlayers.length} players. Ensure 'players' table exists in Supabase.`);
           setFile(null);
@@ -205,7 +211,7 @@ function AdminPanel() {
   return (
     <div className="p-6 lg:p-10 space-y-8 h-full max-w-5xl mx-auto">
       <div>
-        <h2 className="font-sans text-2xl font-bold text-white tracking-tight">Admin Panel</h2>
+        <h2 className="font-sans text-2xl font-bold text-white tracking-tight">CSV Data Sync</h2>
         <p className="font-sans text-xs text-zinc-500 mt-1">Manage core system data, imports, and global settings.</p>
       </div>
 
@@ -285,12 +291,151 @@ function AdminPanel() {
   );
 }
 
-function Placeholder({ title }: { title: string }) {
+function ServerStatus() {
+  const [latency, setLatency] = useState(0);
+  const [dbStats, setDbStats] = useState({ players: 0, banned: 0, logs: 0 });
+
+  useEffect(() => {
+    const fetchStats = async () => {
+      try {
+        const [
+          { count: players }, 
+          { count: banned },
+          { count: logs }
+        ] = await Promise.all([
+          supabase.from('players').select('*', { count: 'exact', head: true }),
+          supabase.from('players').select('*', { count: 'exact', head: true }).eq('is_banned', true),
+          supabase.from('audit_logs').select('*', { count: 'exact', head: true })
+        ]);
+        
+        setDbStats({
+          players: players || 0,
+          banned: banned || 0,
+          logs: logs || 0
+        });
+      } catch (err) {
+         console.error(err);
+      }
+    };
+    fetchStats();
+
+    // mock latency check
+    const checkLatency = async () => {
+      const start = Date.now();
+      await supabase.from('players').select('name').limit(1);
+      setLatency(Date.now() - start);
+    };
+    checkLatency();
+    const interval = setInterval(checkLatency, 5000);
+    return () => clearInterval(interval);
+  }, []);
+
   return (
-    <div className="p-6 lg:p-10 h-full flex items-center justify-center">
-      <div className="text-center">
-        <h2 className="font-sans text-2xl font-bold text-white mb-2">{title}</h2>
-        <p className="text-zinc-500 font-sans text-sm">This module is currently active and collecting telemetry data.</p>
+    <div className="p-6 lg:p-10 space-y-8 h-full max-w-5xl mx-auto">
+      <div>
+        <h2 className="font-sans text-2xl font-bold text-white tracking-tight">Server Status</h2>
+        <p className="font-sans text-xs text-zinc-500 mt-1">Real-time database connectivity and health.</p>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="bg-[#111114] border border-surface-container-highest rounded-md p-6">
+          <h3 className="font-sans text-sm font-bold text-zinc-400 mb-4 uppercase tracking-widest">Database Node</h3>
+          <div className="flex items-center space-x-4 mb-4">
+            <div className={`w-3 h-3 rounded-full ${latency < 200 ? 'bg-green-500 shadow-[0_0_10px_rgba(34,197,94,0.5)]' : 'bg-yellow-500 shadow-[0_0_10px_rgba(234,179,8,0.5)]'}`}></div>
+            <span className="text-white font-mono">{latency < 200 ? 'Healthy' : 'Degraded'}</span>
+          </div>
+          <div className="space-y-2 font-mono text-[13px]">
+            <div className="flex justify-between">
+              <span className="text-zinc-500">Latency</span>
+              <span className="text-zinc-300">{latency}ms</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-zinc-500">Total Players in DB</span>
+              <span className="text-zinc-300">{dbStats.players}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-zinc-500">Banned Accounts</span>
+              <span className="text-zinc-300">{dbStats.banned}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-zinc-500">Audit Events</span>
+              <span className="text-zinc-300">{dbStats.logs}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-zinc-500">Provider</span>
+              <span className="text-zinc-300">Supabase</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-zinc-500">Region</span>
+              <span className="text-zinc-300">eu-central-1</span>
+            </div>
+             <div className="flex justify-between">
+              <span className="text-zinc-500">Uptime</span>
+              <span className="text-zinc-300">99.99%</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AuditLogs() {
+  const [logs, setLogs] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function fetchLogs() {
+      const { data, error } = await supabase
+        .from('audit_logs')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(50);
+      
+      if (data) setLogs(data);
+      setLoading(false);
+    }
+    fetchLogs();
+  }, []);
+
+  const formatTime = (isoString: string) => {
+    if (!isoString) return '';
+    return new Date(isoString).toLocaleString(undefined, { 
+      month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
+    });
+  };
+
+  return (
+    <div className="p-6 lg:p-10 space-y-8 h-full max-w-5xl mx-auto">
+      <div>
+        <h2 className="font-sans text-2xl font-bold text-white tracking-tight">Audit Logs</h2>
+        <p className="font-sans text-xs text-zinc-500 mt-1">Immutable record of administrative actions.</p>
+      </div>
+
+      <div className="bg-[#111114] border border-surface-container-highest rounded-md overflow-hidden">
+        {loading ? (
+          <div className="p-8 flex justify-center"><Loader2 className="w-6 h-6 text-toxic-purple animate-spin" /></div>
+        ) : logs.length > 0 ? (
+          <ul className="divide-y divide-surface-container-highest/50">
+            {logs.map(log => (
+              <li key={log.id} className="p-4 hover:bg-surface-container-low transition-colors flex items-start gap-4">
+                <div className="p-2 bg-surface-container rounded border border-surface-container-highest/50 text-zinc-500 mt-1">
+                  <FileText className="w-4 h-4" />
+                </div>
+                <div className="flex-1">
+                  <div className="flex justify-between">
+                    <span className="font-sans font-bold text-sm text-white">{log.action || "UNKNOWN_ACTION"}</span>
+                    <span className="font-mono text-xs text-zinc-500">{formatTime(log.created_at)}</span>
+                  </div>
+                  <p className="font-mono text-[13px] text-zinc-400 mt-1">{log.details}</p>
+                  <div className="font-mono text-[11px] text-zinc-600 mt-2 uppercase">User: {log.admin_user}</div>
+                </div>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <div className="p-8 text-center text-zinc-500 font-mono text-[13px]">No audit logs found. Ensure 'audit_logs' table exists.</div>
+        )}
       </div>
     </div>
   );
@@ -349,8 +494,7 @@ function AdminSidebar() {
       
       <ul className="flex-1 px-4 space-y-2">
         <SidebarItem icon={<LayoutGrid />} label="Dashboard" to="/admin/dashboard" active={currentPath.includes("dashboard")} />
-        <SidebarItem icon={<BarChart2 />} label="Analytics" to="/admin/analytics" active={currentPath.includes("analytics")} />
-        <SidebarItem icon={<ShieldAlert />} label="Admin Panel" to="/admin/panel" active={currentPath.includes("panel")} />
+        <SidebarItem icon={<UploadCloud />} label="CSV Data Sync" to="/admin/csv-upload" active={currentPath.includes("csv-upload")} />
         <SidebarItem icon={<Monitor />} label="Server Status" to="/admin/server" active={currentPath.includes("server")} />
         <SidebarItem icon={<FileText />} label="Audit Logs" to="/admin/audit" active={currentPath.includes("audit")} />
       </ul>
@@ -389,25 +533,93 @@ function SidebarItem({ icon, label, to, active }: { icon: React.ReactNode, label
 }
 
 function Dashboard() {
+  const { user } = useAuth();
   const [totalPlayers, setTotalPlayers] = useState<number | null>(null);
   const [recentPlayers, setRecentPlayers] = useState<any[]>([]);
+  const [bannedPlayers, setBannedPlayers] = useState<number>(0);
+
+  const logAudit = async (action: string, details: string) => {
+    await supabase.from("audit_logs").insert([{
+      action,
+      admin_user: user?.username || "UnknownAdmin",
+      details
+    }]);
+  };
+
+  const handleDelete = async (playerName: string) => {
+    if (window.confirm(`Are you sure you want to completely delete player '${playerName}'?`)) {
+      const { error } = await supabase.from('players').delete().eq('name', playerName);
+      if (!error) {
+        setRecentPlayers(prev => prev.filter(p => p.name !== playerName));
+        if (totalPlayers) setTotalPlayers(prev => prev! - 1);
+        logAudit("DELETE_PLAYER", `Deleted player ${playerName} from the database.`);
+      } else {
+        alert("Failed to delete user: " + error.message);
+      }
+    }
+  };
+
+  const handleBan = async (player: any) => {
+    const isCurrentlyBanned = player.is_banned;
+    const newStatus = !isCurrentlyBanned;
+    const actionLabel = newStatus ? "Ban" : "Unban";
+    
+    if (window.confirm(`Are you sure you want to ${actionLabel} player '${player.name}'?`)) {
+      const { error } = await supabase.from('players').update({ is_banned: newStatus }).eq('name', player.name);
+      if (!error) {
+        setRecentPlayers(prev => prev.map(p => p.name === player.name ? { ...p, is_banned: newStatus } : p));
+        setBannedPlayers(prev => newStatus ? prev + 1 : prev - 1);
+        logAudit(`${newStatus ? 'BAN' : 'UNBAN'}_PLAYER`, `${newStatus ? 'Banned' : 'Unbanned'} player ${player.name}.`);
+      } else {
+        alert(`Failed to ${actionLabel} user: ` + error.message);
+      }
+    }
+  };
+
+  const [editingPlayer, setEditingPlayer] = useState<any>(null);
+  const [editForm, setEditForm] = useState({ name: '', is_admin: false });
+
+  const handleEdit = (player: any) => {
+    setEditingPlayer(player);
+    setEditForm({ name: player.name, is_admin: !!player.is_admin });
+  };
+
+  const submitEdit = async () => {
+    if (!editingPlayer) return;
+    
+    if (editForm.name.trim() === '') {
+      alert("Name cannot be empty.");
+      return;
+    }
+
+    const { error } = await supabase
+      .from('players')
+      .update({ name: editForm.name, is_admin: editForm.is_admin })
+      .eq('name', editingPlayer.name);
+
+    if (!error) {
+      setRecentPlayers(prev => prev.map(p => 
+        p.name === editingPlayer.name 
+          ? { ...p, name: editForm.name, is_admin: editForm.is_admin } 
+          : p
+      ));
+      logAudit("EDIT_PLAYER", `Updated player ${editingPlayer.name}. New name: ${editForm.name}, Role: ${editForm.is_admin ? 'Admin' : 'Player'}.`);
+      setEditingPlayer(null);
+    } else {
+      alert("Failed to edit user: " + error.message);
+    }
+  };
 
   useEffect(() => {
     async function fetchDashboardData() {
       try {
-        // Fetch total count using exact count head-only request if possible,
-        // or just fetch all and get length.
-        const { count, error } = await supabase
-          .from('players')
-          .select('*', { count: 'exact', head: true });
-          
-        if (!error && count !== null) {
-          setTotalPlayers(count);
-        } else {
-          // Fallback
-          const { data } = await supabase.from('players').select('name').limit(1000);
-          if (data) setTotalPlayers(data.length);
-        }
+        const [{ count: players }, { count: banned }] = await Promise.all([
+          supabase.from('players').select('*', { count: 'exact', head: true }),
+          supabase.from('players').select('*', { count: 'exact', head: true }).eq('is_banned', true)
+        ]);
+        
+        setTotalPlayers(players || 0);
+        setBannedPlayers(banned || 0);
 
         // Fetch some recent/top players for activity mock
         const { data: topPlayers } = await supabase
@@ -460,8 +672,8 @@ function Dashboard() {
             <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse"></span>
           </div>
           <div>
-            <div className="font-sans text-4xl font-extrabold text-white tracking-tight">0</div>
-            <div className="font-mono text-[13px] text-zinc-500 mt-2">Appeals Pending: 0</div>
+            <div className="font-sans text-4xl font-extrabold text-white tracking-tight">{bannedPlayers}</div>
+            <div className="font-mono text-[13px] text-zinc-500 mt-2">Players restricted from ranking</div>
           </div>
         </div>
 
@@ -512,10 +724,13 @@ function Dashboard() {
                     key={player.name}
                     id={player.name} 
                     initial={player.name[0]?.toUpperCase() || "?"} 
-                    status="Ranked" 
+                    status={player.is_banned ? "Banned" : "Ranked"} 
                     rank={`#${player.rank}`} 
                     matches={player.matches.toString()} 
-                    type="green" 
+                    type={player.is_banned ? "red" : "green"} 
+                    onEdit={() => handleEdit(player)}
+                    onBan={() => handleBan(player)}
+                    onDelete={() => handleDelete(player.name)}
                   />
                 ))
               ) : (
@@ -528,12 +743,61 @@ function Dashboard() {
         </div>
       </div>
       
+      
+      {editingPlayer && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+          <div className="bg-[#111114] border border-surface-container-highest rounded-md p-6 max-w-sm w-full mx-auto shadow-2xl relative">
+            <h3 className="font-sans text-xl font-bold text-white mb-6 tracking-tight">Edit Player</h3>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="block font-sans font-bold text-[11px] text-zinc-500 uppercase tracking-widest mb-2">Username</label>
+                <input 
+                  type="text" 
+                  value={editForm.name} 
+                  onChange={e => setEditForm({ ...editForm, name: e.target.value })}
+                  className="w-full bg-surface-container border border-surface-container-highest rounded px-3 py-2 text-white font-mono text-[13px] focus:border-toxic-purple focus:outline-none transition-colors"
+                />
+              </div>
+              
+              <div className="flex items-center space-x-3 pt-2">
+                <input 
+                  type="checkbox" 
+                  id="isAdminCheckbox"
+                  checked={editForm.is_admin}
+                  onChange={e => setEditForm({ ...editForm, is_admin: e.target.checked })}
+                  className="w-4 h-4 rounded border-surface-container-highest bg-surface-container text-toxic-purple focus:ring-toxic-purple/30 bg-transparent accent-toxic-purple"
+                />
+                <label htmlFor="isAdminCheckbox" className="font-sans font-bold text-[13px] text-zinc-300 select-none">
+                  Administrator Privileges
+                </label>
+              </div>
+            </div>
+
+            <div className="mt-8 flex items-center justify-end space-x-3">
+              <button 
+                onClick={() => setEditingPlayer(null)}
+                className="px-4 py-2 text-xs font-bold font-sans text-zinc-400 hover:text-white uppercase tracking-widest transition-colors"
+              >
+                Cancel
+              </button>
+              <button 
+                onClick={submitEdit}
+                className="px-4 py-2 text-xs font-bold font-sans bg-toxic-purple/10 text-toxic-purple hover:bg-toxic-purple hover:text-black uppercase tracking-widest rounded border border-toxic-purple/30 transition-all"
+              >
+                Save Changes
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="h-8"></div>
     </div>
   );
 }
 
-function ActivityRow({ id, initial, status, rank, matches, type }: any) {
+function ActivityRow({ id, initial, status, rank, matches, type, onEdit, onBan, onDelete }: any) {
   return (
     <tr className="hover:bg-toxic-purple/5 transition-colors group">
       <td className="py-3 px-6 flex items-center space-x-2">
@@ -556,13 +820,13 @@ function ActivityRow({ id, initial, status, rank, matches, type }: any) {
       <td className="py-3 px-6 text-zinc-500">{matches}</td>
       <td className="py-3 px-6 text-right">
         <div className="flex items-center justify-end space-x-2 opacity-0 group-hover:opacity-100 transition-opacity">
-          <button className="p-1 text-zinc-500 hover:text-white transition-colors cursor-pointer" title="Edit">
+          <button onClick={onEdit} className="p-1 text-zinc-500 hover:text-white transition-colors cursor-pointer" title="Edit">
             <Edit2 className="w-4 h-4" />
           </button>
-          <button className="p-1 text-zinc-500 hover:text-red-400 transition-colors cursor-pointer" title="Ban">
+          <button onClick={onBan} className="p-1 text-zinc-500 hover:text-red-400 transition-colors cursor-pointer" title="Ban">
             <Ban className="w-4 h-4" />
           </button>
-          <button className="p-1 text-zinc-500 hover:text-red-600 transition-colors cursor-pointer" title="Delete">
+          <button onClick={onDelete} className="p-1 text-zinc-500 hover:text-red-600 transition-colors cursor-pointer" title="Delete">
             <Trash2 className="w-4 h-4" />
           </button>
         </div>

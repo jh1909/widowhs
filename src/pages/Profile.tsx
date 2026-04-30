@@ -256,7 +256,7 @@ export default function Profile() {
               <span className="w-2 h-2 rounded-full bg-[#ce8df2] animate-pulse"></span>
               <span className="font-mono text-[12px] font-bold text-[#f2daff] uppercase tracking-widest">{player.elo || "Unknown"} ELO</span>
             </div>
-            <span className="font-mono text-[14px] text-on-surface-variant border-l border-[#4d4353] pl-3">Rank #{player.rank || "?"} Global</span>
+            <span className="font-mono text-[14px] text-on-surface-variant border-l border-[#4d4353] pl-3">Rank #{Number(player.rank) >= 999999 ? "-" : (player.rank || "?")} Global</span>
           </div>
         </div>
         
