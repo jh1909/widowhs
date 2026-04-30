@@ -5,13 +5,13 @@ import { useAuth } from "../lib/AuthContext";
 import { supabase } from "../lib/supabase";
 
 type Player = { 
-  rank: number; 
+  rank: number | string; 
   name: string; 
   tag?: string; 
   elo: string; 
   winrate: string; 
   hs: string; 
-  matches: number 
+  matches: number | string;
 };
 
 export default function Leaderboard() {
@@ -60,7 +60,18 @@ export default function Leaderboard() {
     const found = leaderboardData.find(
       (p) => p.name.toLowerCase() === user.username.toLowerCase()
     );
-    return found || null;
+    if (!found) {
+      return {
+        rank: "-",
+        name: user.username,
+        tag: "",
+        elo: "-",
+        winrate: "-",
+        hs: "-",
+        matches: 0
+      };
+    }
+    return found;
   }, [user, leaderboardData]);
 
   const filteredData = useMemo(() => {

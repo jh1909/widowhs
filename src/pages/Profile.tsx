@@ -28,10 +28,30 @@ export default function Profile() {
           .from("players")
           .select("*")
           .ilike("name", id)
-          .single();
+          .limit(1);
 
-        if (error) throw error;
-        setPlayer(data);
+        if (error) {
+           throw error;
+        }
+        
+        if (data && data.length > 0) {
+          setPlayer(data[0]);
+          setError(null);
+        } else if (user && user.username.toLowerCase() === id.toLowerCase()) {
+          // Fallback for missing user profile if it's the logged-in user
+          setPlayer({
+              name: user.username,
+              tag: "",
+              elo: "-",
+              rank: "-",
+              winrate: "0%",
+              hs: "0%",
+              matches: 0
+          });
+          setError(null);
+        } else {
+          setError("Could not find player data.");
+        }
       } catch (err: any) {
         console.error("Failed to load player data", err);
         setError("Could not find player data.");
@@ -41,7 +61,7 @@ export default function Profile() {
     }
 
     fetchPlayerData();
-  }, [id]);
+  }, [id, user]);
 
   const handleUpdateName = async () => {
     if (!editNameValue.trim() || editNameValue.trim() === player.name) {
@@ -106,8 +126,8 @@ export default function Profile() {
 
   // Derive some placeholder stats from actual DB fields to make it look active,
   // since the DB might only have what we parse in the CSV.
-  const numericWinrate = parseFloat(player.winrate.replace('%', ''));
-  const gamesWon = Math.floor((player.matches * numericWinrate) / 100);
+  const numericWinrate = player?.winrate && player.winrate !== "-" ? parseFloat(player.winrate.replace('%', '')) : 0;
+  const gamesWon = player?.matches && player.matches !== "-" ? Math.floor((Number(player.matches) * numericWinrate) / 100) : 0;
 
   return (
     <main className="flex-grow w-full max-w-[1280px] mx-auto px-6 py-12 flex flex-col gap-12">

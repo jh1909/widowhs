@@ -20,6 +20,41 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
 
   useEffect(() => {
+    const ensurePlayerExists = async (username: string) => {
+      try {
+        // 1. Check if the player already exists in the database
+        const { data, error: selectError } = await supabase
+          .from('players')
+          .select('name')
+          .ilike('name', username)
+          .maybeSingle();
+
+        if (selectError && selectError.code !== 'PGRST116') {
+          console.error("Error checking player existence:", selectError);
+          return;
+        }
+
+        // 2. If no data exists, insert a new placeholder profile
+        if (!data) {
+          const { error: insertError } = await supabase.from('players').insert([{
+            name: username,
+            matches: 0,
+            winrate: "-",
+            hs: "-",
+            elo: "-",
+            rank: 999999
+          }]);
+
+          // Ignore duplicate constraint failures (HTTP 409, code 23505) gracefully
+          if (insertError && insertError.code !== '23505') {
+            console.error("Error inserting player:", insertError);
+          }
+        }
+      } catch (err) {
+        console.error("Unexpected error ensuring player exists:", err);
+      }
+    };
+
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session?.user) {
         const username = session.user.user_metadata?.full_name || session.user.user_metadata?.name || 'User';
@@ -29,15 +64,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           avatar_url: session.user.user_metadata?.avatar_url
         });
         
-        // Ensure user exists in players table
-        supabase.from('players').insert([{
-           name: username,
-           matches: 0,
-           winrate: "0%",
-           hs: "0%",
-           elo: "0",
-           rank: 99999
-        }]).then(() => {});
+        ensurePlayerExists(username);
       }
     });
 
@@ -52,15 +79,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           avatar_url: session.user.user_metadata?.avatar_url
         });
 
-        // Ensure user exists in players table
-        supabase.from('players').insert([{
-           name: username,
-           matches: 0,
-           winrate: "0%",
-           hs: "0%",
-           elo: "0",
-           rank: 99999
-        }]).then(() => {});
+        ensurePlayerExists(username);
       } else {
         setUser(null);
       }
