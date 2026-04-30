@@ -215,7 +215,7 @@ export default function Profile() {
                 <h1 className="font-sans text-[48px] font-bold text-on-surface uppercase tracking-tighter leading-none">{player.name}</h1>
                 {player.tag && player.tag === "PRO" && <Verified className="text-[#9d4edd] w-8 h-8 fill-[#9d4edd]" />}
                 
-                {((user && user.username.toLowerCase() === player.name.toLowerCase()) || (user && ['notprx'].includes(user.username.toLowerCase()))) && (
+                {((user && user.username.toLowerCase() === player.name.toLowerCase()) || (user && user.isAdmin)) && (
                   <button 
                     onClick={() => {
                       setEditNameValue(player.name);

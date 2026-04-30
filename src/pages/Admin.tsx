@@ -32,16 +32,16 @@ import { cn } from "../lib/utils";
 export default function Admin() {
   const { user } = useAuth();
   
-  // Replace this array with other admin usernames or connect to your database in the future
+  // Either manually mark usernames here, or rely on the is_admin flag from the database
   const adminUsers = ['notprx'];
-  const isAdmin = user && user.username && adminUsers.includes(user.username.toLowerCase());
+  const isAdmin = user && (user.isAdmin || (user.username && adminUsers.includes(user.username.toLowerCase())));
 
   if (!isAdmin) {
     return (
       <div className="flex flex-col h-screen items-center justify-center bg-background text-center p-6 text-white font-sans">
         <ShieldAlert className="w-16 h-16 text-toxic-purple mb-4" />
         <h1 className="text-3xl font-black italic tracking-tighter mb-2">ACCESS DENIED</h1>
-        <p className="text-zinc-500 mb-6 max-w-md">You do not have the required administrative privileges to view this module. Please login with an authorized discord account (e.g., as notprx).</p>
+        <p className="text-zinc-500 mb-6 max-w-md">You do not have the required administrative privileges to view this module.</p>
         <Link to="/" className="bg-toxic-purple hover:bg-[#842bd2] text-white font-bold py-2 px-6 rounded-md transition-colors flex items-center gap-2">
           <ArrowRight className="w-5 h-5" />
           <span>Return to Leaderboard</span>

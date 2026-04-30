@@ -6,6 +6,7 @@ export type User = {
   username: string;
   discriminator?: string;
   avatar_url?: string;
+  isAdmin?: boolean;
 };
 
 type AuthContextType = {
@@ -30,7 +31,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // 1. Check if the player already exists in the database by user_id
         const { data: userById, error: userByIdError } = await supabase
           .from('players')
-          .select('user_id, name')
+          .select('user_id, name, is_admin')
           .eq('user_id', userId)
           .maybeSingle();
 
@@ -40,14 +41,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         if (userById) {
           // Update the context with the saved name, rather than the Discord name
-          setUser(prev => prev ? { ...prev, username: userById.name } : null);
+          setUser(prev => prev ? { ...prev, username: userById.name, isAdmin: !!userById.is_admin } : null);
           return;
         }
 
         // 2. If not found by user_id, search by their Discord name to link an old profile
         let { data: userByName, error: selectError } = await supabase
           .from('players')
-          .select('user_id, name')
+          .select('user_id, name, is_admin')
           .ilike('name', discordName)
           .maybeSingle();
 
@@ -59,7 +60,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // 3. If data exists but user_id is null, link it
         if (userByName && !userByName.user_id) {
           await supabase.from('players').update({ user_id: userId }).eq('name', userByName.name);
-          setUser(prev => prev ? { ...prev, username: userByName.name } : null);
+          setUser(prev => prev ? { ...prev, username: userByName.name, isAdmin: !!userByName.is_admin } : null);
           return;
         }
         
