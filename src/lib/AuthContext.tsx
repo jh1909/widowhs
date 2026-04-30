@@ -41,14 +41,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         // 2. If no data exists, insert a new placeholder profile
         if (!data) {
-          const { error: insertError } = await supabase.from('players').insert([{
+          const { error: insertError } = await supabase.from('players').upsert([{
             name: username,
             matches: 0,
             winrate: "-",
             hs: "-",
             elo: "-",
             rank: 999999
-          }]);
+          }], { onConflict: 'name', ignoreDuplicates: true });
 
           // Ignore duplicate constraint failures gracefully
           if (insertError && insertError.code !== '23505') {

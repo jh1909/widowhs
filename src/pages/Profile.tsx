@@ -71,11 +71,11 @@ export default function Profile() {
     setEditLoading(true);
     try {
       // First check if the new name already exists
-      const { data: existing } = await supabase
+      const { data: existing, error: existError } = await supabase
           .from("players")
           .select("name")
           .ilike("name", editNameValue.trim())
-          .single();
+          .maybeSingle();
           
       if (existing) {
         alert("This name is already taken by another player.");
