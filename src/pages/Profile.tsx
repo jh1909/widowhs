@@ -84,13 +84,27 @@ export default function Profile() {
       }
 
       // Update the name
-      const { error } = await supabase
+      const { data: updateData, error } = await supabase
         .from("players")
         .update({ name: editNameValue.trim() })
-        .eq("name", player.name);
+        .eq("name", player.name)
+        .select();
 
       if (error) throw error;
       
+      if (!updateData || updateData.length === 0) {
+        throw new Error("Update failed. No rows affected - this could be due to Row Level Security or a database constraint.");
+      }
+      
+      // Update auth metadata so we don't lose the link
+      const { error: authError } = await supabase.auth.updateUser({
+        data: { full_name: editNameValue.trim(), name: editNameValue.trim() }
+      });
+      
+      if (authError) {
+        console.error("Auth metadata update failed:", authError);
+      }
+
       setIsEditingName(false);
       // Navigate to the new URL
       navigate(`/player/${encodeURIComponent(editNameValue.trim())}`);

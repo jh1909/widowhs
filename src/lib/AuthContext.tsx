@@ -20,7 +20,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
 
   useEffect(() => {
+    let hasEnsuredUser = false;
+
     const ensurePlayerExists = async (username: string) => {
+      if (hasEnsuredUser) return;
+      hasEnsuredUser = true;
+
       try {
         // 1. Check if the player already exists in the database
         const { data, error: selectError } = await supabase
@@ -45,7 +50,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             rank: 999999
           }]);
 
-          // Ignore duplicate constraint failures (HTTP 409, code 23505) gracefully
+          // Ignore duplicate constraint failures gracefully
           if (insertError && insertError.code !== '23505') {
             console.error("Error inserting player:", insertError);
           }
