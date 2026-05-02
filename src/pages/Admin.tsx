@@ -182,6 +182,18 @@ function CsvUpload() {
 
           if (error) throw error;
 
+          // Track historical data
+          const historyRows = finalPlayers.map(p => ({
+            player_name: p.name,
+            elo: parseInt(p.elo.replace(/,/g, "")),
+            rank: p.rank
+          }));
+          
+          const { error: historyError } = await supabase.from("player_history").insert(historyRows);
+          if (historyError) {
+             console.warn("Could not insert player_history records. Make sure the player_history table exists.", historyError);
+          }
+
           await supabase.from("audit_logs").insert([{
             action: "CSV_UPLOAD",
             admin_user: user?.username || "UnknownAdmin",

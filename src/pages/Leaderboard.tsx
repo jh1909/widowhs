@@ -1,4 +1,4 @@
-import { Star, User, Key, MessageSquare, Radio, ChevronLeft, ChevronRight, Search } from "lucide-react";
+import { Star, User, Key, MessageSquare, Radio, ChevronLeft, ChevronRight, Search, Trophy } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useState, useEffect, useMemo } from "react";
 import { useAuth } from "../lib/AuthContext";
@@ -327,51 +327,38 @@ export default function Leaderboard() {
           </a>
         </div>
 
-        {/* Live Lobbies Widget */}
+        {/* Global Stats Widget */}
         <div className="glass-panel rounded-md glow-top p-4">
           <h3 className="font-sans font-bold text-on-surface mb-4 flex items-center gap-2 text-sm uppercase tracking-widest">
-            <Radio className="text-green-500 w-[18px] h-[18px]" /> Live Lobbies
+            <Radio className="text-green-500 w-[18px] h-[18px]" /> Server Stats
           </h3>
           <div className="flex flex-col gap-3">
-            {/* Mini Status Card 1 */}
-            <div className="border border-toxic-purple/10 rounded p-3 bg-surface-container-low hover:border-toxic-purple/30 transition-colors cursor-pointer">
-              <div className="flex justify-between items-center mb-2">
-                <span className="font-sans text-[11px] font-bold text-on-surface">EU - Frankfurt 1</span>
-                <span className="flex items-center gap-1 text-[10px] text-green-400 font-bold uppercase">
-                  <div className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"></div> Live
-                </span>
+            <div className="border border-toxic-purple/10 rounded p-3 bg-surface-container-low transition-colors">
+              <div className="flex justify-between items-center mb-1">
+                <span className="font-sans text-[11px] font-bold text-zinc-400 uppercase tracking-widest">Total Matches</span>
               </div>
-              <div className="flex justify-between items-end">
-                <div className="font-mono text-[13px] text-on-surface-variant">Avg Elo: <span className="text-purple-300">3.1k</span></div>
-                <div className="font-sans text-[12px] text-zinc-500">11/12</div>
+              <div className="font-mono text-[18px] text-white">
+                {leaderboardData.reduce((sum, p) => sum + (p.matches || 0), 0).toLocaleString()}
               </div>
             </div>
 
-            {/* Mini Status Card 2 */}
-            <div className="border border-toxic-purple/10 rounded p-3 bg-surface-container-low hover:border-toxic-purple/30 transition-colors cursor-pointer">
-              <div className="flex justify-between items-center mb-2">
-                <span className="font-sans text-[11px] font-bold text-on-surface">NA - East 2</span>
-                <span className="flex items-center gap-1 text-[10px] text-green-400 font-bold uppercase">
-                  <div className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"></div> Live
-                </span>
+            <div className="border border-toxic-purple/10 rounded p-3 bg-surface-container-low transition-colors">
+              <div className="flex justify-between items-center mb-1">
+                <span className="font-sans text-[11px] font-bold text-zinc-400 uppercase tracking-widest">Global Kills</span>
               </div>
-              <div className="flex justify-between items-end">
-                <div className="font-mono text-[13px] text-on-surface-variant">Avg Elo: <span className="text-purple-300">2.8k</span></div>
-                <div className="font-sans text-[12px] text-zinc-500">8/12</div>
+              <div className="font-mono text-[18px] text-white">
+                {leaderboardData.reduce((sum, p) => sum + (p.score || 0), 0).toLocaleString()}
               </div>
             </div>
 
-            {/* Mini Status Card 3 */}
-            <div className="border border-toxic-purple/10 rounded p-3 bg-surface-container-low opacity-50">
-              <div className="flex justify-between items-center mb-2">
-                <span className="font-sans text-[11px] font-bold text-on-surface">KR - Seoul 1</span>
-                <span className="flex items-center gap-1 text-[10px] text-zinc-500 font-bold uppercase">
-                  <div className="w-1.5 h-1.5 bg-zinc-600 rounded-full"></div> Match in Progress
-                </span>
+            <div className="border border-toxic-purple/10 rounded p-3 bg-surface-container-low transition-colors">
+              <div className="flex justify-between items-center mb-1">
+                <span className="font-sans text-[11px] font-bold text-zinc-400 uppercase tracking-widest">Avg KDR</span>
               </div>
-              <div className="flex justify-between items-end">
-                <div className="font-mono text-[13px] text-on-surface-variant">Avg Elo: <span className="text-purple-300">3.4k</span></div>
-                <div className="font-sans text-[12px] text-zinc-500">12/12</div>
+              <div className="font-mono text-[18px] text-white">
+                {(leaderboardData.length > 0 
+                  ? leaderboardData.reduce((sum, p) => sum + (p.kdr || 0), 0) / leaderboardData.length 
+                  : 0).toFixed(2)}
               </div>
             </div>
           </div>

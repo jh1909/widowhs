@@ -18,35 +18,8 @@ export default function Profile() {
   const [isEditingName, setIsEditingName] = useState(false);
   const [editNameValue, setEditNameValue] = useState("");
   const [editLoading, setEditLoading] = useState(false);
-
-  const historyData = useMemo(() => {
-    if (!player || !player.elo || player.elo === "-") return [];
-    
-    // player.elo might be a string with commas
-    const currentElo = parseInt(player.elo.toString().replace(/,/g, ""));
-    if (isNaN(currentElo)) return [];
-    
-    const data = [];
-    const now = new Date();
-    
-    // Generate 30 days of data starting from a lower/higher random number
-    let elo = currentElo - Math.floor(Math.random() * 200 + 100);
-    for (let i = 30; i >= 0; i--) {
-      const date = new Date(now);
-      date.setDate(date.getDate() - i);
-      
-      data.push({
-        date: date.toLocaleDateString("en-US", { month: "short", day: "numeric" }),
-        elo: i === 0 ? currentElo : elo,
-      });
-      
-      // Random walk towards current elo
-      const diff = currentElo - elo;
-      const step = diff / (i || 1) + (Math.random() * 40 - 20);
-      elo = Math.round(elo + step);
-    }
-    return data;
-  }, [player]);
+  
+  const [historyData, setHistoryData] = useState<any[]>([]);
 
   useEffect(() => {
     async function fetchPlayerData() {
@@ -75,6 +48,43 @@ export default function Profile() {
         if (data && data.length > 0) {
           setPlayer(data[0]);
           setError(null);
+          
+          // Fetch historical data
+          const { data: history } = await supabase
+            .from("player_history")
+            .select("elo, created_at")
+            .ilike("player_name", data[0].name)
+            .order("created_at", { ascending: true })
+            .limit(30);
+            
+          if (history && history.length > 0) {
+            const formattedHistory = history.map(h => ({
+              date: new Date(h.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+              elo: h.elo
+            }));
+            
+            // Ensure there's a point for the current data
+            const lastData = formattedHistory[formattedHistory.length - 1];
+            const currentEloRaw = parseInt(data[0].elo.toString().replace(/,/g, ""));
+            
+            if (!isNaN(currentEloRaw) && (!lastData || lastData.elo !== currentEloRaw)) {
+               formattedHistory.push({
+                 date: new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+                 elo: currentEloRaw
+               });
+            }
+            
+            setHistoryData(formattedHistory);
+          } else {
+             // Fallback to just the current ELO as a single point
+             const currentEloRaw = parseInt(data[0].elo.toString().replace(/,/g, ""));
+             if (!isNaN(currentEloRaw)) {
+               setHistoryData([{
+                 date: new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+                 elo: currentEloRaw
+               }]);
+             }
+          }
         } else if (user && user.username.toLowerCase() === targetId.toLowerCase()) {
           // Fallback for missing user profile if it's the logged-in user
           setPlayer({
@@ -100,6 +110,30 @@ export default function Profile() {
 
     fetchPlayerData();
   }, [id, user]);
+
+  const badges = useMemo(() => {
+    if (!player) return [];
+    const b = [];
+    
+    // Check various stats for badges
+    if (parseFloat(player.kdr) > 2.0) {
+      b.push({ id: 'slayer', name: 'Slayer', icon: <Zap className="w-5 h-5 text-yellow-400" />, desc: 'K/D Ratio over 2.0' });
+    }
+    if (parseFloat(player.accuracy) > 40) {
+      b.push({ id: 'sharpshooter', name: 'Sharpshooter', icon: <Target className="w-5 h-5 text-red-400" />, desc: 'Accuracy over 40%' });
+    }
+    if (player.matches && player.matches >= 100) {
+      b.push({ id: 'veteran', name: 'Veteran', icon: <Timer className="w-5 h-5 text-blue-400" />, desc: 'Played 100+ matches' });
+    }
+    if (player.crouches && player.crouches > 1000) {
+      b.push({ id: 'fitness', name: 'Squat Master', icon: <Swords className="w-5 h-5 text-green-400" />, desc: '1,000+ tactical crouches' });
+    }
+    if (Number(player.rank) <= 10) {
+      b.push({ id: 'elite', name: 'Top 10', icon: <Trophy className="w-5 h-5 text-toxic-purple" />, desc: 'Reached Top 10 Global' });
+    }
+    
+    return b;
+  }, [player]);
 
   const handleUpdateName = async () => {
     if (!editNameValue.trim() || editNameValue.trim() === player.name) {
@@ -278,7 +312,25 @@ export default function Profile() {
         <StatCard title="Crouches" value={player.crouches?.toString() || "0"} icon={<Trophy />} />
       </section>
 
-      {/* Performance Graph Section - Since we don't have historical data in the DB yet, keeping visual graph */}
+      {/* Badges Section */}
+      {badges.length > 0 && (
+        <section className="flex flex-col gap-3 mt-4">
+          <h3 className="font-sans text-[24px] font-semibold text-on-surface uppercase tracking-tight">Achievements</h3>
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+            {badges.map(badge => (
+              <div key={badge.id} className="bg-surface-container/30 border border-[#4d4353] rounded-xl p-4 flex flex-col items-center justify-center text-center gap-2 hover:bg-surface-container/50 transition-colors">
+                <div className="p-3 bg-surface-container rounded-full border border-[#4d4353]/50 mb-1">
+                  {badge.icon}
+                </div>
+                <h4 className="font-sans font-bold text-sm text-white uppercase tracking-widest leading-none">{badge.name}</h4>
+                <p className="font-mono text-[10px] text-zinc-500">{badge.desc}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* Performance Graph Section - Fetches from player_history */}
       <section className="flex flex-col gap-3 mt-4">
         <h3 className="font-sans text-[24px] font-semibold text-on-surface uppercase tracking-tight">Performance History</h3>
         <div className="w-full bg-surface-container/30 backdrop-blur-[12px] border border-[#4d4353] rounded-xl p-6 h-[300px] flex flex-col relative overflow-hidden">
