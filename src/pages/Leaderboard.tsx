@@ -8,9 +8,11 @@ import {
   ChevronRight,
   Search,
   Trophy,
+  Info,
 } from "lucide-react";
 import { Link } from "react-router-dom";
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
+import { createPortal } from "react-dom";
 import { useAuth } from "../lib/AuthContext";
 import { supabase } from "../lib/supabase";
 
@@ -22,6 +24,12 @@ type Player = {
   winrate: string;
   hs: string;
   matches: number | string;
+  avatar_url?: string;
+  score?: number;
+  kdr?: string | number;
+  kpm?: string | number;
+  accuracy?: string | number;
+  [key: string]: any;
 };
 
 export default function Leaderboard() {
@@ -33,6 +41,8 @@ export default function Leaderboard() {
   const [leaderboardData, setLeaderboardData] = useState<Player[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const [tooltipPos, setTooltipPos] = useState<{ top: number; left: number } | null>(null);
 
   useEffect(() => {
     async function fetchLeaderboard() {
@@ -142,7 +152,19 @@ export default function Leaderboard() {
                   <th className="py-4 px-6 text-right">KDR</th>
                   <th className="py-4 px-6 text-right">Acc%</th>
                   <th className="py-4 px-6 text-right">KPM</th>
-                  <th className="py-4 px-6 text-right">Elo</th>
+                  <th className="py-4 px-6 text-right">
+                    <div 
+                      className="flex items-center justify-end gap-1 cursor-help"
+                      onMouseEnter={(e) => {
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        setTooltipPos({ top: rect.top, left: rect.left + rect.width / 2 });
+                      }}
+                      onMouseLeave={() => setTooltipPos(null)}
+                    >
+                      Elo
+                      <Info className="w-4 h-4 text-zinc-500" />
+                    </div>
+                  </th>
                 </tr>
               </thead>
               <tbody className="font-mono text-[13px] font-medium text-on-surface">
@@ -476,16 +498,41 @@ export default function Leaderboard() {
                 </span>
               </div>
               <div className="font-mono text-[18px] text-white">
-                {(leaderboardData.length > 0
-                  ? leaderboardData.reduce((sum, p) => sum + (p.kdr || 0), 0) /
-                    leaderboardData.length
-                  : 0
-                ).toFixed(2)}
+                {(() => {
+                  const activePlayers = leaderboardData.filter(p => parseFloat(p.kdr as string) > 0);
+                  if (activePlayers.length === 0) return "0.00";
+                  return (
+                    activePlayers.reduce((sum, p) => sum + (parseFloat(p.kdr as string) || 0), 0) /
+                    activePlayers.length
+                  ).toFixed(2);
+                })()}
               </div>
             </div>
           </div>
         </div>
       </aside>
+
+      {tooltipPos && createPortal(
+        <div 
+          className="fixed w-64 p-3 bg-zinc-900 border border-toxic-purple/20 rounded shadow-xl z-[9999] text-left font-sans font-normal text-xs text-zinc-300 pointer-events-none"
+          style={{ 
+            top: tooltipPos.top - 8, 
+            left: tooltipPos.left, 
+            transform: 'translate(-100%, -100%)' 
+          }}
+        >
+          <div className="font-bold text-white mb-1 tracking-wider uppercase text-[10px]">Elo Performance System</div>
+          <ul className="space-y-1 mt-2 text-zinc-400">
+            <li><span className="text-zinc-200 font-mono">Pace (KPM):</span> min(KPM / 16.67, 1.67)</li>
+            <li><span className="text-zinc-200 font-mono">Accuracy:</span> min(Acc / 60, 1.15)</li>
+            <li><span className="text-zinc-200 font-mono">KDR:</span> min(KDR / 3.0, 1.50)</li>
+          </ul>
+          <div className="mt-2 pt-2 border-t border-white/10 text-[10px]">
+            Pace(55%) + Acc(30%) + KDR(15%). The points calculated from this formula form the base performance score.
+          </div>
+        </div>,
+        document.body
+      )}
     </main>
   );
 }

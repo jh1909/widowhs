@@ -42,6 +42,9 @@ export default function Profile() {
   const [editLoading, setEditLoading] = useState(false);
 
   const [historyData, setHistoryData] = useState<any[]>([]);
+  const [matchHistory, setMatchHistory] = useState<any[]>([]);
+  const [matchHistoryPage, setMatchHistoryPage] = useState(1);
+  const matchesPerPage = 10;
 
   const [bnetAccounts, setBnetAccounts] = useState<string[]>([]);
   const [newBnetAccount, setNewBnetAccount] = useState("");
@@ -137,6 +140,21 @@ export default function Profile() {
                 },
               ]);
             }
+          }
+
+          // Fetch Match History
+          try {
+            const { data: matches } = await supabase
+              .from("player_matches")
+              .select("*")
+              .ilike("player_name", mainPlayer.name)
+              .order("created_at", { ascending: false });
+
+            if (matches) {
+              setMatchHistory(matches);
+            }
+          } catch (e) {
+            console.warn("Could not load match history", e);
           }
         } else if (
           user &&
@@ -593,7 +611,7 @@ export default function Profile() {
 
           <div className="flex-grow w-full relative h-[220px]">
             {historyData.length > 0 ? (
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height="100%" minWidth={1}>
                 <AreaChart
                   data={historyData}
                   margin={{ top: 10, right: 0, left: -20, bottom: 0 }}
@@ -671,6 +689,85 @@ export default function Profile() {
               </div>
             )}
           </div>
+        </div>
+      </section>
+
+      {/* Match History Section */}
+      <section className="flex flex-col gap-3 mt-4">
+         <h3 className="font-sans text-[24px] font-semibold text-on-surface uppercase tracking-tight">
+          Match History
+        </h3>
+        <div className="bg-surface-container border border-surface-container-high rounded-lg p-6">
+          {matchHistory.length > 0 ? (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse min-w-[800px]">
+                <thead>
+                  <tr className="border-b border-white/5 text-[10px] uppercase tracking-widest text-zinc-500 font-sans">
+                    <th className="py-3 px-4">Date</th>
+                    <th className="py-3 px-4">Score</th>
+                    <th className="py-3 px-4">Deaths</th>
+                    <th className="py-3 px-4">KDR</th>
+                    <th className="py-3 px-4">KPM</th>
+                    <th className="py-3 px-4">Acc</th>
+                    <th className="py-3 px-4">Perf. Score</th>
+                  </tr>
+                </thead>
+                <tbody className="font-mono text-[13px] text-zinc-300">
+                  {matchHistory
+                    .slice(
+                      (matchHistoryPage - 1) * matchesPerPage,
+                      matchHistoryPage * matchesPerPage
+                    )
+                    .map((m, idx) => (
+                      <tr
+                        key={m.id || idx}
+                        className="border-b border-white/5 transition-colors hover:bg-white/[0.02]"
+                      >
+                         <td className="py-3 px-4 text-zinc-400">
+                           {new Date(m.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "2-digit" })}
+                         </td>
+                         <td className="py-3 px-4 text-white font-bold">{m.score}</td>
+                         <td className="py-3 px-4">{m.deaths}</td>
+                         <td className="py-3 px-4 font-bold">{m.kdr?.toFixed(2) || "-"}</td>
+                         <td className="py-3 px-4">{m.kpm?.toFixed(2) || "-"}</td>
+                         <td className="py-3 px-4">{m.accuracy?.toFixed(1) || "-"}%</td>
+                         <td className="py-3 px-4 text-toxic-purple font-bold">
+                            {m.performance_score ? Math.round(m.performance_score) : "-"}
+                         </td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
+
+              {matchHistory.length > matchesPerPage && (
+                <div className="flex justify-between items-center mt-4">
+                  <div className="text-zinc-500 font-mono text-xs">
+                    Page {matchHistoryPage} of {Math.ceil(matchHistory.length / matchesPerPage)}
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setMatchHistoryPage(p => Math.max(1, p - 1))}
+                      disabled={matchHistoryPage === 1}
+                      className="px-3 py-1 bg-surface-container-high hover:bg-surface-container-highest disabled:opacity-50 disabled:cursor-not-allowed rounded font-mono text-xs transition-colors"
+                    >
+                      Prev
+                    </button>
+                    <button
+                      onClick={() => setMatchHistoryPage(p => Math.min(Math.ceil(matchHistory.length / matchesPerPage), p + 1))}
+                      disabled={matchHistoryPage === Math.ceil(matchHistory.length / matchesPerPage)}
+                      className="px-3 py-1 bg-surface-container-high hover:bg-surface-container-highest disabled:opacity-50 disabled:cursor-not-allowed rounded font-mono text-xs transition-colors"
+                    >
+                      Next
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="flex items-center justify-center w-full py-8 text-zinc-500 font-mono text-sm">
+              NO MATCH HISTORY AVAILABLE
+            </div>
+          )}
         </div>
       </section>
 
