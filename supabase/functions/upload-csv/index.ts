@@ -32,7 +32,7 @@ serve(async (req) => {
     // 2. Initialisiere den Supabase Client mit der Service Role (umgangen RLS für volle Datenbankkontrolle in der Funktion)
     const supabaseClient = createClient(
       Deno.env.get("SUPABASE_URL") ?? "",
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
+      Deno.env.get("SERVICE_ROLE_KEY") ?? Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
       { auth: { persistSession: false } }
     );
 
@@ -139,10 +139,10 @@ serve(async (req) => {
       playerStats[mainName].crouches += m.crouches;
       playerStats[mainName].time_in_lobby += m.time_in_lobby;
 
-      const paceScore = Math.min(m.kpm / 16.67, 1.67);
-      const accuracyScore = Math.min(m.accuracy / 60, 1.15);
-      const kdrScore = Math.min(m.kdr / 3.0, 1.50);
-      const matchPerformanceScore = 1000 * (0.55 * paceScore + 0.30 * accuracyScore + 0.15 * kdrScore);
+      const paceScore = (m.kpm || 0) / (50 / 3);
+      const accuracyScore = Math.min((m.accuracy || 0) / 60, 1.15);
+      const kdrScore = Math.min((m.kdr || 0) / 3.0, 1.50);
+      const matchPerformanceScore = Math.round(550 * paceScore + 300 * accuracyScore + 150 * kdrScore) || 0;
 
       playerStats[mainName].new_matches.push({
         player_name: mainName,
@@ -162,12 +162,12 @@ serve(async (req) => {
       const avg_acc = p.matches > 0 ? p.accuracy_sum / p.matches : 0;
       const avg_kpm = p.matches > 0 ? p.kpm_sum / p.matches : 0;
 
-      const paceScore = Math.min(avg_kpm / 16.67, 1.67);
-      const accuracyScore = Math.min(avg_acc / 60, 1.15);
-      const kdrScore = Math.min(avg_kdr / 3.0, 1.50);
+      const paceScore = (avg_kpm || 0) / (50 / 3);
+      const accuracyScore = Math.min((avg_acc || 0) / 60, 1.15);
+      const kdrScore = Math.min((avg_kdr || 0) / 3.0, 1.50);
 
-      const performanceScore = 1000 * (0.55 * paceScore + 0.30 * accuracyScore + 0.15 * kdrScore);
-      const finalElo = Math.round(performanceScore);
+      const performanceScore = Math.round(550 * paceScore + 300 * accuracyScore + 150 * kdrScore) || 0;
+      const finalElo = performanceScore;
 
       return {
         name: p.name,
@@ -220,14 +220,14 @@ serve(async (req) => {
       {
         action: "EDGE_FUNCTION_CSV_UPLOAD",
         admin_user: apiKey ? "API_AUTOMATION" : "ADMIN_DASHBOARD",
-        details: \`Imported \${parsedMatches.length} valid matches, updated \${finalPlayers.length} tracked players.\`,
+        details: `Imported ${parsedMatches.length} valid matches, updated ${finalPlayers.length} tracked players.`,
       },
     ]);
 
     return new Response(
       JSON.stringify({
         success: true,
-        message: \`Successfully imported \${parsedMatches.length} valid matches and updated \${finalPlayers.length} players.\`,
+        message: `Successfully imported ${parsedMatches.length} valid matches and updated ${finalPlayers.length} players.`,
       }),
       {
         status: 200,

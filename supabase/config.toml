@@ -1,0 +1,4 @@
+project_id = "kzymescftenxuspjsssh"
+
+[functions.upload-csv]
+verify_jwt = false

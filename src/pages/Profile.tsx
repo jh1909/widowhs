@@ -505,10 +505,9 @@ export default function Profile() {
             )}
           </div>
           <div className="flex items-center gap-3">
-            <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-[#9d4edd]/10 border border-[#9d4edd]/30 rounded">
-              <span className="w-2 h-2 rounded-full bg-[#ce8df2] animate-pulse"></span>
-              <span className="font-mono text-[12px] font-bold text-[#f2daff] uppercase tracking-widest">
-                {player.elo || "Unknown"} ELO
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-surface-container/50 border border-[#4d4353] rounded">
+              <span className="font-mono text-[12px] font-bold text-on-surface-variant uppercase tracking-widest">
+                Total Matches Played: {player.matches || 0}
               </span>
             </div>
             <span className="font-mono text-[14px] text-on-surface-variant border-l border-[#4d4353] pl-3">
@@ -520,11 +519,11 @@ export default function Profile() {
 
         <div className="flex flex-col items-start md:items-end gap-1 bg-surface-container/30 border border-[#4d4353] rounded-lg p-4 backdrop-blur-[12px]">
           <span className="font-mono text-[12px] font-bold text-on-surface-variant uppercase tracking-widest">
-            K/D Ratio
+            Performance Score (ELO)
           </span>
           <div className="flex items-baseline gap-2">
-            <span className="font-sans text-[32px] font-semibold text-on-surface leading-none">
-              {player.kdr || "0"}
+            <span className="font-sans text-[32px] font-semibold text-[#f2daff] drop-shadow-[0_0_12px_rgba(157,78,221,0.5)] leading-none text-toxic-purple">
+              {player.elo || "0"}
             </span>
           </div>
         </div>
@@ -533,9 +532,23 @@ export default function Profile() {
       {/* Stats Grid (Bento/Glassmorphism style) */}
       <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
         <StatCard
-          title="Accuracy %"
+          title="Avg Accuracy"
           value={player.accuracy || "0%"}
           icon={<Target />}
+        />
+        <StatCard
+          title="Avg Pace"
+          value={player.kpm?.toString() || "0"}
+          icon={<Swords />}
+        />
+        <StatCard
+          title="Avg Crouches"
+          value={
+            player.matches > 0 && player.crouches
+              ? (player.crouches / player.matches).toFixed(1)
+              : "0"
+          }
+          icon={<Trophy />}
         />
         <StatCard
           title="Total Kills"
@@ -548,19 +561,15 @@ export default function Profile() {
           icon={<Zap />}
         />
         <StatCard
-          title="Kills per Min"
-          value={player.kpm?.toString() || "0"}
-          icon={<Swords />}
-        />
-        <StatCard
-          title="Time in Lobby (s)"
-          value={player.time_in_lobby?.toString() || "0"}
-          icon={<Timer />}
-        />
-        <StatCard
-          title="Crouches"
-          value={player.crouches?.toString() || "0"}
-          icon={<Trophy />}
+          title="Total K/D"
+          value={
+            player.deaths > 0
+              ? (player.score / player.deaths).toFixed(2)
+              : player.score > 0
+                ? player.score.toString()
+                : "0"
+          }
+          icon={<Target />} // Reusing target or existing icons
         />
       </section>
 
