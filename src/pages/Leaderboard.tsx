@@ -122,7 +122,7 @@ export default function Leaderboard() {
                 <tr className="border-b border-toxic-purple/10 text-on-surface-variant text-[11px] font-bold uppercase tracking-widest bg-surface-container-low">
                   <th className="py-4 px-6 w-16 text-center">Rank</th>
                   <th className="py-4 px-6">Player</th>
-                  <th className="py-4 px-6 text-right">Score</th>
+                  <th className="py-4 px-6 text-right">Kills</th>
                   <th className="py-4 px-6 text-right">KDR</th>
                   <th className="py-4 px-6 text-right">Acc%</th>
                   <th className="py-4 px-6 text-right">KPM</th>
