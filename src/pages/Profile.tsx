@@ -20,6 +20,10 @@ export default function Profile() {
   const [editLoading, setEditLoading] = useState(false);
   
   const [historyData, setHistoryData] = useState<any[]>([]);
+  
+  const [linkedAccounts, setLinkedAccounts] = useState<any[]>([]);
+  const [newLinkedAccount, setNewLinkedAccount] = useState("");
+  const [linkLoading, setLinkLoading] = useState(false);
 
   useEffect(() => {
     async function fetchPlayerData() {
@@ -57,6 +61,49 @@ export default function Profile() {
             .order("created_at", { ascending: true })
             .limit(30);
             
+          if (user && user.id === data[0].user_id) {
+            const { data: accounts } = await supabase
+              .from("players")
+              .select("name, elo, matches, score, deaths, kdr, accuracy, kpm, crouches, time_in_lobby, rank")
+              .eq("user_id", user.id)
+              .neq("name", data[0].name);
+              
+            if (accounts) {
+              setLinkedAccounts(accounts);
+              
+              // If main profile has no matches, but linked accounts do, aggregate them for display
+              if ((data[0].matches === 0 || !data[0].matches) && accounts.length > 0) {
+                 const totalMatches = accounts.reduce((acc, curr) => acc + (curr.matches || 0), 0);
+                 if (totalMatches > 0) {
+                    const totalScore = accounts.reduce((acc, curr) => acc + (curr.score || 0), 0);
+                    const totalDeaths = accounts.reduce((acc, curr) => acc + (curr.deaths || 0), 0);
+                    const totalCrouches = accounts.reduce((acc, curr) => acc + (curr.crouches || 0), 0);
+                    const totalTime = accounts.reduce((acc, curr) => acc + (curr.time_in_lobby || 0), 0);
+                    
+                    data[0].matches = totalMatches;
+                    data[0].score = totalScore;
+                    data[0].deaths = totalDeaths;
+                    data[0].crouches = totalCrouches;
+                    data[0].time_in_lobby = totalTime;
+                    data[0].kdr = totalDeaths > 0 ? (totalScore / totalDeaths).toFixed(2) : totalScore.toString();
+                    
+                    // Averages
+                    const avgAcc = accounts.reduce((acc, curr) => acc + (parseFloat(curr.accuracy) || 0), 0) / accounts.length;
+                    const avgKpm = accounts.reduce((acc, curr) => acc + (parseFloat(curr.kpm) || 0), 0) / accounts.length;
+                    
+                    data[0].accuracy = isNaN(avgAcc) ? "0" : avgAcc.toFixed(2);
+                    data[0].kpm = isNaN(avgKpm) ? "0" : avgKpm.toFixed(2);
+                    
+                    // Highest ELO among linked accounts
+                    const elos = accounts.map(a => parseInt(a.elo?.toString().replace(/,/g, "") || "0")).filter(v => !isNaN(v) && v > 0);
+                    if (elos.length > 0) {
+                      data[0].elo = Math.max(...elos).toLocaleString();
+                    }
+                 }
+              }
+            }
+          }
+
           if (history && history.length > 0) {
             const formattedHistory = history.map(h => ({
               date: new Date(h.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
@@ -178,6 +225,10 @@ export default function Profile() {
       }
 
       setIsEditingName(false);
+      
+      // Navigate to new URL since the ID changed
+      // Instead of just navigating, we reload to ensure context is fully synced
+      window.location.href = `/profile/${encodeURIComponent(editNameValue.trim())}`;
       // Force reload to the new URL so AuthContext picks up the new name from the database
       window.location.hash = `/profile/${encodeURIComponent(editNameValue.trim())}`;
       window.location.reload();
@@ -186,6 +237,67 @@ export default function Profile() {
       alert("Failed to update name.");
     } finally {
       setEditLoading(false);
+    }
+  };
+
+  const handleLinkAccount = async () => {
+    const accName = newLinkedAccount.trim();
+    if (!accName) return;
+    setLinkLoading(true);
+
+    try {
+      const { data: existing, error: err } = await supabase
+        .from('players')
+        .select('*')
+        .ilike('name', accName)
+        .maybeSingle();
+
+      if (err && err.code !== 'PGRST116') throw err;
+
+      if (existing) {
+        if (existing.user_id && existing.user_id !== user?.id) {
+           alert("This account name is already registered by another player.");
+           setLinkLoading(false);
+           return;
+        }
+        if (existing.user_id === user?.id) {
+           alert("You have already linked this account.");
+           setLinkLoading(false);
+           return;
+        }
+
+        const { error: updateErr } = await supabase
+          .from('players')
+          .update({ user_id: user?.id })
+          .eq('name', existing.name);
+          
+        if (updateErr) throw updateErr;
+        setLinkedAccounts(prev => [...prev, existing]);
+      } else {
+        const newPlayer = {
+          name: accName,
+          user_id: user!.id,
+          matches: 0,
+          score: 0,
+          deaths: 0,
+          kdr: "-",
+          accuracy: "-",
+          kpm: "-",
+          crouches: 0,
+          time_in_lobby: 0,
+          elo: "-",
+          rank: 999999
+        };
+        const { error: insertErr } = await supabase.from('players').insert([newPlayer]);
+        if (insertErr) throw insertErr;
+        setLinkedAccounts(prev => [...prev, newPlayer]);
+      }
+      setNewLinkedAccount("");
+    } catch (e: any) {
+      console.error(e);
+      alert("Failed to link account.");
+    } finally {
+      setLinkLoading(false);
     }
   };
 
@@ -368,6 +480,52 @@ export default function Profile() {
           </div>
         </div>
       </section>
+
+      {/* Linked Accounts Section */}
+      {user && player && user.id === player.user_id && (
+        <section className="flex flex-col gap-3 mt-4">
+          <h3 className="font-sans text-[24px] font-semibold text-on-surface uppercase tracking-tight">Battle.net Accounts</h3>
+          <div className="bg-surface-container/30 backdrop-blur-[12px] border border-[#4d4353] rounded-xl p-6 flex flex-col gap-4">
+            <p className="text-zinc-400 font-mono text-sm mb-2">Track up to 2 actual Battle.net account names. The CSV data will be mapped to these exact names.</p>
+            {linkedAccounts.length > 0 && (
+              <div className="flex flex-col gap-2">
+                {linkedAccounts.map(acc => (
+                  <div key={acc.name} className="flex justify-between items-center bg-surface-container/50 p-3 rounded border border-toxic-purple/20">
+                    <div>
+                      <span className="font-sans font-bold text-white text-lg">{acc.name}</span>
+                      <span className="ml-3 font-mono text-xs text-zinc-400">Matches: {acc.matches}</span>
+                    </div>
+                    <Link to={`/profile/${acc.name}`} className="text-purple-400 hover:text-purple-300 font-mono text-sm uppercase tracking-widest">View Stats</Link>
+                  </div>
+                ))}
+              </div>
+            )}
+            
+            {linkedAccounts.length < 2 && (
+              <div className="mt-4 flex flex-col sm:flex-row gap-3">
+                <input 
+                  type="text" 
+                  value={newLinkedAccount}
+                  onChange={(e) => setNewLinkedAccount(e.target.value)}
+                  placeholder="Enter exact Battle.net name (e.g. prx)"
+                  className="flex-grow bg-surface-container border border-surface-container-highest rounded px-4 py-2 font-mono text-[13px] text-white focus:outline-none focus:border-toxic-purple transition-colors"
+                />
+                <button 
+                  onClick={handleLinkAccount}
+                  disabled={linkLoading || !newLinkedAccount.trim()}
+                  className="px-6 py-2 bg-toxic-purple hover:bg-[#842bd2] text-white font-bold rounded transition-colors disabled:opacity-50 font-sans uppercase tracking-widest text-sm whitespace-nowrap cursor-pointer"
+                >
+                  {linkLoading ? "Adding..." : "Add Account"}
+                </button>
+              </div>
+            )}
+            {linkedAccounts.length >= 2 && (
+               <p className="text-zinc-500 font-mono text-xs mt-2">You have reached the maximum of 2 Battle.net accounts.</p>
+            )}
+          </div>
+        </section>
+      )}
+
     </main>
   );
 }

@@ -13,6 +13,7 @@ type AuthContextType = {
   user: User | null;
   login: () => void;
   logout: () => void;
+  setUser: React.Dispatch<React.SetStateAction<User | null>>;
 };
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -29,35 +30,38 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       try {
         // 1. Check if the player already exists in the database by user_id
-        const { data: userById, error: userByIdError } = await supabase
+        // We order by created_at or matches to pick their "Main" profile (the first one they had)
+        const { data: userByIds, error: userByIdError } = await supabase
           .from('players')
           .select('user_id, name, is_admin')
           .eq('user_id', userId)
-          .maybeSingle();
+          .order('matches', { ascending: false })
+          .limit(1);
 
         if (userByIdError && userByIdError.code !== 'PGRST116') {
           console.error("Error checking player by id:", userByIdError);
         }
 
-        if (userById) {
+        if (userByIds && userByIds.length > 0) {
+          const userById = userByIds[0];
           // Update the context with the saved name, rather than the Discord name
           setUser(prev => prev ? { ...prev, username: userById.name, isAdmin: !!userById.is_admin } : null);
           return;
         }
 
         // 2. If not found by user_id, search by their Discord name to link an old profile
-        let { data: userByName, error: selectError } = await supabase
+        let { data: userByNames, error: selectError } = await supabase
           .from('players')
           .select('user_id, name, is_admin')
           .ilike('name', discordName)
-          .maybeSingle();
+          .limit(1);
 
         if (selectError && selectError.code !== 'PGRST116') {
           console.error("Error checking player by name:", selectError);
           return;
         }
 
-        // 3. If data exists but user_id is null, link it
+        const userByName = userByNames && userByNames.length > 0 ? userByNames[0] : null;
         if (userByName && !userByName.user_id) {
           await supabase.from('players').update({ user_id: userId }).eq('name', userByName.name);
           setUser(prev => prev ? { ...prev, username: userByName.name, isAdmin: !!userByName.is_admin } : null);
@@ -99,10 +103,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session?.user) {
         const username = session.user.user_metadata?.full_name || session.user.user_metadata?.name || 'User';
-        setUser({
-          id: session.user.id,
-          username: username,
-          avatar_url: session.user.user_metadata?.avatar_url
+        setUser(prev => {
+          if (prev && prev.id === session.user.id) return prev;
+          return {
+            id: session.user.id,
+            username: username,
+            avatar_url: session.user.user_metadata?.avatar_url
+          };
         });
         
         ensurePlayerExists(username, session.user.id);
@@ -114,10 +121,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } = supabase.auth.onAuthStateChange((_event, session) => {
       if (session?.user) {
         const username = session.user.user_metadata?.full_name || session.user.user_metadata?.name || 'User';
-        setUser({
-          id: session.user.id,
-          username: username,
-          avatar_url: session.user.user_metadata?.avatar_url
+        setUser(prev => {
+          if (prev && prev.id === session.user.id) return prev;
+          return {
+            id: session.user.id,
+            username: username,
+            avatar_url: session.user.user_metadata?.avatar_url
+          };
         });
 
         ensurePlayerExists(username, session.user.id);
@@ -146,7 +156,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, login, logout }}>
+    <AuthContext.Provider value={{ user, login, logout, setUser }}>
       {children}
     </AuthContext.Provider>
   );

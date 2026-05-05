@@ -92,21 +92,28 @@ function CsvUpload() {
     setMessage("");
 
     Papa.parse(file, {
-      header: true,
+      header: false,
       skipEmptyLines: true,
       complete: async (results) => {
         try {
-          // Player, score (kills), deaths, kdr, accuracy, kills/min, crouches, time in lobby
-          const parsedMatches = results.data.map((row: any) => ({
-            player_name: row['Player'] || row['player'] || row['player_name'] || "Unknown",
-            score: parseFloat(row['score (kills)'] || row['score'] || row['kills']) || 0,
-            deaths: parseFloat(row['deaths']) || 0,
-            kdr: parseFloat(row['kdr']) || 0,
-            accuracy: parseFloat(row['accuracy']) || 0,
-            kpm: parseFloat(row['kills/min'] || row['kpm']) || 0,
-            crouches: parseFloat(row['crouches']) || 0,
-            time_in_lobby: parseFloat(row['time in lobby'] || row['time_in_lobby']) || 0,
-          })).filter((m: any) => m.player_name !== "Unknown");
+          // If the CSV has headers, the first row might be ['Player', 'score (kills)', ...]
+          const parsedMatches = results.data.map((row: any) => {
+            // Check if it's the header row or empty
+            if (!row || !row[0]) return null;
+            if (row[0].toString().toLowerCase().includes('player') && isNaN(parseFloat(row[1]))) {
+               return null;
+            }
+            return {
+              player_name: row[0].toString().trim(),
+              score: parseFloat(row[1]) || 0,
+              deaths: parseFloat(row[2]) || 0,
+              kdr: parseFloat(row[3]) || 0,
+              accuracy: parseFloat(row[4]) || 0,
+              kpm: parseFloat(row[5]) || 0,
+              crouches: parseFloat(row[6]) || 0,
+              time_in_lobby: parseFloat(row[7]) || 0,
+            };
+          }).filter((m: any) => m && m.player_name !== "Unknown" && !isNaN(m.score));
           
           if (parsedMatches.length === 0) {
             setStatus("error");
@@ -749,10 +756,10 @@ function Dashboard() {
                     key={player.name}
                     id={player.name} 
                     initial={player.name[0]?.toUpperCase() || "?"} 
-                    status={player.is_banned ? "Banned" : "Ranked"} 
+                    status={player.is_banned ? "Banned" : (player.matches && player.matches > 0 ? "Ranked" : "Unranked")} 
                     rank={Number(player.rank) >= 999999 ? "-" : `#${player.rank}`} 
                     matches={player.matches?.toString() || "0"} 
-                    type={player.is_banned ? "red" : "green"} 
+                    type={player.is_banned ? "red" : (player.matches && player.matches > 0 ? "green" : "zinc")} 
                     onEdit={() => handleEdit(player)}
                     onBan={() => handleBan(player)}
                     onDelete={() => handleDelete(player.name)}
