@@ -332,7 +332,12 @@ export default function Profile() {
   };
 
   const handleRemoveAccount = async (accName: string) => {
-    if (!confirm(`Are you sure you want to remove the Battle.net account '${accName}'?`)) return;
+    if (
+      !confirm(
+        `Are you sure you want to remove the Battle.net account '${accName}'?`,
+      )
+    )
+      return;
     try {
       const newAccounts = bnetAccounts.filter((a) => a !== accName);
       const { error: updateErr } = await supabase
@@ -415,6 +420,19 @@ export default function Profile() {
       <header className="flex flex-col md:flex-row md:items-end justify-between gap-6 pb-6 border-b border-[#4d4353]">
         <div className="flex flex-col gap-3">
           <div className="flex items-center gap-4">
+            {(player.avatar_url ||
+              (user &&
+                user.username.toLowerCase() === player.name.toLowerCase() &&
+                user.avatar_url)) && (
+              <div className="w-16 h-16 rounded overflow-hidden border border-toxic-purple/50">
+                <img
+                  src={player.avatar_url || user?.avatar_url}
+                  alt={`${player.name} avatar`}
+                  className="w-full h-full object-cover"
+                />
+              </div>
+            )}
+
             {isEditingName ? (
               <div className="flex items-center gap-2">
                 <input
