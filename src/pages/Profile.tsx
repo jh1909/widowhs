@@ -611,7 +611,7 @@ export default function Profile() {
 
           <div className="flex-grow w-full relative h-[220px]">
             {historyData.length > 0 ? (
-              <ResponsiveContainer width="100%" height="100%" minWidth={1}>
+              <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
                 <AreaChart
                   data={historyData}
                   margin={{ top: 10, right: 0, left: -20, bottom: 0 }}

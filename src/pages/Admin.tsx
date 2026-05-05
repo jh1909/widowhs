@@ -269,9 +269,10 @@ function CsvUpload() {
               }));
 
               // Upsert to Supabase
+              const playersToUpsert = finalPlayers.map(({ new_matches, ...rest }) => rest);
               const { error: upsertErr } = await supabase
                 .from("players")
-                .upsert(finalPlayers, { onConflict: "name" });
+                .upsert(playersToUpsert, { onConflict: "name" });
 
               if (upsertErr) throw upsertErr;
 
