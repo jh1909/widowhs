@@ -1,6 +1,5 @@
 import { useState, useRef, useEffect } from "react";
 import { Link, Route, Routes, useLocation, Navigate } from "react-router-dom";
-import Papa from "papaparse";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/AuthContext";
 import {
@@ -103,255 +102,35 @@ function CsvUpload() {
     setMessage("");
 
     try {
-      // 1. Fetch all tracked players to map Bnet names to Discord names
-      const { data: dbPlayers, error: dbErr } = await supabase
-        .from("players")
-        .select("*");
+      const formData = new FormData();
+      formData.append("file", file);
 
-      if (dbErr) throw dbErr;
-
-      const playerMap = new Map<string, any>(); // bnet_name (lowercase) -> main_player
-
-      dbPlayers.forEach((p: any) => {
-        // The main profile itself might be a tracked name
-        playerMap.set(p.name.toLowerCase(), p);
-
-        if (p.bnet_accounts && Array.isArray(p.bnet_accounts)) {
-          p.bnet_accounts.forEach((bnet: string) => {
-            playerMap.set(bnet.toLowerCase(), p);
-          });
-        }
+      // Invoke Supabase Edge Function directly
+      const { data, error: functionError } = await supabase.functions.invoke("upload-csv", {
+        body: formData,
       });
 
-      Papa.parse(file, {
-        header: false,
-        skipEmptyLines: true,
-        complete: async (results) => {
-            try {
-              // If the CSV has headers, the first row might be ['Player', 'score (kills)', ...]
-              const parsedMatches = results.data
-                .map((row: any) => {
-                  // Check if it's the header row or empty
-                  if (!row || !row[0]) return null;
-                  if (
-                    row[0].toString().toLowerCase().includes("player") &&
-                    isNaN(parseFloat(row[1]))
-                  ) {
-                    return null;
-                  }
-                  return {
-                    player_name: row[0].toString().trim(),
-                    score: parseFloat(row[1]) || 0,
-                    deaths: parseFloat(row[2]) || 0,
-                    accuracy: parseFloat(row[3]) || 0,
-                    kpm: parseFloat(row[4]) || 0,
-                    kdr: parseFloat(row[5]) || 0,
-                    crouches: parseFloat(row[6]) || 0,
-                    time_in_lobby: parseFloat(row[7]) || 0,
-                  };
-                })
-                .filter((m: any) => {
-                  // Only keep valid rows where the player name is actively tracked by some Discord account
-                  if (!m || m.player_name === "Unknown" || isNaN(m.score))
-                    return false;
-                  return playerMap.has(m.player_name.toLowerCase());
-                });
+      if (functionError) {
+        console.error("Function error:", functionError);
+        throw new Error(functionError.message || "Failed to process CSV via Edge Function");
+      }
 
-              if (parsedMatches.length === 0) {
-                setStatus("error");
-                setMessage(
-                  "Empty CSV, formatting issue, or no tracked Battle.net accounts found in the file.",
-                );
-                setUploading(false);
-                return;
-              }
+      if (data && data.error) {
+        throw new Error(data.error);
+      }
 
-              // Aggregate Player Stats by Main Discord Profile
-              const playerStats: Record<string, any> = {};
-
-              parsedMatches.forEach((m: any) => {
-                const mainPlayer = playerMap.get(m.player_name.toLowerCase());
-                if (!mainPlayer) return;
-
-                const mainName = mainPlayer.name;
-
-                if (!playerStats[mainName]) {
-                  // Initialize with existing stats to accumulate
-                  const existingMatches = mainPlayer.matches || 0;
-                  const existingKdrAvg = parseFloat(mainPlayer.kdr as string) || 0;
-                  const existingAccAvg = parseFloat(mainPlayer.accuracy as string) || 0;
-                  const existingKpmAvg = parseFloat(mainPlayer.kpm as string) || 0;
-
-                  playerStats[mainName] = {
-                    name: mainName,
-                    matches: existingMatches,
-                    score: mainPlayer.score || 0,
-                    deaths: mainPlayer.deaths || 0,
-                    kdr_sum: existingKdrAvg * existingMatches,
-                    accuracy_sum: existingAccAvg * existingMatches,
-                    kpm_sum: existingKpmAvg * existingMatches,
-                    crouches: mainPlayer.crouches || 0,
-                    time_in_lobby: mainPlayer.time_in_lobby || 0,
-                    new_matches: [] // to store this upload's individual matches
-                  };
-                }
-                
-                // Add the current match to the accumulated totals
-                playerStats[mainName].matches += 1;
-                playerStats[mainName].score += m.score;
-                playerStats[mainName].deaths += m.deaths;
-                playerStats[mainName].kdr_sum += m.kdr;
-                playerStats[mainName].accuracy_sum += m.accuracy;
-                playerStats[mainName].kpm_sum += m.kpm;
-                playerStats[mainName].crouches += m.crouches;
-                playerStats[mainName].time_in_lobby += m.time_in_lobby;
-
-                // Match Performance Score Calculation for this individual match
-                const paceScore = Math.min(m.kpm / 16.67, 1.67);
-                const accuracyScore = Math.min(m.accuracy / 60, 1.15);
-                const kdrScore = Math.min(m.kdr / 3.0, 1.50);
-                const matchPerformanceScore = 100 * (0.55 * paceScore + 0.30 * accuracyScore + 0.15 * kdrScore);
-                
-                playerStats[mainName].new_matches.push({
-                   player_name: mainName,
-                   score: m.score,
-                   deaths: m.deaths,
-                   accuracy: m.accuracy,
-                   kpm: m.kpm,
-                   kdr: m.kdr,
-                   crouches: m.crouches,
-                   time_in_lobby: m.time_in_lobby,
-                   performance_score: matchPerformanceScore
-                });
-              });
-
-              // Convert to leaderboard format and apply Elo formula
-              const newPlayers = Object.values(playerStats).map((p) => {
-                const avg_kdr = p.matches > 0 ? p.kdr_sum / p.matches : 0;
-                const avg_acc = p.matches > 0 ? p.accuracy_sum / p.matches : 0;
-                const avg_kpm = p.matches > 0 ? p.kpm_sum / p.matches : 0;
-                
-                // Elo is calculated based on lifetime average stats
-                const paceScore = Math.min(avg_kpm / 16.67, 1.67);
-                const accuracyScore = Math.min(avg_acc / 60, 1.15);
-                const kdrScore = Math.min(avg_kdr / 3.0, 1.50);
-
-                const performanceScore = 1000 * (0.55 * paceScore + 0.30 * accuracyScore + 0.15 * kdrScore);
-                const finalElo = Math.round(performanceScore);
-
-                return {
-                  name: p.name,
-                  tag: finalElo >= 1200 ? "PRO" : "",
-                  matches: p.matches,
-                  score: p.score,
-                  deaths: p.deaths,
-                  kdr: avg_kdr.toFixed(2),
-                  accuracy: avg_acc.toFixed(2) + "%",
-                  kpm: avg_kpm.toFixed(2),
-                  crouches: p.crouches,
-                  time_in_lobby: p.time_in_lobby,
-                  elo: finalElo.toLocaleString("en-US"),
-                  new_matches: p.new_matches
-                };
-              });
-
-              // Sort by ELO descending to assign ranks
-              newPlayers.sort((a, b) => {
-                const eloA = parseInt(a.elo.replace(/,/g, ""));
-                const eloB = parseInt(b.elo.replace(/,/g, ""));
-                return eloB - eloA;
-              });
-
-              // Assign ranks
-              const finalPlayers = newPlayers.map((p, idx) => ({
-                ...p,
-                rank: idx + 1,
-              }));
-
-              // Upsert to Supabase
-              const playersToUpsert = finalPlayers.map(({ new_matches, ...rest }) => rest);
-              const { error: upsertErr } = await supabase
-                .from("players")
-                .upsert(playersToUpsert, { onConflict: "name" });
-
-              if (upsertErr) throw upsertErr;
-
-            // Track historical data
-            const historyRows = finalPlayers.map((p) => ({
-              player_name: p.name,
-              elo: parseInt(p.elo.replace(/,/g, "")),
-              rank: p.rank,
-            }));
-
-            const { error: historyError } = await supabase
-              .from("player_history")
-              .insert(historyRows);
-            if (historyError) {
-              console.warn(
-                "Could not insert player_history records. Make sure the player_history table exists.",
-                historyError,
-              );
-              // We don't fail the upload just because history insertion fails due to RLS.
-            }
-
-            // Insert individual records to player_matches
-            const matchRows: any[] = [];
-            finalPlayers.forEach(p => {
-               if (p.new_matches && p.new_matches.length > 0) {
-                 matchRows.push(...p.new_matches);
-               }
-            });
-
-            if (matchRows.length > 0) {
-              const { error: matchesError } = await supabase
-                .from("player_matches")
-                .insert(matchRows);
-              if (matchesError) {
-                console.warn(
-                  "Could not insert player_matches records. Make sure the player_matches table exists in Supabase. Please execute: CREATE TABLE IF NOT EXISTS public.player_matches (id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY, player_name TEXT NOT NULL, score INTEGER, deaths INTEGER, accuracy FLOAT, kpm FLOAT, kdr FLOAT, crouches INTEGER, time_in_lobby FLOAT, performance_score FLOAT, created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW());",
-                  matchesError
-                );
-              }
-            }
-
-            await supabase.from("audit_logs").insert([
-              {
-                action: "CSV_UPLOAD",
-                admin_user: user?.username || "UnknownAdmin",
-                details: `Imported ${parsedMatches.length} valid matches, aggregated ${results.data.length} total rows, updated ${finalPlayers.length} tracked players.`,
-              },
-            ]);
-
-            setStatus("success");
-            setMessage(
-              `Successfully imported ${parsedMatches.length} valid matches and updated ${finalPlayers.length} players. Untracked names were ignored.`,
-            );
-            setFile(null);
-            if (fileInputRef.current) fileInputRef.current.value = "";
-          } catch (error: any) {
-            console.error(error);
-            setStatus("error");
-            setMessage(
-              error.message ||
-                "An unexpected error occurred during database processing.",
-            );
-          } finally {
-            setUploading(false);
-          }
-        },
-        error: (error) => {
-          console.error("CSV parse error:", error);
-          setStatus("error");
-          setMessage("Failed to parse CSV file.");
-          setUploading(false);
-        },
-      });
-    } catch (dbErr: any) {
-      console.error(dbErr);
+      setStatus("success");
+      setMessage(data?.message || "Successfully uploaded and processed CSV.");
+      setFile(null);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    } catch (error: any) {
+      console.error(error);
       setStatus("error");
       setMessage(
-        dbErr.message || "Failed to fetch mapped players from database.",
+        error.message ||
+          "An unexpected error occurred during API upload.",
       );
+    } finally {
       setUploading(false);
     }
   };
