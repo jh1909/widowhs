@@ -27,6 +27,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { cn } from "../lib/utils";
+import { validateMatchFile } from "../../supabase/functions/_shared/match-upload";
 
 export default function Admin() {
   const { user } = useAuth();
@@ -80,22 +81,38 @@ export default function Admin() {
 }
 
 function CsvUpload() {
-  const { user } = useAuth();
-  const [file, setFile] = useState<File | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
   const [uploading, setUploading] = useState(false);
   const [status, setStatus] = useState<"idle" | "success" | "error">("idle");
   const [message, setMessage] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      setFile(e.target.files[0]);
+    const selected = Array.from(e.target.files || []);
+    if (!selected.length) return;
+    try {
+      selected.forEach(validateMatchFile);
+      setFiles((current) => {
+        const combined = [...current];
+        for (const file of selected) {
+          if (!combined.some((existing) => existing.name === file.name &&
+            existing.size === file.size && existing.lastModified === file.lastModified)) {
+            combined.push(file);
+          }
+        }
+        return combined;
+      });
       setStatus("idle");
+      setMessage("");
+    } catch (error) {
+      setStatus("error");
+      setMessage(error instanceof Error ? error.message : String(error));
     }
+    e.target.value = "";
   };
 
   const handleUpload = async () => {
-    if (!file) return;
+    if (!files.length || uploading) return;
 
     setUploading(true);
     setStatus("idle");
@@ -103,7 +120,7 @@ function CsvUpload() {
 
     try {
       const formData = new FormData();
-      formData.append("file", file);
+      files.forEach((file) => formData.append("file", file));
 
       // Invoke Supabase Edge Function directly
       const { data, error: functionError } = await supabase.functions.invoke("upload-csv", {
@@ -112,7 +129,12 @@ function CsvUpload() {
 
       if (functionError) {
         console.error("Function error:", functionError);
-        throw new Error(functionError.message || "Failed to process CSV via Edge Function");
+        let errorMessage = functionError.message || "Failed to process CSV/TXT via Edge Function";
+        if (functionError.context instanceof Response) {
+          const details = await functionError.context.json().catch(() => null);
+          errorMessage = details?.error || errorMessage;
+        }
+        throw new Error(errorMessage);
       }
 
       if (data && data.error) {
@@ -120,8 +142,8 @@ function CsvUpload() {
       }
 
       setStatus("success");
-      setMessage(data?.message || "Successfully uploaded and processed CSV.");
-      setFile(null);
+      setMessage(data?.message || "Successfully uploaded and processed match data.");
+      setFiles([]);
       if (fileInputRef.current) fileInputRef.current.value = "";
     } catch (error: any) {
       console.error(error);
@@ -139,7 +161,7 @@ function CsvUpload() {
     <div className="p-6 lg:p-10 space-y-8 h-full max-w-5xl mx-auto">
       <div>
         <h2 className="font-sans text-2xl font-bold text-white tracking-tight">
-          CSV Data Sync
+          CSV / TXT Data Sync
         </h2>
         <p className="font-sans text-xs text-zinc-500 mt-1">
           Manage core system data, imports, and global settings.
@@ -151,63 +173,63 @@ function CsvUpload() {
           Import Match Data
         </h3>
         <p className="font-sans text-[13px] text-zinc-400 mb-6">
-          Upload a CSV file to overwrite the global player statistics and
-          recalculate leaderboards. Ensure your CSV has columns like:{" "}
+          Upload one or more CSV or TXT files to add matches to player statistics and
+          recalculate leaderboards. Optional [HH:MM:SS] timestamps are supported.
+          Use comma-separated columns:{" "}
           <code className="bg-white/10 px-1 py-0.5 rounded text-toxic-purple mx-1">
-            Player, kills, deaths, accuracy, kills/min, KDR, crouches, time in lobby
+            Player, kills, deaths, accuracy, kills/min, KDR, crouches, time in lobby, total match time
           </code>
+          {" "}Times are in seconds. Older files without total match time are also supported.
         </p>
 
-        <div
-          className={cn(
-            "border-2 border-dashed rounded-lg p-10 flex flex-col items-center justify-center transition-colors",
-            file
-              ? "border-toxic-purple/50 bg-toxic-purple/5"
-              : "border-surface-container hover:border-toxic-purple/30 hover:bg-surface-container-low cursor-pointer",
-          )}
-          onClick={() => !file && fileInputRef.current?.click()}
-        >
+        <div className="border border-surface-container rounded-lg p-5 space-y-4">
           <input
             type="file"
             ref={fileInputRef}
             onChange={handleFileChange}
-            accept=".csv"
+            accept=".csv,.txt"
+            multiple
+            disabled={uploading}
             className="hidden"
           />
-
-          <UploadCloud
-            className={cn(
-              "w-10 h-10 mb-4",
-              file ? "text-toxic-purple" : "text-zinc-500",
-            )}
-          />
-
-          {file ? (
-            <div className="text-center font-sans">
-              <p className="text-white font-bold">{file.name}</p>
-              <p className="text-zinc-500 text-xs mt-1">
-                {(file.size / 1024).toFixed(2)} KB
-              </p>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setFile(null);
-                  setStatus("idle");
-                  if (fileInputRef.current) fileInputRef.current.value = "";
-                }}
-                className="text-xs text-red-400 hover:text-red-300 mt-3 underline"
-              >
-                Remove selection
-              </button>
-            </div>
-          ) : (
-            <div className="text-center font-sans">
-              <p className="text-zinc-300 font-bold">
-                Click or drag CSV file to upload
-              </p>
-              <p className="text-zinc-600 text-xs mt-2">
-                Maximum file size: 5MB
-              </p>
+          <button
+            type="button"
+            disabled={uploading}
+            onClick={() => fileInputRef.current?.click()}
+            className="flex items-center gap-2 bg-surface-container-high hover:bg-surface-container-highest text-white font-bold py-2 px-4 rounded-md transition-colors disabled:opacity-50"
+          >
+            <UploadCloud className="w-4 h-4 text-toxic-purple" />
+            {files.length ? "Add files" : "Choose files"}
+          </button>
+          <p className="text-zinc-500 text-xs font-sans">
+            Select multiple CSV / TXT files. Maximum file size: 5MB per file.
+          </p>
+          {files.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-zinc-300 text-sm font-bold">{files.length} file(s) selected</p>
+              <ul className="space-y-2 max-h-64 overflow-y-auto">
+                {files.map((file, index) => (
+                  <li key={`${file.name}-${file.size}-${file.lastModified}`} className="flex items-center justify-between gap-3 rounded bg-surface-container-low p-3">
+                    <div className="min-w-0">
+                      <p className="text-white text-sm break-all">{file.name}</p>
+                      <p className="text-zinc-500 text-xs">{(file.size / 1024).toFixed(2)} KB</p>
+                    </div>
+                    <button
+                      type="button"
+                      disabled={uploading}
+                      aria-label={`Remove ${file.name}`}
+                      onClick={() => {
+                        setFiles((current) => current.filter((_, i) => i !== index));
+                        setStatus("idle");
+                        setMessage("");
+                      }}
+                      className="text-xs text-red-400 hover:text-red-300 underline disabled:opacity-50 shrink-0"
+                    >
+                      Remove
+                    </button>
+                  </li>
+                ))}
+              </ul>
             </div>
           )}
         </div>
@@ -223,19 +245,19 @@ function CsvUpload() {
             {status === "error" && (
               <>
                 <XCircle className="w-5 h-5 text-red-500 min-w-5 shrink-0" />
-                <span className="text-sm text-red-400 max-w-sm truncate whitespace-normal leading-tight">
+                <span className="text-sm text-red-400 max-w-sm whitespace-normal break-words leading-tight">
                   {message}
                 </span>
               </>
             )}
           </div>
           <button
-            disabled={!file || uploading}
+            disabled={!files.length || uploading}
             onClick={handleUpload}
             className="bg-toxic-purple hover:bg-[#842bd2] text-white font-bold py-2 px-6 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 shrink-0"
           >
             {uploading && <Loader2 className="w-4 h-4 animate-spin" />}
-            {uploading ? "Processing..." : "Import Data"}
+            {uploading ? "Processing..." : files.length > 1 ? `Import ${files.length} files` : "Import Data"}
           </button>
         </div>
       </div>
@@ -496,7 +518,7 @@ function AdminSidebar() {
         />
         <SidebarItem
           icon={<UploadCloud />}
-          label="CSV Data Sync"
+          label="CSV / TXT Data Sync"
           to="/admin/csv-upload"
           active={currentPath.includes("csv-upload")}
         />

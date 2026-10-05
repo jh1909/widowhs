@@ -1,6 +1,9 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.39.3";
 import Papa from "npm:papaparse@5.4.1";
+import { normalizeMatchLog, parseMatchRows, type MatchData } from "./parser.ts";
+import { rankPlayers } from "../_shared/leaderboard.ts";
+import { readMatchSources } from "../_shared/match-upload.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -36,19 +39,34 @@ serve(async (req) => {
       { auth: { persistSession: false } }
     );
 
-    // 3. Extrahiere die Datei
-    let csvData = "";
-    const contentType = req.headers.get("content-type") || "";
-
-    if (contentType.includes("multipart/form-data")) {
-      const formData = await req.formData();
-      const file = formData.get("file");
-      if (!file || typeof file === "string") {
-        throw new Error("No file uploaded or invalid file format");
+    // Parse each file separately (including its own header), then import the
+    // combined matches once so overlapping players accumulate every file.
+    const matches: MatchData[] = [];
+    let fileCount = 0;
+    try {
+      const sources = await readMatchSources(req);
+      fileCount = sources.length;
+      for (const source of sources) {
+        try {
+          const parsedData = Papa.parse<string[]>(normalizeMatchLog(source.text), {
+            delimiter: ",", header: false, skipEmptyLines: "greedy",
+          });
+          if (parsedData.errors.length > 0) {
+            throw new Error(parsedData.errors.map((error: { message: string }) => error.message).join("; "));
+          }
+          const parsedMatches = parseMatchRows(parsedData.data);
+          if (!parsedMatches.length) throw new Error("No match records found.");
+          matches.push(...parsedMatches);
+        } catch (error) {
+          throw new Error(`${source.name}: ${error instanceof Error ? error.message : String(error)}`);
+        }
       }
-      csvData = await file.text();
-    } else {
-      csvData = await req.text();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return new Response(JSON.stringify({ error: `CSV/TXT parsing error: ${message}` }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
     // 4. Lade alle Spieler für das Name-Mapping (Bnet Account -> Tracker Profil)
@@ -65,42 +83,20 @@ serve(async (req) => {
       }
     });
 
-    // 5. CSV Parsen
-    const parsedData = Papa.parse(csvData, { header: false, skipEmptyLines: true });
-
-    if (parsedData.errors && parsedData.errors.length > 0) {
-      return new Response(JSON.stringify({ error: "CSV Parsing Error", details: parsedData.errors }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    const parsedMatches = parsedData.data
-      .map((row: any) => {
-        if (!row || !row[0]) return null;
-        if (row[0].toString().toLowerCase().includes("player") && isNaN(parseFloat(row[1]))) return null;
-        return {
-          player_name: row[0].toString().trim(),
-          score: parseFloat(row[1]) || 0,
-          deaths: parseFloat(row[2]) || 0,
-          accuracy: parseFloat(row[3]) || 0,
-          kpm: parseFloat(row[4]) || 0,
-          kdr: parseFloat(row[5]) || 0,
-          crouches: parseFloat(row[6]) || 0,
-          time_in_lobby: parseFloat(row[7]) || 0,
-        };
-      })
-      .filter((m: any) => {
-        if (!m || m.player_name === "Unknown" || isNaN(m.score)) return false;
-        return playerMap.has(m.player_name.toLowerCase());
-      });
+    // 5. Only import players linked to a tracked profile.
+    const parsedMatches = matches.filter((m) => playerMap.has(m.player_name.toLowerCase()));
 
     if (parsedMatches.length === 0) {
-      return new Response(JSON.stringify({ error: "Empty CSV, formatting issue, or no tracked accounts found." }), {
+      return new Response(JSON.stringify({ error: "Empty CSV/TXT file or no tracked accounts found." }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+
+    // Verify the duration migration before changing any player statistics.
+    const { error: schemaErr } = await supabaseClient
+      .from("player_matches").select("total_match_time").limit(0);
+    if (schemaErr) throw schemaErr;
 
     // 6. Match-Aggregation wie vorher
     const playerStats: Record<string, any> = {};
@@ -153,6 +149,7 @@ serve(async (req) => {
         kdr: m.kdr,
         crouches: m.crouches,
         time_in_lobby: m.time_in_lobby,
+        total_match_time: m.total_match_time,
         performance_score: matchPerformanceScore,
       });
     });
@@ -185,18 +182,30 @@ serve(async (req) => {
       };
     });
 
-    newPlayers.sort((a, b) => {
-      const eloA = parseInt(a.elo.replace(/,/g, ""));
-      const eloB = parseInt(b.elo.replace(/,/g, ""));
-      return eloB - eloA;
-    });
-
-    const finalPlayers = newPlayers.map((p, idx) => ({ ...p, rank: idx + 1 }));
+    // Merge the changed statistics into the entire leaderboard. Ranking only
+    // this upload's players would assign another rank 1 on every partial import.
+    const updatedNames = new Set(newPlayers.map((p) => p.name));
+    const globalRanking = rankPlayers([
+      ...dbPlayers.filter((p: any) => !updatedNames.has(p.name)),
+      ...newPlayers,
+    ]);
+    const ranks = new Map(globalRanking.map((p) => [p.name, p.rank]));
+    const finalPlayers = newPlayers.map((p) => ({ ...p, rank: ranks.get(p.name)! }));
 
     // 7. Datenbank Upserts (als Service Role bypassen wir jegliche RLS)
     const playersToUpsert = finalPlayers.map(({ new_matches, ...rest }) => rest);
     const { error: upsertErr } = await supabaseClient.from("players").upsert(playersToUpsert, { onConflict: "name" });
     if (upsertErr) throw upsertErr;
+
+    // Persist shifted ranks for players whose statistics were not in the upload.
+    for (const player of dbPlayers) {
+      if (updatedNames.has(player.name)) continue;
+      const rank = ranks.get(player.name) ?? 999999;
+      if (Number(player.rank) === rank) continue;
+      const { error: rankErr } = await supabaseClient.from("players")
+        .update({ rank }).eq("name", player.name);
+      if (rankErr) throw rankErr;
+    }
 
     const historyRows = finalPlayers.map((p) => ({
       player_name: p.name,
@@ -213,21 +222,22 @@ serve(async (req) => {
     });
 
     if (matchRows.length > 0) {
-      await supabaseClient.from("player_matches").insert(matchRows);
+      const { error: matchErr } = await supabaseClient.from("player_matches").insert(matchRows);
+      if (matchErr) throw matchErr;
     }
 
     await supabaseClient.from("audit_logs").insert([
       {
         action: "EDGE_FUNCTION_CSV_UPLOAD",
         admin_user: apiKey ? "API_AUTOMATION" : "ADMIN_DASHBOARD",
-        details: `Imported ${parsedMatches.length} valid matches, updated ${finalPlayers.length} tracked players.`,
+        details: `Imported ${parsedMatches.length} valid matches from ${fileCount} file(s), updated ${finalPlayers.length} tracked players.`,
       },
     ]);
 
     return new Response(
       JSON.stringify({
         success: true,
-        message: `Successfully imported ${parsedMatches.length} valid matches and updated ${finalPlayers.length} players.`,
+        message: `Successfully imported ${parsedMatches.length} valid matches from ${fileCount} file(s) and updated ${finalPlayers.length} players.`,
       }),
       {
         status: 200,

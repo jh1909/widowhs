@@ -422,7 +422,7 @@ export default function Profile() {
   }
 
   return (
-    <main className="flex-grow w-full max-w-[1280px] mx-auto px-6 py-12 flex flex-col gap-12">
+    <main className="page-shell flex flex-col gap-9">
       {/* Navigation Back Action */}
       <div className="flex items-center">
         <Link
@@ -435,21 +435,12 @@ export default function Profile() {
       </div>
 
       {/* Profile Header */}
-      <header className="flex flex-col md:flex-row md:items-end justify-between gap-6 pb-6 border-b border-[#4d4353]">
+      <header className="panel p-7 sm:p-9 flex flex-col md:flex-row md:items-end justify-between gap-6">
         <div className="flex flex-col gap-3">
           <div className="flex items-center gap-4">
-            {(player.avatar_url ||
-              (user &&
-                user.username.toLowerCase() === player.name.toLowerCase() &&
-                user.avatar_url)) && (
-              <div className="w-16 h-16 rounded overflow-hidden border border-toxic-purple/50">
-                <img
-                  src={player.avatar_url || user?.avatar_url}
-                  alt={`${player.name} avatar`}
-                  className="w-full h-full object-cover"
-                />
-              </div>
-            )}
+            <div className="w-16 h-16 rounded-2xl flex items-center justify-center border border-toxic-purple/20 bg-toxic-purple/10 text-toxic-purple font-bold text-xl shrink-0" aria-hidden="true">
+              {Array.from(String(player.name)).slice(0, 2).join("").toUpperCase()}
+            </div>
 
             {isEditingName ? (
               <div className="flex items-center gap-2">
@@ -480,7 +471,7 @@ export default function Profile() {
               </div>
             ) : (
               <>
-                <h1 className="font-sans text-[48px] font-bold text-on-surface uppercase tracking-tighter leading-none">
+                <h1 className="font-sans text-3xl sm:text-5xl font-bold text-on-surface tracking-tight leading-none break-all">
                   {player.name}
                 </h1>
                 {player.tag && player.tag === "PRO" && (
@@ -788,7 +779,7 @@ export default function Profile() {
           </h3>
           <div className="bg-surface-container/30 backdrop-blur-[12px] border border-[#4d4353] rounded-xl p-6 flex flex-col gap-4">
             <p className="text-zinc-400 font-mono text-sm mb-2">
-              Track up to 2 actual Battle.net account names. The CSV data will
+              Track up to 2 actual Battle.net account names. The CSV/TXT data will
               be mapped to these exact names.
             </p>
             {bnetAccounts.length > 0 && (

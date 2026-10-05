@@ -1,55 +1,52 @@
 import { ArrowLeft } from "lucide-react";
 import { Link } from "react-router-dom";
+import OperatorContact from "../components/OperatorContact";
 
 export default function PrivacyPolicy() {
   return (
-    <main className="flex-grow w-full max-w-[800px] mx-auto px-6 py-12 flex flex-col gap-8">
-      <Link to="/" className="inline-flex items-center gap-2 text-on-surface-variant hover:text-[#9d4edd] transition-colors duration-200 ease-out font-mono font-medium text-[14px]">
-        <ArrowLeft className="w-[18px] h-[18px]" />
-        Back to Leaderboard
-      </Link>
+    <main className="page-shell legal-page space-y-7">
+      <Link to="/" className="inline-flex items-center gap-2 text-xs text-zinc-500 hover:text-toxic-purple"><ArrowLeft size={14} /> Back to leaderboard</Link>
+      <article className="panel p-7 sm:p-10">
+        <p className="eyebrow mb-4">WIDOW HS · Deine Daten</p>
+        <h1 className="section-heading mb-3">Datenschutzhinweise</h1>
+        <p className="text-xs text-zinc-500 mb-8">Stand: 5. Oktober 2026</p>
+        <div className="legal-copy">
+          <p>WIDOW HS ist eine öffentliche Community-Rangliste. Du kannst sie ohne Anmeldung ansehen. Für dein eigenes Profil und die Verknüpfung von Battle.net-Namen ist eine freiwillige Anmeldung über Discord möglich.</p>
 
-      <div className="bg-surface-container/30 backdrop-blur-[12px] border border-[#4d4353] rounded-xl p-8 md:p-12">
-        <h1 className="font-sans text-3xl font-extrabold tracking-tight text-on-surface mb-6">Privacy Policy</h1>
-        
-        <div className="prose prose-invert prose-purple max-w-none font-sans text-on-surface-variant space-y-6">
-          <p>
-            The party responsible for data processing, in particular regarding the EU General Data Protection Regulation (GDPR), is:<br />
-            Jerome Hestin<br />
-            Gartenstr. 17<br />
-            j.hestin19&#64;gmail.com<br />
-          </p>
+          <h2>1. Verantwortlicher und Kontakt</h2>
+          <OperatorContact />
+          <p className="mt-4">Für Auskunft, Berichtigung, Widerspruch oder eine Löschanfrage erreichst du den Betreiber per E-Mail.</p>
 
-          <h2 className="text-xl font-bold text-on-surface mt-8 mb-4">1. Collection of general information when visiting our website</h2>
-          <p>
-            When you access our website, i.e., if you do not register or otherwise submit information, information of a general nature is automatically collected. This information (server log files) includes, for example, the type of web browser, the operating system used, the domain name of your Internet service provider, your IP address, and similar information.
-          </p>
-          <p>
-            This information is processed in particular for the following purposes:
-            <ul className="list-disc pl-6 mt-2 space-y-1">
-              <li>Ensuring a problem-free connection to the website,</li>
-              <li>Ensuring the smooth use of our website,</li>
-              <li>Evaluating system security and stability, and</li>
-              <li>for other administrative purposes.</li>
-            </ul>
-          </p>
+          <h2>2. Website und Datenbank</h2>
+          <p>Die Website wird über GitHub Pages von GitHub bereitgestellt. Beim Abruf erhält GitHub technische Verbindungsdaten, insbesondere deine IP-Adresse. GitHub speichert IP-Adressen von Pages-Besuchern zu Sicherheitszwecken. Grundlage für die Bereitstellung und Absicherung dieser Website ist Art. 6 Abs. 1 lit. f DSGVO: das berechtigte Interesse an einem funktionsfähigen und sicheren Angebot.</p>
+          <p>Supabase wird für Anmeldung, Datenbank und den Import von Spielstatistiken eingesetzt. Das Datenbankprojekt wird nach der Konfiguration des Betreibers in der EU betrieben. Bei Verbindungen zu Supabase fallen ebenfalls technische Verbindungsdaten an. Die Datenbank enthält die unten beschriebenen Profil- und Statistikdaten.</p>
 
-          <h2 className="text-xl font-bold text-on-surface mt-8 mb-4">2. Registration on our website (Discord Login)</h2>
-          <p>
-            When registering to use our personalized services (via Discord OAuth), some personal data will be collected, such as your Discord username, your email address, and your Discord user ID. If you are registered with us, you can access content and services that we only offer to registered users.
-          </p>
+          <h2>3. Freiwilliger Discord-Login</h2>
+          <p>Bei der Anmeldung werden die von Discord freigegebenen Kontoinformationen durch Supabase Auth verarbeitet. Dazu können Discord-ID, Benutzername, E-Mail-Adresse und Avatar-URL gehören. Das Profil wird mit einer internen Benutzer-ID verknüpft. Discord-Passwörter werden nicht an WIDOW HS übermittelt. Die E-Mail-Adresse wird nicht in der Rangliste angezeigt.</p>
+          <p>Die Verarbeitung für die von dir angeforderten Kontofunktionen erfolgt nach Art. 6 Abs. 1 lit. b DSGVO. Die Angabe der erforderlichen Kontodaten ist freiwillig; ohne sie kannst du diese Kontofunktionen nicht nutzen. Die öffentliche Rangliste bleibt ohne Anmeldung erreichbar.</p>
 
-          <h2 className="text-xl font-bold text-on-surface mt-8 mb-4">3. Game statistics and leaderboards</h2>
-          <p>
-            This platform collects, stores, and processes performance data from games (e.g., Kills, Elo, Rank) to generate leaderboards and user profiles. This data is generally publicly viewable unless stated otherwise in the settings.
-          </p>
+          <h2>4. Öffentliche Spielstatistiken</h2>
+          <p>Spielernamen und Matchstatistiken stammen aus den vom Betreiber importierten WIDOW-HS-Spieldateien. Verarbeitet werden unter anderem Kills, Deaths, Genauigkeit, KPM, KDR, Crouches, Lobbyzeit und Matchdauer. Daraus entstehen ELO, Rang und Verlauf. Wenn du Battle.net-Namen mit deinem Profil verknüpfst, werden die passenden Matchdaten diesem Profil zugeordnet.</p>
+          <p>Dein Anzeigename, deine Statistiken und dein Verlauf sind öffentlich sichtbar. Für selbst angeforderte Profilfunktionen gilt Art. 6 Abs. 1 lit. b DSGVO. Die Zuordnung importierter Spielergebnisse und die Community-Rangliste beruhen auf Art. 6 Abs. 1 lit. f DSGVO: dem Interesse an nachvollziehbaren Spielergebnissen und vergleichbaren Statistiken. Gegen eine Verarbeitung auf dieser Grundlage kannst du Widerspruch einlegen.</p>
+          <p>ELO wird automatisch aus Spielwerten berechnet. Diese Rangfolge hat keine rechtlichen oder vergleichbar erheblichen Auswirkungen auf dich.</p>
 
-          <h2 className="text-xl font-bold text-on-surface mt-8 mb-4">4. Your rights to information, correction, blocking, deletion, and objection</h2>
-          <p>
-            You have the right to receive information about your personal data stored by us at any time. You also have the right to correction, blocking, or, apart from the prescribed data storage for business processing, deletion of your personal data.
-          </p>
+          <h2>5. Speicherung und Löschung</h2>
+          <p>Profile, verknüpfte Accountnamen und Matchverläufe bleiben gespeichert, solange sie für das von dir genutzte Spielerprofil beziehungsweise das fortbestehende Statistikangebot erforderlich sind. Du kannst die Löschung per E-Mail anfragen. Entfällt der Verarbeitungszweck oder greift dein Löschrecht, werden die betroffenen personenbezogenen Daten gelöscht oder wirksam anonymisiert, soweit keine gesetzliche Pflicht oder ein anderer rechtmäßiger Aufbewahrungsgrund entgegensteht.</p>
+          <p>Ein bloßer Logout löscht dein Profil nicht. Technische Protokolle und Sicherungskopien der Dienstleister unterliegen deren Aufbewahrungs- und Löschregeln. Für sie gelten die jeweiligen Sicherheits-, Betriebs- und gesetzlichen Erfordernisse; die Anbieterinformationen sind unten verlinkt.</p>
+
+          <h2>6. Sitzungsspeicher und externe Dienste</h2>
+          <p>Supabase Auth nutzt den lokalen Browserspeicher, um deine angeforderte Anmeldung aufrechtzuerhalten. Dieser technisch notwendige Zugriff dient der Kontofunktion (§ 25 Abs. 2 Nr. 2 TDDDG). Du kannst dich ausloggen oder den Browserspeicher löschen. Die Website bindet keine Werbe- oder Analysewerkzeuge und keine extern geladenen Schriftarten ein.</p>
+          <p>Discord-Links öffnen eine externe Website erst beim Anklicken. Für die dortige Verarbeitung gelten die Hinweise von Discord. Öffentliche Profilbilder werden hier durch lokal dargestellte Initialen ersetzt.</p>
+
+          <h2>7. Empfänger und Verarbeitung außerhalb der EU</h2>
+          <p>Empfänger sind GitHub für das Hosting, Supabase für Datenbank und Anmeldung sowie Discord beim gewählten Login oder beim Besuch verlinkter Discord-Seiten. Öffentlich dargestellte Profil- und Statistikdaten sind außerdem für Websitebesucher zugänglich. Auch bei einer EU-Datenbankregion können die beteiligten Anbieter Daten außerhalb der EU verarbeiten, etwa für ihre globale Infrastruktur und Unterstützung.</p>
+          <p>Die Anbieter beschreiben ihre Übermittlungen und Schutzmaßnahmen in ihren Datenschutzinformationen. GitHub nennt insbesondere Standardvertragsklauseln und das EU-US Data Privacy Framework; Supabase nennt Standardvertragsklauseln. Details und Kontaktmöglichkeiten findest du bei <a href="https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement" target="_blank" rel="noopener noreferrer">GitHub</a>, <a href="https://supabase.com/privacy" target="_blank" rel="noopener noreferrer">Supabase</a> und <a href="https://discord.com/privacy" target="_blank" rel="noopener noreferrer">Discord</a>.</p>
+
+          <h2>8. Deine Rechte</h2>
+          <p>Unter den gesetzlichen Voraussetzungen hast du Rechte auf Auskunft, Berichtigung, Löschung, Einschränkung der Verarbeitung und Datenübertragbarkeit. Gegen eine Verarbeitung aufgrund berechtigter Interessen kannst du Widerspruch einlegen. Soweit eine Verarbeitung auf Einwilligung beruht, kannst du diese für die Zukunft widerrufen.</p>
+          <p>Du kannst dich außerdem bei einer Datenschutzaufsichtsbehörde beschweren, insbesondere am Ort deines Aufenthalts oder des vermuteten Verstoßes. Für den Betreiber in Baden-Württemberg ist der <a href="https://www.baden-wuerttemberg.datenschutz.de/" target="_blank" rel="noopener noreferrer">Landesbeauftragte für den Datenschutz und die Informationsfreiheit Baden-Württemberg</a> zuständig.</p>
         </div>
-      </div>
+      </article>
     </main>
   );
 }
