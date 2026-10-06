@@ -521,7 +521,7 @@ export default function Profile() {
             title="Fastest time from joining the lobby to reaching 50 kills"
           >
             <span className="inline-flex items-center gap-2 font-mono text-[12px] font-bold text-on-surface-variant uppercase tracking-widest">
-              <Timer className="w-4 h-4" /> PB (50 Kills)
+              PB
             </span>
             <span className="font-sans text-[32px] font-semibold text-on-surface leading-none tabular-nums">
               {formatLobbyTime(personalBestTime)}
