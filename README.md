@@ -51,3 +51,30 @@ supabase functions deploy upload-csv
 ```
 
 Run `npm test`, `npm run lint` and `npm run build` for local validation.
+
+## Reset test/release statistics
+
+Administrators can open **Admin → Reset leaderboard**, type `RESET` and clear all
+match data. This deletes `player_matches` and `player_history`, resets player
+statistics, badges and ranks, and leaves the leaderboard empty until a new import.
+Accounts, names, Discord pictures, linked Battle.net names, admin roles, bans and
+audit logs remain. Each reset creates an audit entry and can be used again before
+the full release. The site has no undo for this operation.
+
+Apply `supabase/migrations/20261005210000_admin_leaderboard_reset.sql` **before**
+deploying the updated `upload-csv` Edge Function and frontend. The migration adds
+an authenticated, database-checked admin RPC; no extra Edge Function is needed.
+Authorization requires a `players` row with `user_id = auth.uid()` and
+`is_admin = true`. The legacy frontend username shortcut does not grant reset
+permission. Set the admin flag for the correct Auth user UUID in the Supabase
+dashboard or SQL Editor, using a trusted project administrator account.
+
+Resets and imports run transactionally. The importer captures a revision before
+reading statistics; a reset or another import invalidates that snapshot. A stale
+upload returns HTTP 409 without writing anything. Only retry files that belong
+to the current test/release period. Statistics, match history, shifted ranks and
+the audit entry are persisted together, including rollback on errors.
+
+The reset tests execute the actual migration in a local PostgreSQL engine
+(PGlite), including permissions, preservation of accounts, rollback, repeat resets
+and rejection of stale imports. They never connect to a live Supabase database.

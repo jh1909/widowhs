@@ -28,6 +28,7 @@ import {
 } from "lucide-react";
 import { cn } from "../lib/utils";
 import { validateMatchFile } from "../../supabase/functions/_shared/match-upload";
+import LeaderboardReset from "../components/LeaderboardReset";
 
 export default function Admin() {
   const { user } = useAuth();
@@ -73,6 +74,7 @@ export default function Admin() {
             <Route path="csv-upload" element={<CsvUpload />} />
             <Route path="server" element={<ServerStatus />} />
             <Route path="audit" element={<AuditLogs />} />
+            <Route path="reset" element={<LeaderboardReset />} />
           </Routes>
         </div>
       </div>
@@ -477,6 +479,8 @@ function AdminHeader() {
         </div>
       </div>
 
+      <Link to="/admin/reset" className="md:hidden text-xs text-red-300 underline underline-offset-4">Reset data</Link>
+
       <div className="flex items-center space-x-4 ml-4">
         <button className="text-zinc-500 hover:text-purple-400 transition-colors relative">
           <Bell className="w-5 h-5" />
@@ -533,6 +537,12 @@ function AdminSidebar() {
           label="Audit Logs"
           to="/admin/audit"
           active={currentPath.includes("audit")}
+        />
+        <SidebarItem
+          icon={<Trash2 />}
+          label="Reset leaderboard"
+          to="/admin/reset"
+          active={currentPath.includes("reset")}
         />
       </ul>
 

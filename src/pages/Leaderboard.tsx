@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo } from "react";
 import { useAuth } from "../lib/AuthContext";
 import { supabase } from "../lib/supabase";
 import { rankPlayers } from "../../supabase/functions/_shared/leaderboard";
+import PlayerAvatar from "../components/PlayerAvatar";
 
 type Player = {
   rank: number | string; name: string; elo: string; tag?: string;
@@ -114,8 +115,8 @@ export default function Leaderboard() {
                         <td className="text-center"><span className={`rank-badge ${rankClass}`}>{player.rank}</span></td>
                         <td>
                           <div className="flex items-center gap-3">
-                            <span className="player-avatar hidden sm:grid">
-                              {Array.from(player.name).slice(0, 2).join("").toUpperCase()}
+                            <span className="hidden sm:block">
+                              <PlayerAvatar name={player.name} avatarUrl={player.avatar_url || (isCurrentUser ? user?.avatar_url : undefined)} className="player-avatar" />
                             </span>
                             <Link to={`/profile/${player.name.toLowerCase()}`} className="font-semibold text-zinc-200 hover:text-toxic-purple whitespace-nowrap block max-w-32 sm:max-w-none truncate">
                               {player.name}{isCurrentUser && <span className="text-toxic-purple text-[10px] ml-1.5">(You)</span>}

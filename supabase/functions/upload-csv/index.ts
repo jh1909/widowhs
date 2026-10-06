@@ -69,6 +69,12 @@ serve(async (req) => {
       });
     }
 
+    // Capture the revision before reading players. A reset or another import
+    // invalidates this snapshot; the transactional write will reject it.
+    const { data: state, error: stateErr } = await supabaseClient
+      .from("leaderboard_state").select("revision").eq("singleton", true).single();
+    if (stateErr) throw stateErr;
+
     // 4. Lade alle Spieler für das Name-Mapping (Bnet Account -> Tracker Profil)
     const { data: dbPlayers, error: dbErr } = await supabaseClient.from("players").select("*");
     if (dbErr) throw dbErr;
@@ -194,25 +200,15 @@ serve(async (req) => {
 
     // 7. Datenbank Upserts (als Service Role bypassen wir jegliche RLS)
     const playersToUpsert = finalPlayers.map(({ new_matches, ...rest }) => rest);
-    const { error: upsertErr } = await supabaseClient.from("players").upsert(playersToUpsert, { onConflict: "name" });
-    if (upsertErr) throw upsertErr;
-
-    // Persist shifted ranks for players whose statistics were not in the upload.
-    for (const player of dbPlayers) {
-      if (updatedNames.has(player.name)) continue;
-      const rank = ranks.get(player.name) ?? 999999;
-      if (Number(player.rank) === rank) continue;
-      const { error: rankErr } = await supabaseClient.from("players")
-        .update({ rank }).eq("name", player.name);
-      if (rankErr) throw rankErr;
-    }
+    const shiftedRanks = dbPlayers.filter((player: any) =>
+      !updatedNames.has(player.name) && Number(player.rank) !== (ranks.get(player.name) ?? 999999),
+    ).map((player: any) => ({ name: player.name, rank: ranks.get(player.name) ?? 999999 }));
 
     const historyRows = finalPlayers.map((p) => ({
       player_name: p.name,
       elo: parseInt(p.elo.replace(/,/g, "")),
       rank: p.rank,
     }));
-    await supabaseClient.from("player_history").insert(historyRows);
 
     const matchRows: any[] = [];
     finalPlayers.forEach((p) => {
@@ -221,18 +217,23 @@ serve(async (req) => {
       }
     });
 
-    if (matchRows.length > 0) {
-      const { error: matchErr } = await supabaseClient.from("player_matches").insert(matchRows);
-      if (matchErr) throw matchErr;
+    const { error: importErr } = await supabaseClient.rpc("apply_match_import", {
+      p_expected_revision: state.revision,
+      p_players: playersToUpsert,
+      p_ranks: shiftedRanks,
+      p_history: historyRows,
+      p_matches: matchRows,
+      p_admin_user: apiKey ? "API_AUTOMATION" : "ADMIN_DASHBOARD",
+      p_details: `Imported ${parsedMatches.length} valid matches from ${fileCount} file(s), updated ${finalPlayers.length} tracked players.`,
+    });
+    if (importErr) {
+      if (importErr.code === "40001") {
+        return new Response(JSON.stringify({ error: importErr.message }), {
+          status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      throw importErr;
     }
-
-    await supabaseClient.from("audit_logs").insert([
-      {
-        action: "EDGE_FUNCTION_CSV_UPLOAD",
-        admin_user: apiKey ? "API_AUTOMATION" : "ADMIN_DASHBOARD",
-        details: `Imported ${parsedMatches.length} valid matches from ${fileCount} file(s), updated ${finalPlayers.length} tracked players.`,
-      },
-    ]);
 
     return new Response(
       JSON.stringify({

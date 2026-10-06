@@ -1,6 +1,7 @@
 import { Link, NavLink } from "react-router-dom";
 import { Crosshair, LogOut, UserRound, Shield } from "lucide-react";
 import { useAuth } from "../lib/AuthContext";
+import PlayerAvatar from "./PlayerAvatar";
 
 export default function Navigation() {
   const { user, login, logout } = useAuth();
@@ -22,7 +23,7 @@ export default function Navigation() {
         {user ? (
           <div className="flex items-center gap-3 min-w-0">
             <Link to={profilePath} className="account-link">
-              <UserRound size={16} /><span className="hidden sm:inline truncate max-w-36">{user.username}</span>
+              <PlayerAvatar name={user.username} avatarUrl={user.avatar_url} className="w-8 h-8 rounded-lg border border-toxic-purple/20 bg-toxic-purple/10 text-xs" /><span className="hidden sm:inline truncate max-w-36">{user.username}</span>
             </Link>
             <button onClick={logout} className="icon-button" aria-label="Log out"><LogOut size={17} /></button>
           </div>

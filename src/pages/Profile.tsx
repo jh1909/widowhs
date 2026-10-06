@@ -17,6 +17,7 @@ import { Link, useParams, useNavigate } from "react-router-dom";
 import { useEffect, useState, useMemo } from "react";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/AuthContext";
+import PlayerAvatar from "../components/PlayerAvatar";
 import {
   AreaChart,
   Area,
@@ -438,9 +439,11 @@ export default function Profile() {
       <header className="panel p-7 sm:p-9 flex flex-col md:flex-row md:items-end justify-between gap-6">
         <div className="flex flex-col gap-3">
           <div className="flex items-center gap-4">
-            <div className="w-16 h-16 rounded-2xl flex items-center justify-center border border-toxic-purple/20 bg-toxic-purple/10 text-toxic-purple font-bold text-xl shrink-0" aria-hidden="true">
-              {Array.from(String(player.name)).slice(0, 2).join("").toUpperCase()}
-            </div>
+            <PlayerAvatar
+              name={String(player.name)}
+              avatarUrl={player.avatar_url || (user?.id === player.user_id ? user?.avatar_url : undefined)}
+              className="w-16 h-16 rounded-2xl border border-toxic-purple/20 bg-toxic-purple/10 text-toxic-purple font-bold text-xl"
+            />
 
             {isEditingName ? (
               <div className="flex items-center gap-2">
