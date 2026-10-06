@@ -708,7 +708,7 @@ export default function Profile() {
                         className="border-b border-white/5 transition-colors hover:bg-white/[0.02]"
                       >
                          <td className="py-3 px-4 text-zinc-400 whitespace-nowrap">
-                           {new Date(m.created_at).toLocaleString("en-US", { month: "short", day: "numeric", year: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" })}
+                           {new Date(m.created_at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23" })}
                          </td>
                          <td className="py-3 px-4 text-white font-bold">{m.score}</td>
                          <td className="py-3 px-4">{m.deaths}</td>
@@ -840,7 +840,7 @@ function CrouchIcon({ className }: { className?: string }) {
       <circle cx="14" cy="4" r="2" />
       <path d="m12 8-3 6 7 3-3 5h5" />
       <path d="m12 8 3 4h5" />
-      <path d="m9 14-4 4 2 4h4" />
+      <path d="m9 14 4 3-3 5h4" />
     </svg>
   );
 }
