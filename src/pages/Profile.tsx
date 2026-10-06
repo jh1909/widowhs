@@ -47,6 +47,7 @@ export default function Profile() {
 
   const [historyData, setHistoryData] = useState<any[]>([]);
   const [matchHistory, setMatchHistory] = useState<any[]>([]);
+  const [personalBestTime, setPersonalBestTime] = useState<number | null>(null);
   const [speedrunnerMatch, setSpeedrunnerMatch] = useState<SpeedrunnerMatch | null>(null);
   const [matchHistoryPage, setMatchHistoryPage] = useState(1);
   const matchesPerPage = 10;
@@ -61,6 +62,7 @@ export default function Profile() {
       if (!id) return;
       setHistoryData([]);
       setMatchHistory([]);
+      setPersonalBestTime(null);
       setSpeedrunnerMatch(null);
       setMatchHistoryPage(1);
 
@@ -158,11 +160,14 @@ export default function Profile() {
 
           // Fetch Match History
           try {
-            const [matchResult, speedrunnerResult] = await Promise.all([
+            const [matchResult, bestWinResult, speedrunnerResult] = await Promise.all([
               supabase.from("player_matches").select("*")
                 .ilike("player_name", mainPlayer.name).order("created_at", { ascending: false }),
-              // Query separately so an older winning round is not hidden by
-              // the API's history row limit or the visible history page.
+              // Query PB and Speedrunner independently of the history row limit.
+              supabase.from("player_matches").select("time_in_lobby")
+                .eq("player_name", mainPlayer.name).gte("score", 50)
+                .gt("time_in_lobby", 0)
+                .order("time_in_lobby", { ascending: true }).limit(1),
               supabase.from("player_matches").select("score, total_match_time")
                 .eq("player_name", mainPlayer.name).gte("score", 50)
                 .gt("total_match_time", 0).lt("total_match_time", 180).limit(1),
@@ -170,7 +175,9 @@ export default function Profile() {
             if (!active) return;
             const { data: matches } = matchResult;
             if (matchResult.error) console.warn("Could not load match history", matchResult.error);
+            if (bestWinResult.error) console.warn("Could not load personal best", bestWinResult.error);
             if (speedrunnerResult.error) console.warn("Could not check Speedrunner", speedrunnerResult.error);
+            setPersonalBestTime(bestWinResult.data?.[0]?.time_in_lobby ?? null);
             setSpeedrunnerMatch(speedrunnerResult.data?.[0] ?? null);
 
             if (matches) {
@@ -500,13 +507,24 @@ export default function Profile() {
           </div>
         </div>
 
-        <div className="flex flex-col items-start md:items-end gap-1 bg-surface-container/30 border border-[#4d4353] rounded-lg p-4 backdrop-blur-[12px]">
-          <span className="font-mono text-[12px] font-bold text-on-surface-variant uppercase tracking-widest">
-            Performance Score (ELO)
-          </span>
-          <div className="flex items-baseline gap-2">
+        <div className="flex flex-wrap gap-3 shrink-0">
+          <div className="flex flex-col items-start md:items-end gap-2 bg-surface-container/30 border border-[#4d4353] rounded-lg p-4 backdrop-blur-[12px]">
+            <span className="font-mono text-[12px] font-bold text-on-surface-variant uppercase tracking-widest">
+              ELO
+            </span>
             <span className="font-sans text-[32px] font-semibold text-[#f2daff] drop-shadow-[0_0_12px_rgba(157,78,221,0.5)] leading-none text-toxic-purple">
               {player.elo || "0"}
+            </span>
+          </div>
+          <div
+            className="flex flex-col items-start md:items-end gap-2 bg-surface-container/30 border border-[#4d4353] rounded-lg p-4 backdrop-blur-[12px]"
+            title="Fastest time from joining the lobby to reaching 50 kills"
+          >
+            <span className="inline-flex items-center gap-2 font-mono text-[12px] font-bold text-on-surface-variant uppercase tracking-widest">
+              <Timer className="w-4 h-4" /> PB (50 Kills)
+            </span>
+            <span className="font-sans text-[32px] font-semibold text-on-surface leading-none tabular-nums">
+              {formatLobbyTime(personalBestTime)}
             </span>
           </div>
         </div>

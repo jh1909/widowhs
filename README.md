@@ -86,6 +86,11 @@ The ratio is computed from total kills and deaths at the displayed two-decimal
 precision, rather than the average of individual match ratios. It disappears
 when the current ratio falls below the threshold and can be earned again.
 
+The profile shows ELO and a PB for 50-kill wins. PB is the shortest positive
+`time_in_lobby` among matches with at least 50 kills, formatted as a duration:
+the player's time from joining the lobby until reaching the winning score.
+Players without a recorded winning duration see a dash.
+
 Speedrunner requires a match with at least 50 kills (the winning score) and
 `0 < total_match_time < 180` seconds. The profile checks for a qualifying match
 separately from the displayed history, so older wins still count. Personal lobby
