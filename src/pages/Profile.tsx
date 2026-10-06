@@ -4,6 +4,7 @@ import {
   Flame,
   Zap,
   Swords,
+  Skull,
   Trophy,
   Timer,
   Verified,
@@ -19,6 +20,7 @@ import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/AuthContext";
 import PlayerAvatar from "../components/PlayerAvatar";
 import { getAchievements, totalKdr, type SpeedrunnerMatch, type AchievementId } from "../lib/achievements";
+import { crouchesPerMinute, formatLobbyTime } from "../lib/profile-stats";
 import {
   AreaChart,
   Area,
@@ -216,7 +218,7 @@ export default function Profile() {
       slayer: <Zap className="w-5 h-5 text-yellow-400" />,
       sharpshooter: <Target className="w-5 h-5 text-red-400" />,
       veteran: <Timer className="w-5 h-5 text-blue-400" />,
-      fitness: <Swords className="w-5 h-5 text-green-400" />,
+      fitness: <CrouchIcon className="w-5 h-5 text-green-400" />,
       elite: <Trophy className="w-5 h-5 text-toxic-purple" />,
       speedrunner: <Timer className="w-5 h-5 text-emerald-400" />,
     };
@@ -520,16 +522,12 @@ export default function Profile() {
         <StatCard
           title="Avg Pace"
           value={player.kpm?.toString() || "0"}
-          icon={<Swords />}
+          icon={<Timer />}
         />
         <StatCard
-          title="Avg Crouches"
-          value={
-            player.matches > 0 && player.crouches
-              ? (player.crouches / player.matches).toFixed(1)
-              : "0"
-          }
-          icon={<Trophy />}
+          title="Crouches / min"
+          value={crouchesPerMinute(player)?.toFixed(1) ?? "—"}
+          icon={<CrouchIcon />}
         />
         <StatCard
           title="Total Kills"
@@ -539,12 +537,12 @@ export default function Profile() {
         <StatCard
           title="Total Deaths"
           value={player.deaths?.toString() || "0"}
-          icon={<Zap />}
+          icon={<Skull />}
         />
         <StatCard
           title="Total K/D"
           value={totalKdr(player).toFixed(2)}
-          icon={<Target />} // Reusing target or existing icons
+          icon={<Swords />}
         />
       </section>
 
@@ -684,15 +682,17 @@ export default function Profile() {
         <div className="bg-surface-container border border-surface-container-high rounded-lg p-6">
           {matchHistory.length > 0 ? (
             <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse min-w-[800px]">
+              <table className="w-full text-left border-collapse min-w-[1000px]">
                 <thead>
                   <tr className="border-b border-white/5 text-[10px] uppercase tracking-widest text-zinc-500 font-sans">
-                    <th className="py-3 px-4">Date</th>
+                    <th className="py-3 px-4">Date & Time</th>
                     <th className="py-3 px-4">Score</th>
                     <th className="py-3 px-4">Deaths</th>
                     <th className="py-3 px-4">KDR</th>
                     <th className="py-3 px-4">KPM</th>
                     <th className="py-3 px-4">Acc</th>
+                    <th className="py-3 px-4">Time in Lobby</th>
+                    <th className="py-3 px-4">Total Lobby Time</th>
                     <th className="py-3 px-4">Perf. Score</th>
                   </tr>
                 </thead>
@@ -707,14 +707,16 @@ export default function Profile() {
                         key={m.id || idx}
                         className="border-b border-white/5 transition-colors hover:bg-white/[0.02]"
                       >
-                         <td className="py-3 px-4 text-zinc-400">
-                           {new Date(m.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "2-digit" })}
+                         <td className="py-3 px-4 text-zinc-400 whitespace-nowrap">
+                           {new Date(m.created_at).toLocaleString("en-US", { month: "short", day: "numeric", year: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" })}
                          </td>
                          <td className="py-3 px-4 text-white font-bold">{m.score}</td>
                          <td className="py-3 px-4">{m.deaths}</td>
                          <td className="py-3 px-4 font-bold">{m.kdr?.toFixed(2) || "-"}</td>
                          <td className="py-3 px-4">{m.kpm?.toFixed(2) || "-"}</td>
                          <td className="py-3 px-4">{m.accuracy?.toFixed(1) || "-"}%</td>
+                         <td className="py-3 px-4 whitespace-nowrap">{formatLobbyTime(m.time_in_lobby)}</td>
+                         <td className="py-3 px-4 whitespace-nowrap">{formatLobbyTime(m.total_match_time)}</td>
                          <td className="py-3 px-4 text-toxic-purple font-bold">
                             {m.performance_score ? Math.round(m.performance_score) : "-"}
                          </td>
@@ -817,6 +819,29 @@ export default function Profile() {
         </section>
       )}
     </main>
+  );
+}
+
+function CrouchIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="24"
+      height="24"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <circle cx="14" cy="4" r="2" />
+      <path d="m12 8-3 6 7 3-3 5h5" />
+      <path d="m12 8 3 4h5" />
+      <path d="m9 14-4 4 2 4h4" />
+    </svg>
   );
 }
 
