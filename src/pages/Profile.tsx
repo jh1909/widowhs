@@ -18,6 +18,7 @@ import { useEffect, useState, useMemo } from "react";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/AuthContext";
 import PlayerAvatar from "../components/PlayerAvatar";
+import { getAchievements, totalKdr, type SpeedrunnerMatch, type AchievementId } from "../lib/achievements";
 import {
   AreaChart,
   Area,
@@ -44,6 +45,7 @@ export default function Profile() {
 
   const [historyData, setHistoryData] = useState<any[]>([]);
   const [matchHistory, setMatchHistory] = useState<any[]>([]);
+  const [speedrunnerMatch, setSpeedrunnerMatch] = useState<SpeedrunnerMatch | null>(null);
   const [matchHistoryPage, setMatchHistoryPage] = useState(1);
   const matchesPerPage = 10;
 
@@ -52,8 +54,13 @@ export default function Profile() {
   const [linkLoading, setLinkLoading] = useState(false);
 
   useEffect(() => {
+    let active = true;
     async function fetchPlayerData() {
       if (!id) return;
+      setHistoryData([]);
+      setMatchHistory([]);
+      setSpeedrunnerMatch(null);
+      setMatchHistoryPage(1);
 
       if (id === "me" && !user) {
         setLoading(false);
@@ -70,6 +77,8 @@ export default function Profile() {
           .select("*")
           .ilike("name", targetId)
           .limit(1);
+
+        if (!active) return;
 
         if (error) {
           throw error;
@@ -96,6 +105,8 @@ export default function Profile() {
             .ilike("player_name", mainPlayer.name)
             .order("created_at", { ascending: true })
             .limit(30);
+
+          if (!active) return;
 
           if (history && history.length > 0) {
             const formattedHistory = history.map((h) => ({
@@ -145,16 +156,26 @@ export default function Profile() {
 
           // Fetch Match History
           try {
-            const { data: matches } = await supabase
-              .from("player_matches")
-              .select("*")
-              .ilike("player_name", mainPlayer.name)
-              .order("created_at", { ascending: false });
+            const [matchResult, speedrunnerResult] = await Promise.all([
+              supabase.from("player_matches").select("*")
+                .ilike("player_name", mainPlayer.name).order("created_at", { ascending: false }),
+              // Query separately so an older winning round is not hidden by
+              // the API's history row limit or the visible history page.
+              supabase.from("player_matches").select("score, total_match_time")
+                .eq("player_name", mainPlayer.name).gte("score", 50)
+                .gt("total_match_time", 0).lt("total_match_time", 180).limit(1),
+            ]);
+            if (!active) return;
+            const { data: matches } = matchResult;
+            if (matchResult.error) console.warn("Could not load match history", matchResult.error);
+            if (speedrunnerResult.error) console.warn("Could not check Speedrunner", speedrunnerResult.error);
+            setSpeedrunnerMatch(speedrunnerResult.data?.[0] ?? null);
 
             if (matches) {
               setMatchHistory(matches);
             }
           } catch (e) {
+            if (!active) return;
             console.warn("Could not load match history", e);
           }
         } else if (
@@ -177,64 +198,30 @@ export default function Profile() {
           setError("Could not find player data.");
         }
       } catch (err: any) {
+        if (!active) return;
         console.error("Failed to load player data", err);
         setError("Could not find player data.");
       } finally {
-        setLoading(false);
+        if (active) setLoading(false);
       }
     }
 
     fetchPlayerData();
+    return () => { active = false; };
   }, [id, user]);
 
   const badges = useMemo(() => {
     if (!player) return [];
-    const b = [];
-
-    // Check various stats for badges
-    if (parseFloat(player.kdr) > 2.0) {
-      b.push({
-        id: "slayer",
-        name: "Slayer",
-        icon: <Zap className="w-5 h-5 text-yellow-400" />,
-        desc: "K/D Ratio over 2.0",
-      });
-    }
-    if (parseFloat(player.accuracy) > 40) {
-      b.push({
-        id: "sharpshooter",
-        name: "Sharpshooter",
-        icon: <Target className="w-5 h-5 text-red-400" />,
-        desc: "Accuracy over 40%",
-      });
-    }
-    if (player.matches && player.matches >= 100) {
-      b.push({
-        id: "veteran",
-        name: "Veteran",
-        icon: <Timer className="w-5 h-5 text-blue-400" />,
-        desc: "Played 100+ matches",
-      });
-    }
-    if (player.crouches && player.crouches > 1000) {
-      b.push({
-        id: "fitness",
-        name: "Squat Master",
-        icon: <Swords className="w-5 h-5 text-green-400" />,
-        desc: "1,000+ tactical crouches",
-      });
-    }
-    if (Number(player.rank) <= 10) {
-      b.push({
-        id: "elite",
-        name: "Top 10",
-        icon: <Trophy className="w-5 h-5 text-toxic-purple" />,
-        desc: "Reached Top 10 Global",
-      });
-    }
-
-    return b;
-  }, [player]);
+    const icons: Record<AchievementId, React.ReactNode> = {
+      slayer: <Zap className="w-5 h-5 text-yellow-400" />,
+      sharpshooter: <Target className="w-5 h-5 text-red-400" />,
+      veteran: <Timer className="w-5 h-5 text-blue-400" />,
+      fitness: <Swords className="w-5 h-5 text-green-400" />,
+      elite: <Trophy className="w-5 h-5 text-toxic-purple" />,
+      speedrunner: <Timer className="w-5 h-5 text-emerald-400" />,
+    };
+    return getAchievements(player, speedrunnerMatch).map((badge) => ({ ...badge, icon: icons[badge.id] }));
+  }, [player, speedrunnerMatch]);
 
   const handleUpdateName = async () => {
     if (!editNameValue.trim() || editNameValue.trim() === player.name) {
@@ -556,13 +543,7 @@ export default function Profile() {
         />
         <StatCard
           title="Total K/D"
-          value={
-            player.deaths > 0
-              ? (player.score / player.deaths).toFixed(2)
-              : player.score > 0
-                ? player.score.toString()
-                : "0"
-          }
+          value={totalKdr(player).toFixed(2)}
           icon={<Target />} // Reusing target or existing icons
         />
       </section>
