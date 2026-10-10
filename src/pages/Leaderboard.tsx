@@ -70,7 +70,7 @@ export default function Leaderboard() {
             <Metric label="Player matches" value={loading || error ? "—" : playerMatches.toLocaleString("en-US")} />
             <Metric label="Kills recorded" value={loading || error ? "—" : totalKills.toLocaleString("en-US")} />
           </div>
-          <a className="button-secondary" href="https://discord.gg/PKYGBFV" target="_blank" rel="noopener noreferrer">
+          <a className="button-secondary" href="https://discord.gg/pTHzBNSyEy" target="_blank" rel="noopener noreferrer">
             <MessageSquare size={15} /> Join the Community
           </a>
         </div>
@@ -153,7 +153,7 @@ export default function Leaderboard() {
           <p className="sm:hidden text-[10px] text-zinc-500 mt-3">Tap a player for accuracy, KDR and KPM.</p>
           <details className="mt-4 text-xs text-zinc-500">
             <summary className="inline-flex items-center gap-2 py-2"><Info size={13} /> How ELO works</summary>
-            <p className="max-w-xl leading-7 mt-2">ELO is a performance score based on your average kills per minute (55%), accuracy (30%) and kill/death ratio (15%). Higher scores mean stronger overall performance. Equal scores are ordered by player name.</p>
+            <p className="max-w-xl leading-7 mt-2">ELO is a performance score based on your average kills per minute (65%), accuracy (25%) and kill/death ratio (10%). Higher scores mean stronger overall performance. Equal scores are ordered by player name.</p>
           </details>
         </section>
 
@@ -172,7 +172,7 @@ export default function Leaderboard() {
             <Users size={22} className="text-toxic-purple mb-4" />
             <h2 className="font-bold text-[17px] tracking-tight">Community</h2>
             <p className="text-[12px] text-zinc-500 leading-6 my-3">Find a lobby, share your progress and meet the WIDOW HS community.</p>
-            <a href="https://discord.gg/PKYGBFV" target="_blank" rel="noopener noreferrer" className="button-primary w-full">
+            <a href="https://discord.gg/pTHzBNSyEy" target="_blank" rel="noopener noreferrer" className="button-primary w-full">
               Join Discord <ArrowUpRight size={15} />
             </a>
           </section>
