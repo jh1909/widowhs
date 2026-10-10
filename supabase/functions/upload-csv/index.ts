@@ -165,11 +165,11 @@ serve(async (req) => {
       const avg_acc = p.matches > 0 ? p.accuracy_sum / p.matches : 0;
       const avg_kpm = p.matches > 0 ? p.kpm_sum / p.matches : 0;
 
-      const paceScore = (m.kpm || 0) / (50 / 3);
-      const accuracyScore = Math.min((m.accuracy || 0) / 60, 1.15);
-      const kdrScore = Math.min((m.kdr || 0) / 4.0, 3.00);
+      const paceScore = (avg_kpm || 0) / (50 / 3);
+      const accuracyScore = Math.min((avg_accuracy || 0) / 60, 1.15);
+      const kdrScore = Math.min((m_kdr || 0) / 4.0, 3.00);
       
-      const matchPerformanceScore = Math.round(650 * paceScore + 250 * accuracyScore + 100 * kdrScore) || 0;
+      const performanceScore = Math.round(650 * paceScore + 250 * accuracyScore + 100 * kdrScore) || 0;
       const finalElo = performanceScore;
 
       return {
