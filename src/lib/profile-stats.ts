@@ -1,5 +1,9 @@
 type NumericValue = number | string | null | undefined;
 
+export function escapeLikePattern(value: string): string {
+  return value.replace(/[\\%_]/g, "\\$&");
+}
+
 function nonNegativeNumber(value: NumericValue): number | null {
   if (value == null || String(value).trim() === "") return null;
   const number = Number(value);

@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { crouchesPerMinute, formatLobbyTime } from "../src/lib/profile-stats.ts";
+import { crouchesPerMinute, formatLobbyTime, escapeLikePattern } from "../src/lib/profile-stats.ts";
+
+test("nickname searches treat wildcard characters as literal text", () => {
+  assert.equal(escapeLikePattern("NZT"), "NZT");
+  assert.equal(escapeLikePattern("Player_100%\\test"), "Player\\_100\\%\\\\test");
+});
 
 test("crouches per minute weights a late join by actual lobby time", () => {
   // 30 crouches in 5 minutes + 6 in a late-joined 30 seconds = 36 / 5.5.

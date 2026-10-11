@@ -7,7 +7,7 @@ export default function Navigation() {
   const { user, login, logout } = useAuth();
   const isAdmin = user?.isAdmin || user?.username.toLowerCase() === "notprx";
   const navClass = ({ isActive }: { isActive: boolean }) => `nav-link${isActive ? " is-active" : ""}`;
-  const profilePath = `/profile/${user ? user.username.toLowerCase() : "me"}`;
+  const profilePath = `/profile/${user ? encodeURIComponent(user.username) : "me"}`;
   return (
     <header className="site-header">
       <div className="nav-shell">

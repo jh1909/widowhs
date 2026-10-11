@@ -19,8 +19,9 @@ import { useEffect, useState, useMemo } from "react";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/AuthContext";
 import PlayerAvatar from "../components/PlayerAvatar";
-import { getAchievements, totalKdr, type SpeedrunnerMatch, type AchievementId } from "../lib/achievements";
-import { crouchesPerMinute, formatLobbyTime } from "../lib/profile-stats";
+import { getAchievements, type SpeedrunnerMatch, type AchievementId } from "../lib/achievements";
+import { formatPlayerKdr } from "../lib/player-kdr";
+import { crouchesPerMinute, formatLobbyTime, escapeLikePattern } from "../lib/profile-stats";
 import {
   AreaChart,
   Area,
@@ -34,7 +35,7 @@ import {
 export default function Profile() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { user, login } = useAuth();
+  const { user, login, setUser } = useAuth();
   const playerName = id ? id.toUpperCase() : "UNKNOWN";
 
   const [loading, setLoading] = useState(true);
@@ -76,10 +77,10 @@ export default function Profile() {
 
       setLoading(true);
       try {
-        const { data, error } = await supabase
-          .from("players")
-          .select("*")
-          .ilike("name", targetId)
+        const profileQuery = supabase.from("players").select("*");
+        const { data, error } = await (id === "me" && user
+          ? profileQuery.eq("user_id", user.id).order("matches", { ascending: false })
+          : profileQuery.ilike("name", escapeLikePattern(targetId)))
           .limit(1);
 
         if (!active) return;
@@ -106,7 +107,7 @@ export default function Profile() {
           const { data: history } = await supabase
             .from("player_history")
             .select("elo, created_at")
-            .ilike("player_name", mainPlayer.name)
+            .eq("player_name", mainPlayer.name)
             .order("created_at", { ascending: true })
             .limit(30);
 
@@ -162,7 +163,7 @@ export default function Profile() {
           try {
             const [matchResult, bestWinResult, speedrunnerResult] = await Promise.all([
               supabase.from("player_matches").select("*")
-                .ilike("player_name", mainPlayer.name).order("created_at", { ascending: false }),
+                .eq("player_name", mainPlayer.name).order("created_at", { ascending: false }),
               // Query PB and Speedrunner independently of the history row limit.
               supabase.from("player_matches").select("time_in_lobby")
                 .eq("player_name", mainPlayer.name).gte("score", 50)
@@ -239,54 +240,23 @@ export default function Profile() {
     }
     setEditLoading(true);
     try {
-      // First check if the new name already exists
-      const { data: existing, error: existError } = await supabase
-        .from("players")
-        .select("name")
-        .ilike("name", editNameValue.trim())
-        .maybeSingle();
-
-      if (existing) {
-        alert("This name is already taken by another player.");
-        setEditLoading(false);
-        return;
-      }
-
-      // Update the name
-      const { data: updateData, error } = await supabase
-        .from("players")
-        .update({ name: editNameValue.trim() })
-        .eq("name", player.name)
-        .select();
+      const { data: renamedPlayer, error } = await supabase.rpc("rename_player", {
+        p_current_name: player.name,
+        p_new_name: editNameValue.trim(),
+      });
 
       if (error) throw error;
 
-      if (!updateData || updateData.length === 0) {
-        throw new Error(
-          "Update failed. No rows affected - this could be due to Row Level Security or a database constraint.",
-        );
+      if (!renamedPlayer?.name) throw new Error("Could not rename this profile.");
+      setPlayer((previous: any) => ({ ...previous, ...renamedPlayer }));
+      if (renamedPlayer.user_id === user?.id) {
+        setUser((previous) => previous ? { ...previous, username: renamedPlayer.name } : null);
       }
-
-      // Update auth metadata so we don't lose the link
-      const { error: authError } = await supabase.auth.updateUser({
-        data: { full_name: editNameValue.trim(), name: editNameValue.trim() },
-      });
-
-      if (authError) {
-        console.error("Auth metadata update failed:", authError);
-      }
-
       setIsEditingName(false);
-
-      // Navigate to new URL since the ID changed
-      // Instead of just navigating, we reload to ensure context is fully synced
-      window.location.href = `/profile/${encodeURIComponent(editNameValue.trim())}`;
-      // Force reload to the new URL so AuthContext picks up the new name from the database
-      window.location.hash = `/profile/${encodeURIComponent(editNameValue.trim())}`;
-      window.location.reload();
+      navigate(`/profile/${encodeURIComponent(renamedPlayer.name)}`, { replace: true });
     } catch (err: any) {
       console.error("Error updating name:", err);
-      alert("Failed to update name.");
+      alert(err.message || "Failed to update name.");
     } finally {
       setEditLoading(false);
     }
@@ -477,9 +447,7 @@ export default function Profile() {
                   <Verified className="text-[#9d4edd] w-8 h-8 fill-[#9d4edd]" />
                 )}
 
-                {((user &&
-                  user.username.toLowerCase() === player.name.toLowerCase()) ||
-                  (user && user.isAdmin)) && (
+                {user && (user.id === player.user_id || user.isAdmin) && (
                   <button
                     onClick={() => {
                       setEditNameValue(player.name);
@@ -558,8 +526,8 @@ export default function Profile() {
           icon={<Skull />}
         />
         <StatCard
-          title="Total K/D"
-          value={totalKdr(player).toFixed(2)}
+          title="Avg K/D"
+          value={formatPlayerKdr(player)}
           icon={<Swords />}
         />
       </section>

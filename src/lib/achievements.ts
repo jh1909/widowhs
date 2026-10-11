@@ -1,8 +1,11 @@
+import { playerKdr } from "./player-kdr.ts";
+
 type NumericValue = number | string | null | undefined;
 
 export type PlayerAchievementStats = {
   score?: NumericValue;
   deaths?: NumericValue;
+  kdr?: NumericValue;
   accuracy?: NumericValue;
   matches?: NumericValue;
   crouches?: NumericValue;
@@ -22,13 +25,6 @@ function numberOrZero(value: NumericValue): number {
   return Number.isFinite(number) && number >= 0 ? number : 0;
 }
 
-// Use the same total K/D and precision in the stat card and Slayer condition.
-export function totalKdr(player: PlayerAchievementStats): number {
-  const kills = numberOrZero(player.score);
-  const deaths = numberOrZero(player.deaths);
-  return Number((deaths > 0 ? kills / deaths : kills).toFixed(2));
-}
-
 export function isSpeedrunnerMatch(match: SpeedrunnerMatch | null | undefined): boolean {
   if (!match) return false;
   const duration = numberOrZero(match.total_match_time);
@@ -37,8 +33,8 @@ export function isSpeedrunnerMatch(match: SpeedrunnerMatch | null | undefined): 
 
 export function getAchievements(player: PlayerAchievementStats, speedrunnerMatch?: SpeedrunnerMatch | null): Achievement[] {
   const badges: Achievement[] = [];
-  if (totalKdr(player) > 2) {
-    badges.push({ id: "slayer", name: "Slayer", desc: "Current total K/D above 2.0" });
+  if ((playerKdr(player) ?? 0) > 2) {
+    badges.push({ id: "slayer", name: "Slayer", desc: "Current K/D above 2.0" });
   }
   const accuracy = Number(String(player.accuracy ?? "").replace(/%$/, ""));
   if (Number.isFinite(accuracy) && accuracy > 40) {

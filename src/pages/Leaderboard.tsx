@@ -5,6 +5,7 @@ import { useAuth } from "../lib/AuthContext";
 import { supabase } from "../lib/supabase";
 import { rankPlayers } from "../../supabase/functions/_shared/leaderboard";
 import PlayerAvatar from "../components/PlayerAvatar";
+import { formatPlayerKdr } from "../lib/player-kdr";
 
 type Player = {
   rank: number | string; name: string; elo: string; tag?: string;
@@ -118,14 +119,14 @@ export default function Leaderboard() {
                             <span className="hidden sm:block">
                               <PlayerAvatar name={player.name} avatarUrl={player.avatar_url || (isCurrentUser ? user?.avatar_url : undefined)} className="player-avatar" />
                             </span>
-                            <Link to={`/profile/${player.name.toLowerCase()}`} className="font-semibold text-zinc-200 hover:text-toxic-purple whitespace-nowrap block max-w-32 sm:max-w-none truncate">
+                            <Link to={`/profile/${encodeURIComponent(player.name)}`} className="font-semibold text-zinc-200 hover:text-toxic-purple whitespace-nowrap block max-w-32 sm:max-w-none truncate">
                               {player.name}{isCurrentUser && <span className="text-toxic-purple text-[10px] ml-1.5">(You)</span>}
                             </Link>
                             {player.tag === "PRO" && <span className="hidden sm:inline text-[8px] font-bold px-1.5 py-0.5 rounded border border-toxic-purple/20 text-toxic-purple">PRO</span>}
                           </div>
                         </td>
                         <td className="text-right text-zinc-300">{(Number(player.score) || 0).toLocaleString("en-US")}</td>
-                        <td className="text-right text-zinc-400 hidden sm:table-cell">{player.kdr ?? "—"}</td>
+                        <td className="text-right text-zinc-400 hidden sm:table-cell">{formatPlayerKdr(player)}</td>
                         <td className="text-right text-zinc-400 hidden sm:table-cell">{player.accuracy ?? "—"}</td>
                         <td className="text-right text-zinc-400 hidden sm:table-cell">{player.kpm ?? "—"}</td>
                         <td className="text-right font-bold text-toxic-purple">{player.elo}</td>

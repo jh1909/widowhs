@@ -1,28 +1,35 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { getAchievements, isSpeedrunnerMatch, totalKdr } from "../src/lib/achievements.ts";
+import { getAchievements, isSpeedrunnerMatch } from "../src/lib/achievements.ts";
+import { playerKdr, formatPlayerKdr } from "../src/lib/player-kdr.ts";
 
 const hasSlayer = (player: Parameters<typeof getAchievements>[0]) =>
   getAchievements(player).some((badge) => badge.id === "slayer");
 
-test("Slayer uses the displayed total K/D, not the average of per-match ratios", () => {
+test("profile and Slayer use the leaderboard K/D even when total kills/deaths differs", () => {
   const player = { score: 190, deaths: 100, kdr: "2.85" };
-  assert.equal(totalKdr(player), 1.9);
-  assert.equal(hasSlayer(player), false);
+  assert.equal(playerKdr(player), 2.85);
+  assert.equal(formatPlayerKdr(player), "2.85");
+  assert.equal(hasSlayer(player), true);
+  assert.equal(hasSlayer({ score: 300, deaths: 100, kdr: "1.90" }), false);
 });
 
 test("Slayer disappears when K/D falls and returns when it rises again", () => {
-  assert.equal(hasSlayer({ score: 220, deaths: 100 }), true);
-  assert.equal(hasSlayer({ score: 240, deaths: 130 }), false);
-  assert.equal(hasSlayer({ score: 300, deaths: 130 }), true);
+  assert.equal(hasSlayer({ kdr: "2.20" }), true);
+  assert.equal(hasSlayer({ kdr: "1.90" }), false);
+  assert.equal(hasSlayer({ kdr: "2.30" }), true);
 });
 
 test("Slayer threshold agrees with the displayed two-decimal K/D", () => {
-  assert.equal(hasSlayer({ score: 200, deaths: 100 }), false);
-  assert.equal(hasSlayer({ score: 2004, deaths: 1000 }), false);
-  assert.equal(hasSlayer({ score: 2006, deaths: 1000 }), true);
-  assert.equal(totalKdr({ score: "19", deaths: "10" }), 1.9);
-  assert.equal(totalKdr({ score: 5, deaths: 0 }), 5);
+  assert.equal(hasSlayer({ kdr: 2 }), false);
+  assert.equal(hasSlayer({ kdr: 2.004 }), false);
+  assert.equal(hasSlayer({ kdr: 2.006 }), true);
+  assert.equal(playerKdr({ kdr: "1.90" }), 1.9);
+  assert.equal(formatPlayerKdr({ kdr: 0 }), "0.00");
+  for (const kdr of [null, undefined, "", "-", NaN, Infinity, -1]) {
+    assert.equal(formatPlayerKdr({ kdr }), "—");
+    assert.equal(hasSlayer({ kdr }), false);
+  }
   assert.equal(hasSlayer({}), false);
 });
 

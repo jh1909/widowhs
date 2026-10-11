@@ -4,6 +4,8 @@ import Papa from "npm:papaparse@5.4.1";
 import { normalizeMatchLog, parseMatchRows, type MatchData } from "./parser.ts";
 import { rankPlayers } from "../_shared/leaderboard.ts";
 import { readMatchSources } from "../_shared/match-upload.ts";
+import { calculateRating } from "../_shared/rating.ts";
+import { createPlayerMap } from "../_shared/player-map.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -79,15 +81,7 @@ serve(async (req) => {
     const { data: dbPlayers, error: dbErr } = await supabaseClient.from("players").select("*");
     if (dbErr) throw dbErr;
 
-    const playerMap = new Map<string, any>();
-    dbPlayers.forEach((p: any) => {
-      playerMap.set(p.name.toLowerCase(), p);
-      if (p.bnet_accounts && Array.isArray(p.bnet_accounts)) {
-        p.bnet_accounts.forEach((bnet: string) => {
-          playerMap.set(bnet.toLowerCase(), p);
-        });
-      }
-    });
+    const playerMap = createPlayerMap<any>(dbPlayers);
 
     // 5. Only import players linked to a tracked profile.
     const parsedMatches = matches.filter((m) => playerMap.has(m.player_name.toLowerCase()));
@@ -141,10 +135,7 @@ serve(async (req) => {
       playerStats[mainName].crouches += m.crouches;
       playerStats[mainName].time_in_lobby += m.time_in_lobby;
 
-      const paceScore = (m.kpm || 0) / (50 / 3);
-      const accuracyScore = Math.min((m.accuracy || 0) / 60, 1.15);
-      const kdrScore = Math.min((m.kdr || 0) / 3.0, 1.50);
-      const matchPerformanceScore = Math.round(550 * paceScore + 300 * accuracyScore + 150 * kdrScore) || 0;
+      const matchPerformanceScore = calculateRating(m);
 
       playerStats[mainName].new_matches.push({
         player_name: mainName,
@@ -165,12 +156,7 @@ serve(async (req) => {
       const avg_acc = p.matches > 0 ? p.accuracy_sum / p.matches : 0;
       const avg_kpm = p.matches > 0 ? p.kpm_sum / p.matches : 0;
 
-      const paceScore = (avg_kpm || 0) / (50 / 3);
-      const accuracyScore = Math.min((avg_acc || 0) / 60, 1.15);
-      const kdrScore = Math.min((avg_kdr || 0) / 3.0, 1.50);
-
-      const performanceScore = Math.round(550 * paceScore + 300 * accuracyScore + 150 * kdrScore) || 0;
-      const finalElo = performanceScore;
+      const finalElo = calculateRating({ kpm: avg_kpm, accuracy: avg_acc, kdr: avg_kdr });
 
       return {
         name: p.name,

@@ -39,14 +39,14 @@ begin
     raise exception 'Administrator permission has been revoked.' using errcode = '42501';
   end if;
 
-  delete from public.player_matches;
+  delete from public.player_matches where true;
   get diagnostics deleted_matches = row_count;
-  delete from public.player_history;
+  delete from public.player_history where true;
   get diagnostics deleted_history = row_count;
 
   update public.players set matches = 0, score = 0, deaths = 0,
     kdr = '-', accuracy = '-', kpm = '-', crouches = 0, time_in_lobby = 0,
-    elo = '-', rank = 999999, tag = '';
+    elo = '-', rank = 999999, tag = '' where true;
   get diagnostics reset_players = row_count;
   update public.leaderboard_state set revision = revision + 1 where singleton;
 

@@ -33,7 +33,9 @@ Columns: player, kills, deaths, accuracy, kills/min, KDR, crouches, time in lobb
 total match time. Times are in seconds. Timestamps and a header row are optional.
 Timestamped records can also appear on the same line. Legacy eight-column CSV
 files retain their original lobby time; their total match time is unknown (`NULL`).
-Imports add matches to tracked players, including linked Battle.net accounts.
+Imports add matches to tracked players, including linked Battle.net accounts and
+previous profile nicknames. Ambiguous account links reject the import instead of
+assigning a match to the wrong player.
 Multiple files are sent in one request using repeated `file` form fields. Each
 file is parsed separately, then all matches are aggregated together. A malformed
 file rejects the batch before statistics are changed; the error identifies its
@@ -51,6 +53,31 @@ supabase functions deploy upload-csv
 ```
 
 Run `npm test`, `npm run lint` and `npm run build` for local validation.
+
+## Rating
+
+Match performance scores and profile ELO use the same formula, rounded once to
+the nearest integer:
+
+```text
+Pace = min(KPM / 16.67, 1.67)
+Acc  = min(Accuracy / 60, 1.15)
+KDR  = min(KDR, 4.0) / 3.0
+Rating = (Pace * 0.65 + Acc * 0.25 + KDR * 0.10) * 1000
+```
+
+Accuracy is a percentage (e.g. 60), not a fraction. Profile ELO applies the
+formula to the existing averages of KPM, accuracy and KDR; match scores apply it
+to that match's statistics. A rating of at least 1200 still grants the PRO tag.
+
+Deploy the updated `upload-csv` function, then apply
+`supabase/migrations/20261007120000_update_rating_formula.sql` while uploads are
+idle. The migration recalculates existing match scores, current player ELO and
+all ranks, preserving accounts and match statistics. Old ELO history remains as
+recorded; a new history snapshot is added where ELO or rank changes. Existing
+profile averages are stored at two-decimal precision, which is also the input
+for this one-time recalculation. The migration requires the earlier admin-reset
+migration and invalidates any imports computed before it.
 
 ## Reset test/release statistics
 
@@ -81,10 +108,11 @@ and rejection of stale imports. They never connect to a live Supabase database.
 
 ## Achievements
 
-Slayer requires the **current total K/D shown on the profile**, above 2.00.
-The ratio is computed from total kills and deaths at the displayed two-decimal
-precision, rather than the average of individual match ratios. It disappears
-when the current ratio falls below the threshold and can be earned again.
+Leaderboard, profile and Slayer use the same stored `players.kdr` value: the
+current average K/D of the matches. The profile labels it **Avg K/D**. Slayer
+requires this value to be above 2.00 at the displayed two-decimal precision. It
+disappears when the current value falls below the threshold and can be earned
+again. Unknown K/D is shown as a dash and never grants Slayer.
 
 The profile shows ELO and a PB for 50-kill wins. PB is the shortest positive
 `time_in_lobby` among matches with at least 50 kills, formatted as a duration:
@@ -98,3 +126,24 @@ time is not the round duration; legacy records without total duration do not
 qualify. The badge remains while that winning match exists, and the admin reset
 clears it by deleting match history. No new migration or importer deployment is
 required for this feature if the existing total-duration migration is installed.
+
+## Nickname changes
+
+Apply `20261012100000_fix_admin_reset_where.sql` and
+`20261012110000_preserve_player_history_on_rename.sql` from `supabase/migrations`,
+then deploy `upload-csv` and the frontend. The earlier admin-reset migration is
+required. The first migration makes the reset compatible with pg-safeupdate.
+
+Renaming uses the authenticated `rename_player` RPC. Only the profile owner by
+`user_id` or a database-flagged admin may rename a profile. Match and ELO history
+change names in the same transaction; the Auth user UUID and all statistics stay
+unchanged. The trigger also handles older frontends that update the name directly.
+The frontend updates its auth context and navigates through the hash router;
+renaming another player as an admin does not change the admin's Auth metadata.
+
+Previous nicknames are retained in `players.previous_names` as import aliases,
+separate from Battle.net accounts. Name collisions are rejected. Imports computed
+before a rename return HTTP 409 rather than writing to an outdated name.
+
+The migration protects future nickname changes. Installing it preserves existing
+profiles and histories without guessing any past nickname associations.
