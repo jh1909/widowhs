@@ -43,7 +43,7 @@ function Footer() {
       <div className="footer-shell">
         <div><span className="font-bold text-zinc-400">WIDOW HS.</span><span className="ml-3">© 2026 · Made for the community.</span></div>
         <nav className="footer-links" aria-label="Legal and community">
-          <a href="https://discord.gg/PKYGBFV" target="_blank" rel="noopener noreferrer">Discord</a>
+          <a href="https://discord.gg/pTHzBNSyEy" target="_blank" rel="noopener noreferrer">Discord</a>
           <Link to="/imprint">Impressum</Link>
           <Link to="/privacy">Datenschutz</Link>
         </nav>
