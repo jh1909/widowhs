@@ -424,7 +424,7 @@ export default function Profile() {
                     type="text"
                     value={editNameValue}
                     onChange={(e) => setEditNameValue(e.target.value)}
-                    className="bg-surface-container/50 border border-toxic-purple/50 rounded px-3 py-1 font-sans text-[32px] md:text-[48px] font-bold text-white uppercase tracking-tighter w-[300px] focus:outline-none focus:border-toxic-purple"
+                    className="bg-surface-container/50 border border-toxic-purple/50 rounded px-3 py-1 font-sans text-[32px] md:text-[48px] font-bold text-white tracking-tighter w-[300px] focus:outline-none focus:border-toxic-purple"
                     autoFocus
                     disabled={editLoading}
                   />
