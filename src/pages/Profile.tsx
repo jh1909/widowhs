@@ -16,6 +16,7 @@ import {
 import { Link, useParams, useNavigate } from "react-router-dom";
 import { useEffect, useState, useMemo } from "react";
 import { supabase } from "../lib/supabase";
+import { rankPlayers } from "../../supabase/functions/_shared/leaderboard";
 import { useAuth } from "../lib/AuthContext";
 import PlayerAvatar from "../components/PlayerAvatar";
 import VerifiedBadge from "../components/VerifiedBadge";
@@ -41,6 +42,7 @@ export default function Profile() {
 
   const [loading, setLoading] = useState(true);
   const [player, setPlayer] = useState<any>(null);
+  const [qualifiedRank, setQualifiedRank] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const [isEditingName, setIsEditingName] = useState(false);
@@ -68,6 +70,7 @@ export default function Profile() {
       setPersonalBestTime(null);
       setSpeedrunnerMatch(null);
       setMatchHistoryPage(1);
+      setQualifiedRank(null);
 
       if (id === "me" && !user) {
         setLoading(false);
@@ -95,6 +98,24 @@ export default function Profile() {
           const mainPlayer = data[0];
           setPlayer(mainPlayer);
           setError(null);
+          // Calculate rank using only players with 10+ matches
+          if (Number(mainPlayer.matches ?? 0) >= 10) {
+            const { data: rankings, error: rankingError } = await supabase
+              .from("players")
+              .select("name, elo, matches")
+              .gte("matches", 10);
+          
+            if (!active) return;
+          
+            if (rankingError) {
+              console.warn("Could not load qualified ranking", rankingError);
+            } else {
+              const ranked = rankPlayers(rankings ?? []);
+              setQualifiedRank(
+                ranked.find((p) => p.name === mainPlayer.name)?.rank ?? null
+              );
+            }
+          }
 
           if (
             mainPlayer.bnet_accounts &&
@@ -334,7 +355,7 @@ export default function Profile() {
   }
 
   const inPlacements = Number(player.matches ?? 0) < 10;
-  const podiumRank = inPlacements ? null : getPodiumRank(player.rank);
+  const podiumRank = inPlacements ? null : getPodiumRank(qualifiedRank);
   const averageCrouches = crouchesPerMatch(player);
 
   return (
@@ -422,7 +443,7 @@ export default function Profile() {
                 </span>
               </div>
               {!inPlacements && !podiumRank && <span className="font-mono text-[14px] text-on-surface-variant border-l border-[#4d4353] pl-3">
-                Rank #{Number(player.rank) >= 999999 ? "-" : player.rank || "?"}{" "}
+                Rank #{qualifiedRank ?? "—"}{" "}
                 Global
               </span>}
             </div>
