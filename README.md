@@ -121,10 +121,10 @@ Match performance scores and profile ELO use the same formula, rounded once to
 the nearest integer:
 
 ```text
-Pace = min(KPM / 16.67, 1.67)
+Pace = min(KPM / (50/3))
 Acc  = min(Accuracy / 60, 1.15)
 KDR  = min(KDR, 4.0) / 3.0
-Rating = (Pace * 0.65 + Acc * 0.25 + KDR * 0.10) * 1000
+Rating = (650 * Pace + 250 * Acc + 100 * KDR)
 ```
 
 Accuracy is a percentage (e.g. 60), not a fraction. Profile ELO applies the
