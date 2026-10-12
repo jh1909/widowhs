@@ -99,16 +99,32 @@ account aliases, emails and admin permissions. Imports retain each original log
 name separately from the current profile name. Renames therefore preserve the
 match identity and original participant name. Admin resets clear this history.
 
-`players.is_verified` is maintained by a database trigger. It requires a trusted
-Discord identity in Supabase Auth and at least one linked Battle.net name. This
-indicates a Discord-linked profile, not Battle.net OAuth ownership verification.
+`players.is_verified` is maintained by a database trigger. On the Battle.net OAuth
+branch it requires a trusted Discord identity and a server-verified Battle.net
+account linked through Blizzard. Existing typed names alone do not award the badge.
 Removing the last linked account removes the badge. Login uses
 `ensure_discord_player`; matching Discord display names alone never claim an
-imported profile. `link_bnet_account` checks ownership, account collisions and
-the two-account limit. Linking a previously unclaimed player moves its saved
+imported profile. The OAuth completion checks ownership, account collisions and
+the two-account limit; `link_bnet_account` now allows only unlinking. Linking a previously unclaimed player moves its saved
 matches/history into the owner's profile, combines aggregate stats, recalculates
 ELO/ranks and invalidates concurrent imports atomically. Both existing `text[]`
 and `jsonb` account columns are supported. Imports preserve ownership and roles.
+
+## Battle.net OAuth test branch
+
+See [the setup and testing guide](docs/battlenet-oauth-testing.md) for the Blizzard
+client, exact callback/return URLs, Supabase migration, dashboard deployment and
+manual tests. Discord remains the site login. The additional `battlenet-oauth`
+Edge Function links Blizzard's stable account ID and full BattleTag to that user.
+The first claimant keeps a log name; conflicting names/accounts are rejected.
+New claims require OAuth, up to two accounts, and legacy names retain their stats.
+Private account IDs never appear in public player rows or match-history RPCs.
+
+Use a separate test database: a frontend Git branch does not isolate Supabase.
+The new migration changes account linking and badge rules for every frontend
+connected to the same database. Browser/JWT binding and single-use state prevent
+cross-user link attempts; callback GET prepares proof and authenticated POST
+completes the claim only from the initiating browser. No provider tokens persist.
 
 Old imports only contain the participants saved at the time; discarded players
 cannot be recovered from the database. New imports keep every named participant.

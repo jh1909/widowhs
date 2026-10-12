@@ -20,6 +20,7 @@ import { rankPlayers } from "../../supabase/functions/_shared/leaderboard";
 import { useAuth } from "../lib/AuthContext";
 import PlayerAvatar from "../components/PlayerAvatar";
 import VerifiedBadge from "../components/VerifiedBadge";
+import BattleNetAccounts from "../components/BattleNetAccounts";
 import ProfileRankBadge, { ProfileRankFrame, getPodiumRank, podiumThemes } from "../components/ProfileRankDecoration";
 import { getAchievements, type SpeedrunnerMatch, type AchievementId } from "../lib/achievements";
 import { formatPlayerKdr } from "../lib/player-kdr";
@@ -57,8 +58,6 @@ export default function Profile() {
   const matchesPerPage = 10;
 
   const [bnetAccounts, setBnetAccounts] = useState<string[]>([]);
-  const [newBnetAccount, setNewBnetAccount] = useState("");
-  const [linkLoading, setLinkLoading] = useState(false);
   const [profileReload, setProfileReload] = useState(0);
 
   useEffect(() => {
@@ -286,25 +285,6 @@ export default function Profile() {
     }
   };
 
-  const updateAccount = async (account: string, remove: boolean) => {
-    setLinkLoading(true);
-    try {
-      const { data, error } = await supabase.rpc("link_bnet_account", {
-        p_player_name: player.name, p_account: account, p_remove: remove,
-      });
-      if (error) throw error;
-      setPlayer(data);
-      setBnetAccounts(data.bnet_accounts ?? []);
-      setNewBnetAccount("");
-      setProfileReload(value => value + 1);
-    } catch (error: any) {
-      alert(error.message || "Could not update the Battle.net account.");
-    } finally { setLinkLoading(false); }
-  };
-  const handleLinkAccount = () => updateAccount(newBnetAccount.trim(), false);
-  const handleRemoveAccount = (account: string) => {
-    if (confirm(`Remove the Battle.net account '${account}'?`)) updateAccount(account, true);
-  };
   if (loading) {
     return (
       <main className="flex-grow w-full max-w-[1280px] mx-auto px-6 py-12 flex flex-col gap-12 items-center justify-center">
@@ -724,69 +704,9 @@ export default function Profile() {
         </div>
       </section>
 
-      {/* Linked Accounts Section */}
-      {player && (
-        <section className="flex flex-col gap-3 mt-4">
-          <h3 className="font-sans text-[24px] font-semibold text-on-surface uppercase tracking-tight">
-            Battle.net Accounts
-          </h3>
-          <div className="bg-surface-container/30 backdrop-blur-[12px] border border-[#4d4353] rounded-xl p-6 flex flex-col gap-4">
-            <p className="text-zinc-400 font-mono text-sm mb-2">
-              Link up to 2 Battle.net accounts. Existing matches for these names will be added to your profile. Workshop logs identify players by name, without the #number.
-            </p>
-            {bnetAccounts.length > 0 && (
-              <div className="flex flex-col gap-2">
-                {bnetAccounts.map((accName) => (
-                  <div
-                    key={accName}
-                    className="flex justify-between items-center bg-surface-container/50 p-3 rounded border border-toxic-purple/20"
-                  >
-                    <div>
-                      <span className="font-sans font-bold text-white text-lg">
-                        {accName}
-                      </span>
-                    </div>
-                    {user && user.id === player.user_id && (
-                      <button
-                        onClick={() => handleRemoveAccount(accName)}
-                        disabled={linkLoading}
-                        className="text-red-400 hover:text-red-300 font-mono text-sm uppercase tracking-widest px-2 py-1"
-                        title="Remove Account"
-                      >
-                        <X className="w-5 h-5" />
-                      </button>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {user && user.id === player.user_id && bnetAccounts.length < 2 && (
-              <div className="mt-4 flex flex-col sm:flex-row gap-3">
-                <input
-                  type="text"
-                  value={newBnetAccount}
-                  onChange={(e) => setNewBnetAccount(e.target.value)}
-                  placeholder="Enter BattleTag (e.g. Klog#21570)"
-                  className="flex-grow bg-surface-container border border-surface-container-highest rounded px-4 py-2 font-mono text-[13px] text-white focus:outline-none focus:border-toxic-purple transition-colors"
-                />
-                <button
-                  onClick={handleLinkAccount}
-                  disabled={linkLoading || !newBnetAccount.trim()}
-                  className="px-6 py-2 bg-toxic-purple hover:bg-[#842bd2] text-white font-bold rounded transition-colors disabled:opacity-50 font-sans uppercase tracking-widest text-sm whitespace-nowrap cursor-pointer"
-                >
-                  {linkLoading ? "Adding..." : "Add Account"}
-                </button>
-              </div>
-            )}
-            {user && user.id === player.user_id && bnetAccounts.length >= 2 && (
-              <p className="text-zinc-500 font-mono text-xs mt-2">
-                You have reached the maximum of 2 Battle.net accounts.
-              </p>
-            )}
-          </div>
-        </section>
-      )}
+      {player && <BattleNetAccounts playerName={player.name} accounts={bnetAccounts}
+        isOwner={!!user && user.id === player.user_id}
+        onChanged={() => setProfileReload(value => value + 1)} />}
     </main>
   );
 }
