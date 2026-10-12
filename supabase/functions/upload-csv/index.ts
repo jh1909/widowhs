@@ -3,7 +3,7 @@ import { createClient } from "npm:@supabase/supabase-js@2.39.3";
 import Papa from "npm:papaparse@5.4.1";
 import { normalizeMatchLog, parseMatchRows, type MatchData } from "./parser.ts";
 import { rankPlayers } from "../_shared/leaderboard.ts";
-import { readMatchSources } from "../_shared/match-upload.ts";
+import { readMatchSources, assignMatchId } from "../_shared/match-upload.ts";
 import { calculateRating } from "../_shared/rating.ts";
 import { createPlayerMap } from "../_shared/player-map.ts";
 
@@ -43,7 +43,7 @@ serve(async (req) => {
 
     // Parse each file separately (including its own header), then import the
     // combined matches once so overlapping players accumulate every file.
-    const matches: MatchData[] = [];
+    const matches: (MatchData & { played_at: string | null; match_id: string })[] = [];
     let fileCount = 0;
     try {
       const sources = await readMatchSources(req);
@@ -58,7 +58,7 @@ serve(async (req) => {
           }
           const parsedMatches = parseMatchRows(parsedData.data);
           if (!parsedMatches.length) throw new Error("No match records found.");
-          matches.push(...parsedMatches);
+          matches.push(...assignMatchId(parsedMatches.map((match) => ({ ...match, played_at: source.played_at }))));
         } catch (error) {
           throw new Error(`${source.name}: ${error instanceof Error ? error.message : String(error)}`);
         }
@@ -93,9 +93,11 @@ serve(async (req) => {
       });
     }
 
-    // Verify the duration migration before changing any player statistics.
+    const roundCount = new Set(parsedMatches.map((match) => match.match_id)).size;
+
+    // Verify the duration, match-date and round-count migrations before changing statistics.
     const { error: schemaErr } = await supabaseClient
-      .from("player_matches").select("total_match_time").limit(0);
+      .from("player_matches").select("total_match_time, played_at, match_id").limit(0);
     if (schemaErr) throw schemaErr;
 
     // 6. Match-Aggregation wie vorher
@@ -147,6 +149,8 @@ serve(async (req) => {
         crouches: m.crouches,
         time_in_lobby: m.time_in_lobby,
         total_match_time: m.total_match_time,
+        played_at: m.played_at,
+        match_id: m.match_id,
         performance_score: matchPerformanceScore,
       });
     });
@@ -210,7 +214,7 @@ serve(async (req) => {
       p_history: historyRows,
       p_matches: matchRows,
       p_admin_user: apiKey ? "API_AUTOMATION" : "ADMIN_DASHBOARD",
-      p_details: `Imported ${parsedMatches.length} valid matches from ${fileCount} file(s), updated ${finalPlayers.length} tracked players.`,
+      p_details: `Imported ${roundCount} round(s) with ${parsedMatches.length} tracked player participation(s) from ${fileCount} file(s), updated ${finalPlayers.length} players.`,
     });
     if (importErr) {
       if (importErr.code === "40001") {
@@ -224,7 +228,7 @@ serve(async (req) => {
     return new Response(
       JSON.stringify({
         success: true,
-        message: `Successfully imported ${parsedMatches.length} valid matches from ${fileCount} file(s) and updated ${finalPlayers.length} players.`,
+        message: `Successfully imported ${roundCount} round(s) with ${parsedMatches.length} tracked player participation(s) from ${fileCount} file(s).`,
       }),
       {
         status: 200,

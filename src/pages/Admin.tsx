@@ -182,6 +182,7 @@ function CsvUpload() {
             Player, kills, deaths, accuracy, kills/min, KDR, crouches, time in lobby, total match time
           </code>
           {" "}Times are in seconds. Older files without total match time are also supported.
+          {" "}Log-YYYY-MM-DD-HH-MM-SS filenames set the match date (Europe/Berlin).
         </p>
 
         <div className="border border-surface-container rounded-lg p-5 space-y-4">

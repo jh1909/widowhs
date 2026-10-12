@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { readMatchSources, validateMatchFile } from "../supabase/functions/_shared/match-upload.ts";
+import { readMatchSources, validateMatchFile, matchDateFromFilename } from "../supabase/functions/_shared/match-upload.ts";
 
 function requestWithFiles(files: File[]) {
   const form = new FormData();
@@ -14,15 +14,15 @@ test("keeps every file in a mixed CSV/TXT upload, including Unicode text", async
   const sources = await readMatchSources(requestWithFiles([
     new File([csv], "match1.csv"), new File([txt], "match2.TXT"),
   ]));
-  assert.deepEqual(sources, [{ name: "match1.csv", text: csv }, { name: "match2.TXT", text: txt }]);
+  assert.deepEqual(sources, [{ name: "match1.csv", text: csv, played_at: null }, { name: "match2.TXT", text: txt, played_at: null }]);
 });
 
 test("single-file automation and raw-text uploads remain compatible", async () => {
   const text = "NZT,50,18,43.9,11.04,2.78,41,271,271";
   assert.deepEqual(await readMatchSources(requestWithFiles([new File([text], "match.csv")])),
-    [{ name: "match.csv", text }]);
+    [{ name: "match.csv", text, played_at: null }]);
   assert.deepEqual(await readMatchSources(new Request("https://example.test/upload", { method: "POST", body: text })),
-    [{ name: "Request body", text }]);
+    [{ name: "Request body", text, played_at: null }]);
 });
 
 test("rejects a batch containing an unsupported file instead of silently skipping it", async () => {
@@ -43,4 +43,31 @@ test("enforces the size limit per file", () => {
   assert.doesNotThrow(() => validateMatchFile({ name: "match.csv", size: 5 * 1024 * 1024 }));
   assert.throws(() => validateMatchFile({ name: "large.txt", size: 5 * 1024 * 1024 + 1 }),
     /large.txt: maximum file size is 5MB/);
+});
+
+test("each uploaded log keeps its own filename match date", async () => {
+  const sources = await readMatchSources(requestWithFiles([
+    new File(["first"], "Log-2026-10-11-20-12-49.txt"),
+    new File(["second"], "Log-2026-10-10-18-01-03.csv"),
+  ]));
+  assert.deepEqual(sources.map((source) => source.played_at),
+    ["2026-10-11T20:12:49", "2026-10-10T18:01:03"]);
+});
+
+test("filename dates support leap days and case-insensitive CSV/TXT extensions", () => {
+  assert.equal(matchDateFromFilename("Log-2024-02-29-00-00-00.TXT"), "2024-02-29T00:00:00");
+  assert.equal(matchDateFromFilename("log-2026-12-31-23-59-59.CSV"), "2026-12-31T23:59:59");
+  assert.equal(matchDateFromFilename("match.csv"), null);
+});
+
+test("impossible dates reject the upload instead of silently rolling into another day", async () => {
+  for (const name of ["Log-2026-02-29-20-12-49.txt", "Log-2026-13-11-20-12-49.txt",
+    "Log-2026-10-32-20-12-49.txt", "Log-2026-10-11-24-12-49.txt",
+    "Log-2026-10-11-20-60-49.txt", "Log-2026-10-11-20-12-60.txt", "Log-0000-01-01-00-00-00.txt"]) {
+    assert.throws(() => matchDateFromFilename(name), /invalid match date/);
+  }
+  await assert.rejects(() => readMatchSources(requestWithFiles([
+    new File(["valid"], "Log-2026-10-11-20-12-49.txt"),
+    new File(["invalid"], "Log-2026-02-31-20-12-49.txt"),
+  ])), /invalid match date/);
 });

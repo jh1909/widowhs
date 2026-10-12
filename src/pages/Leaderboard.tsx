@@ -18,6 +18,7 @@ export default function Leaderboard() {
   const [searchTerm, setSearchTerm] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const [leaderboardData, setLeaderboardData] = useState<Player[]>([]);
+  const [totalMatches, setTotalMatches] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [reload, setReload] = useState(0);
@@ -28,11 +29,21 @@ export default function Leaderboard() {
     let active = true;
     setLoading(true);
     setError(null);
+    setTotalMatches(null);
     async function fetchLeaderboard() {
       try {
-        const { data, error } = await supabase.from("players").select("*");
+        const [{ data, error }, matchCountResult] = await Promise.all([
+          supabase.from("players").select("*"),
+          supabase.rpc("get_match_count"),
+        ]);
         if (error) throw error;
-        if (active) setLeaderboardData(rankPlayers((data || []) as Player[]));
+        if (matchCountResult.error) console.warn("Could not load round count", matchCountResult.error);
+        if (active) {
+          setLeaderboardData(rankPlayers((data || []) as Player[]));
+          const count = Number(matchCountResult.data);
+          setTotalMatches(!matchCountResult.error && matchCountResult.data != null &&
+            Number.isSafeInteger(count) && count >= 0 ? count : null);
+        }
       } catch (error) {
         console.error("Failed to load rankings", error);
         if (active) setError("The rankings couldn't be loaded. Please try again.");
@@ -56,7 +67,6 @@ export default function Leaderboard() {
   const totalPages = Math.ceil(filteredData.length / itemsPerPage);
   const paginatedData = filteredData.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
   const totalKills = leaderboardData.reduce((sum, player) => sum + (Number(player.score) || 0), 0);
-  const playerMatches = leaderboardData.reduce((sum, player) => sum + (Number(player.matches) || 0), 0);
   const copyCode = async () => {
     try { await navigator.clipboard.writeText("TCG2W"); setCopyState("copied"); }
     catch { setCopyState("failed"); }
@@ -68,7 +78,7 @@ export default function Leaderboard() {
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="hero-metrics">
             <Metric label="Ranked players" value={loading || error ? "—" : leaderboardData.length.toLocaleString("en-US")} />
-            <Metric label="Player matches" value={loading || error ? "—" : playerMatches.toLocaleString("en-US")} />
+            <Metric label="Matches played" value={loading || error || totalMatches === null ? "—" : totalMatches.toLocaleString("en-US")} />
             <Metric label="Kills recorded" value={loading || error ? "—" : totalKills.toLocaleString("en-US")} />
           </div>
           <a className="button-secondary" href="https://discord.gg/pTHzBNSyEy" target="_blank" rel="noopener noreferrer">

@@ -163,7 +163,8 @@ export default function Profile() {
           try {
             const [matchResult, bestWinResult, speedrunnerResult] = await Promise.all([
               supabase.from("player_matches").select("*")
-                .eq("player_name", mainPlayer.name).order("created_at", { ascending: false }),
+                .eq("player_name", mainPlayer.name)
+                .order("played_at", { ascending: false }).order("created_at", { ascending: false }),
               // Query PB and Speedrunner independently of the history row limit.
               supabase.from("player_matches").select("time_in_lobby")
                 .eq("player_name", mainPlayer.name).gte("score", 50)
@@ -694,7 +695,7 @@ export default function Profile() {
                         className="border-b border-white/5 transition-colors hover:bg-white/[0.02]"
                       >
                          <td className="py-3 px-4 text-zinc-400 whitespace-nowrap">
-                           {new Date(m.created_at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23" })}
+                           {new Date(m.played_at ?? m.created_at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23" })}
                          </td>
                          <td className="py-3 px-4 text-white font-bold">{m.score}</td>
                          <td className="py-3 px-4">{m.deaths}</td>

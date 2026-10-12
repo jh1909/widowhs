@@ -21,6 +21,19 @@ positions before search or pagination. Equal scores are ordered by player name.
 The signed-in player is highlighted at their actual position. Imports recalculate
 ranks against all existing players, including players absent from that upload.
 
+The homepage **Matches played** counter counts rounds, with one uploaded file
+representing one round. All tracked player records from that file share a
+`player_matches.match_id`, and `get_match_count()` counts distinct round IDs
+in the database without a client-side row limit. Personal match totals still
+count each player's participation. Admin resets also clear the round count.
+
+Apply `supabase/migrations/20261012130000_count_imported_rounds.sql` after the
+match-date migration and before deploying the updated `upload-csv` function
+and frontend. Existing records are grouped by `played_at`; when no original
+match time was recorded, this is the upload timestamp. Older multi-file uploads
+cannot be separated reliably after the fact. During the deployment transition,
+an older importer without round IDs is counted as one round per request.
+
 The admin upload accepts one or more `.csv` and `.txt` files (up to 5MB per file)
 through the file picker, with comma-separated records:
 
@@ -39,6 +52,21 @@ Multiple files are sent in one request using repeated `file` form fields. Each
 file is parsed separately, then all matches are aggregated together. A malformed
 file rejects the batch before statistics are changed; the error identifies its
 filename. Single-file and raw-text automation uploads remain supported.
+
+Filenames such as `Log-2026-10-11-20-12-49.txt` supply the match date and time.
+The filename is interpreted in `Europe/Berlin`, including summer/winter time,
+and saved as `player_matches.played_at`. Match history displays and sorts by
+this timestamp; `created_at` remains the upload timestamp. Existing matches,
+other filenames and raw-text uploads use the original upload timestamp because
+their match date cannot be recovered from stored data. Invalid calendar dates
+in recognized log filenames reject the batch.
+
+For filename dates, apply
+`supabase/migrations/20261012120000_add_match_date.sql` **before** deploying
+the updated `upload-csv` function and frontend. This migration requires the
+earlier duration and admin-reset migrations. The date tests run the migration
+and importer in local PostgreSQL (PGlite), verifying timestamps, legacy rows,
+transaction rollback and service-only permissions.
 
 Before deploying the updated importer, apply
 `supabase/migrations/20261005120000_add_total_match_time.sql` to add the nullable
