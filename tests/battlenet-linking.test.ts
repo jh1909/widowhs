@@ -9,6 +9,7 @@ const alice = "00000000-0000-0000-0000-000000000001";
 const bob = "00000000-0000-0000-0000-000000000002";
 const outsider = "00000000-0000-0000-0000-000000000003";
 const oauthMigration = new URL("../supabase/migrations/20261012220000_battlenet_oauth.sql", import.meta.url);
+const ownClaimsMigration = new URL("../supabase/migrations/20261013010000_battlenet_owned_profile_claims.sql", import.meta.url);
 
 for (const accountColumn of ["text[]", "jsonb"]) {
 test(`Battle.net OAuth claims and verification (${accountColumn})`, async t => {
@@ -65,6 +66,7 @@ test(`Battle.net OAuth claims and verification (${accountColumn})`, async t => {
     await role("authenticated", () => db.query("select public.link_bnet_account('Alice','Legacy#12345',false)"));
     assert.equal((await profile()).is_verified, true);
     await db.exec(await readFile(oauthMigration, "utf8"));
+    await db.exec(await readFile(ownClaimsMigration, "utf8"));
 
     await t.test("migration preserves legacy claims/stats but requires proof for verification", async () => {
       assert.deepEqual((await profile()).bnet_accounts, ["Legacy"]);
@@ -150,6 +152,57 @@ test(`Battle.net OAuth claims and verification (${accountColumn})`, async t => {
       assert.deepEqual(await publicAccounts(), []);
     });
 
+    await t.test("an own admin profile is merged instead of rejected, and unlinking permits reverification", async () => {
+      await db.query("insert into public.players(name,user_id,is_admin,matches,elo) values ('Bobby',$1,true,0,'-')", [bob]);
+      await connect(bob, "200", "Bobby#12345");
+      assert.equal(await profile("Bobby"), undefined);
+      assert.equal((await profile("Bob")).is_admin, true);
+      assert.equal((await profile("Bob")).is_verified, true);
+      assert.ok((await profile("Bob")).previous_names.includes("Bobby"));
+      await actor(bob);
+      await role("authenticated", () => db.query("select public.link_bnet_account('Bob','Bobby',true)"));
+      assert.equal((await profile("Bob")).is_verified, false);
+      await connect(bob, "200", "Bobby#12345");
+      assert.equal((await profile("Bob")).is_verified, true);
+      await assert.rejects(connect(alice, "201", "Bobby#98765"), (error: any) => error.code === "23505");
+    });
+
+    await t.test("own legacy duplicates retain other accounts, weighted stats, logged names and admin rights", async () => {
+      const round = await importMatch("AliceOld");
+      await db.query("update public.players set user_id=$1,is_admin=true,bnet_accounts=$2 where name='AliceOld'",
+        [alice, accountColumn === "jsonb" ? JSON.stringify(["KeptAccount"]) : ["KeptAccount"]]);
+      const before = await profile(); const donor = await profile("AliceOld");
+      await connect(alice, "800", "AliceOld#12345");
+      const merged = await profile();
+      assert.equal(await profile("AliceOld"), undefined);
+      assert.equal(merged.matches, before.matches + donor.matches);
+      assert.equal(merged.score, (before.score ?? 0) + donor.score);
+      assert.equal(Number(merged.time_in_lobby), Number(before.time_in_lobby ?? 0) + Number(donor.time_in_lobby));
+      assert.equal(merged.kdr, ((Number(before.kdr) * before.matches + Number(donor.kdr) * donor.matches) / merged.matches).toFixed(2));
+      assert.deepEqual(merged.bnet_accounts, ["AliceOld", "KeptAccount"]);
+      assert.equal(merged.is_admin, true);
+      const match = (await db.query<any>("select player_name,logged_player_name from public.player_matches where match_id=$1", [round])).rows[0];
+      assert.deepEqual(match, { player_name: "Alice", logged_player_name: "AliceOld" });
+      assert.ok((await db.query<any>("select count(*)::int as n from public.player_history where player_name='Alice'")).rows[0].n > 0);
+      await assert.rejects(connect(bob, "801", "KeptAccount#98765"), (error: any) => error.code === "23505");
+      await actor(alice);
+      for (const account of ["AliceOld", "KeptAccount"]) {
+        await role("authenticated", () => db.query("select public.link_bnet_account('Alice',$1,true)", [account]));
+      }
+      await importMatch("AliceOld");
+      assert.equal((await profile()).matches, merged.matches + 1);
+    });
+
+    await t.test("merging an own duplicate cannot silently discard a third linked account", async () => {
+      await db.query("insert into public.players(name,user_id,matches,elo,bnet_accounts) values ('AliceOverflow',$1,0,'-',$2)",
+        [alice, accountColumn === "jsonb" ? JSON.stringify(["ExtraOne", "ExtraTwo"]) : ["ExtraOne", "ExtraTwo"]]);
+      const before = await profile(); const donor = await profile("AliceOverflow");
+      await assert.rejects(connect(alice, "802", "AliceOverflow#12345"), (error: any) => error.code === "22023");
+      assert.deepEqual(await profile(), before);
+      assert.deepEqual(await profile("AliceOverflow"), donor);
+      assert.equal((await db.query<any>("select count(*)::int as n from public.battlenet_account_links where account_id='802'")).rows[0].n, 0);
+    });
+
     await t.test("pending states expire, are single-use, require Discord and limit concurrent attempts", async () => {
       const create = (hash: string, user = alice) => role("service_role", () => db.query(
         "select public.create_battlenet_oauth_request($1,$2,'https://site.test/','bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb')", [hash, user]));
@@ -211,6 +264,7 @@ test(`Battle.net OAuth claims and verification (${accountColumn})`, async t => {
       await assert.rejects(connect(alice, "300", "BadTag"), (error: any) => error.code === "22023");
       await connect(alice, "101", "Legacy#12345");
       await db.exec(await readFile(oauthMigration, "utf8"));
+      await db.exec(await readFile(ownClaimsMigration, "utf8"));
       assert.equal((await profile()).is_verified, true);
       await actor(alice);
       await role("authenticated", () => db.query("select public.rename_player('Alice','NewDisplayName')"));

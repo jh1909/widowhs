@@ -25,7 +25,10 @@ In `.env.local` die URL und den öffentlichen Anon-/Publishable-Key des Testproj
 als `VITE_SUPABASE_URL` und `VITE_SUPABASE_ANON_KEY` eintragen. Diese Datei ist
 ignoriert. Discord-Login im Testprojekt konfigurieren und die lokale Website-
 Adresse dort als erlaubte Supabase-Auth-Redirect-URL hinterlegen.
-Auf diesem Branch ist noch kein Live-Projekt geändert oder eine Funktion deployed.
+In dieser Sitzung wurde auf ausdrücklichen Wunsch das bestehende Projekt
+`kzymescftenxuspjsssh` eingerichtet. Die lokale Version nutzt dessen Datenbank;
+sie ist damit nicht von den Live-Spielerdaten getrennt. Das GitHub-Pages-Frontend
+wurde für den OAuth-Test nicht veröffentlicht.
 
 ## Blizzard-Client anlegen
 
@@ -47,7 +50,10 @@ Das Secret nur in Supabase hinterlegen, niemals im Frontend, Git oder Chat.
 1. Im **Testprojekt** im SQL Editor
    `supabase/migrations/20261012220000_battlenet_oauth.sql` vollständig ausführen.
    Voraussetzung ist insbesondere `20261012140000_global_match_history.sql`.
-   Vorherige Migrationen nicht nach der OAuth-Migration erneut installieren,
+   Anschließend `20261013010000_battlenet_owned_profile_claims.sql` ausführen.
+   Diese Korrektur verhindert, dass ein eigenes älteres Profil denselben
+   Discord-Nutzer beim Verknüpfen blockiert, und bewahrt dessen Konten/Matchdaten.
+   Vorherige Migrationen nicht nach der neuesten OAuth-Korrektur erneut installieren,
    da sie sonst die alten Account-Link-/Verified-Funktionen wiederherstellen.
 2. Unter **Edge Functions → Secrets** diese Werte speichern:
 
@@ -100,8 +106,14 @@ wurde, kann damit kein Battle.net-Konto auf dem initiierenden Profil hinterlegen
 
 - Erstes Konto: voller BattleTag, Verified, bestehende passende Matches übernommen.
 - Bereits beanspruchter Name (auch anderer `#Nummer`): Ablehnung ohne Datenänderung.
+- Ein eigenes früheres Profil unter derselben Discord-ID blockiert den OAuth-Login
+  nicht. Passende eigene Profile werden inklusive Statistiken, anderer Konten,
+  Aliase und bestehender Admin-Rechte zusammengeführt. Fremde Ansprüche bleiben geschützt.
 - Zweites Konto: zuvor in Battle.net zum anderen Konto wechseln; zusammengeführte
   Stats. Ein drittes Konto wird abgelehnt.
+  Bei einer aktiven Blizzard-Sitzung kann OAuth unmittelbar zurückkehren, ohne
+  erneut ein Loginformular anzuzeigen. Für einen Kontowechsel im Browser zunächst
+  bei Battle.net abmelden; das Abmelden auf WIDOW HS ist dafür nicht erforderlich.
 - Bestehendes manuelles Konto: OAuth bestätigt es ohne einen zusätzlichen Slot.
 - Wiederholter Login desselben Kontos: keine doppelten Matches oder Konten.
 - Abbrechen/abgelaufener Login/fremder Browser: keine neue Kontoverknüpfung.

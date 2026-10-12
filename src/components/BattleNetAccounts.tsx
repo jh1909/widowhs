@@ -9,7 +9,7 @@ const verifierKey = "widowhs.battlenet.verifier";
 const outcomes: Record<string, string> = {
   success: "Battle.net account connected and verified. Your matches are now linked to your profile.",
   cancelled: "Battle.net linking was cancelled. Your accounts have not changed.",
-  claimed: "This account or player name is already claimed. It cannot be linked to your profile.",
+  claimed: "This Battle.net account or player name is already claimed by another Discord profile.",
   limit: "This account could not be linked. You can connect up to two Battle.net accounts.",
   failed: "Battle.net linking failed. Please try again from your profile.",
 };
@@ -82,6 +82,9 @@ export default function BattleNetAccounts({ playerName, accounts, isOwner, onCha
 
   const connect = async () => {
     setBusy("connect"); setError(null);
+    const next = new URLSearchParams(searchParams);
+    next.delete("bnet"); next.delete("ticket");
+    setSearchParams(next, { replace: true });
     try {
       const verifier = Array.from(crypto.getRandomValues(new Uint8Array(32)))
         .map(byte => byte.toString(16).padStart(2, "0")).join("");
@@ -158,7 +161,12 @@ export default function BattleNetAccounts({ playerName, accounts, isOwner, onCha
               {busy === "connect" ? <LoaderCircle size={17} className="animate-spin" /> : <ExternalLink size={17} />}
               {busy === "connect" ? "Connecting…" : "Connect Battle.net"}
             </button>
-            <p className="text-xs text-zinc-500">You will sign in on Blizzard's website. Your Discord login and match history stay on this profile.</p>
+            <p className="text-xs text-zinc-500">
+              Blizzard may continue automatically with the account already signed in.
+              To use a different account, sign out on{' '}
+              <a href="https://account.battle.net/" target="_blank" rel="noopener noreferrer" className="text-sky-200 hover:underline">Battle.net</a>{' '}
+              first, then connect again. Your Discord login and match history stay on this profile.
+            </p>
           </div>
         )}
         {!isOwner && accounts.length === 0 && <p className="text-sm text-zinc-500">No Battle.net accounts connected.</p>}

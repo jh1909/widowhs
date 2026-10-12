@@ -83,7 +83,7 @@ export default function Profile() {
       try {
         const profileQuery = supabase.from("players").select("*");
         const { data, error } = await (id === "me" && user
-          ? profileQuery.eq("user_id", user.id).order("matches", { ascending: false })
+          ? profileQuery.eq("user_id", user.id).order("matches", { ascending: false, nullsFirst: false }).order("name", { ascending: true })
           : profileQuery.ilike("name", escapeLikePattern(targetId)))
           .limit(1);
 
