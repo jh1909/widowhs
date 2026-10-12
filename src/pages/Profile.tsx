@@ -265,7 +265,7 @@ export default function Profile() {
   };
 
   const handleLinkAccount = async () => {
-    const accName = newBnetAccount.trim();
+    const accName = newBnetAccount.trim().split("#")[0].trim();
     if (!accName) return;
     setLinkLoading(true);
 
@@ -794,7 +794,7 @@ export default function Profile() {
                   type="text"
                   value={newBnetAccount}
                   onChange={(e) => setNewBnetAccount(e.target.value)}
-                  placeholder="Enter exact Battle.net name (e.g. prx)"
+                  placeholder="Enter BattleTag (e.g. Klog#21570)"
                   className="flex-grow bg-surface-container border border-surface-container-highest rounded px-4 py-2 font-mono text-[13px] text-white focus:outline-none focus:border-toxic-purple transition-colors"
                 />
                 <button
