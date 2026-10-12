@@ -7,7 +7,6 @@ import {
   Skull,
   Trophy,
   Timer,
-  Verified,
   AlertTriangle,
   Edit2,
   Check,
@@ -19,6 +18,7 @@ import { useEffect, useState, useMemo } from "react";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/AuthContext";
 import PlayerAvatar from "../components/PlayerAvatar";
+import VerifiedBadge from "../components/VerifiedBadge";
 import ProfileRankBadge, { ProfileRankFrame, getPodiumRank, podiumThemes } from "../components/ProfileRankDecoration";
 import { getAchievements, type SpeedrunnerMatch, type AchievementId } from "../lib/achievements";
 import { formatPlayerKdr } from "../lib/player-kdr";
@@ -57,6 +57,7 @@ export default function Profile() {
   const [bnetAccounts, setBnetAccounts] = useState<string[]>([]);
   const [newBnetAccount, setNewBnetAccount] = useState("");
   const [linkLoading, setLinkLoading] = useState(false);
+  const [profileReload, setProfileReload] = useState(0);
 
   useEffect(() => {
     let active = true;
@@ -220,7 +221,7 @@ export default function Profile() {
 
     fetchPlayerData();
     return () => { active = false; };
-  }, [id, user]);
+  }, [id, user, profileReload]);
 
   const badges = useMemo(() => {
     if (!player) return [];
@@ -264,83 +265,25 @@ export default function Profile() {
     }
   };
 
-  const handleLinkAccount = async () => {
-    const accName = newBnetAccount.trim().split("#")[0].trim();
-    if (!accName) return;
+  const updateAccount = async (account: string, remove: boolean) => {
     setLinkLoading(true);
-
     try {
-      if (
-        bnetAccounts.map((a) => a.toLowerCase()).includes(accName.toLowerCase())
-      ) {
-        alert("You have already added this Battle.net account.");
-        setLinkLoading(false);
-        return;
-      }
-
-      // Let's also ensure no one else is using this bnet account.
-      // We search all players where bnet_accounts contains this name.
-      const { data: existing, error: err } = await supabase
-        .from("players")
-        .select("name, bnet_accounts")
-        .filter("bnet_accounts", "cs", `{"${accName}"}`); // Postgres contains search for arrays
-
-      if (err) {
-        console.error("Error checking existing bnet accounts:", err);
-      }
-
-      if (existing && existing.length > 0) {
-        if (!existing.some((e) => e.name === player.name)) {
-          alert(
-            "This Battle.net account is already registered by another player.",
-          );
-          setLinkLoading(false);
-          return;
-        }
-      }
-
-      const newAccounts = [...bnetAccounts, accName];
-
-      const { error: updateErr } = await supabase
-        .from("players")
-        .update({ bnet_accounts: newAccounts })
-        .eq("name", player.name);
-
-      if (updateErr) throw updateErr;
-
-      setBnetAccounts(newAccounts);
+      const { data, error } = await supabase.rpc("link_bnet_account", {
+        p_player_name: player.name, p_account: account, p_remove: remove,
+      });
+      if (error) throw error;
+      setPlayer(data);
+      setBnetAccounts(data.bnet_accounts ?? []);
       setNewBnetAccount("");
-    } catch (e: any) {
-      console.error(e);
-      alert("Failed to add Battle.net account.");
-    } finally {
-      setLinkLoading(false);
-    }
+      setProfileReload(value => value + 1);
+    } catch (error: any) {
+      alert(error.message || "Could not update the Battle.net account.");
+    } finally { setLinkLoading(false); }
   };
-
-  const handleRemoveAccount = async (accName: string) => {
-    if (
-      !confirm(
-        `Are you sure you want to remove the Battle.net account '${accName}'?`,
-      )
-    )
-      return;
-    try {
-      const newAccounts = bnetAccounts.filter((a) => a !== accName);
-      const { error: updateErr } = await supabase
-        .from("players")
-        .update({ bnet_accounts: newAccounts })
-        .eq("name", player.name);
-
-      if (updateErr) throw updateErr;
-
-      setBnetAccounts(newAccounts);
-    } catch (e: any) {
-      console.error(e);
-      alert("Failed to remove Battle.net account.");
-    }
+  const handleLinkAccount = () => updateAccount(newBnetAccount.trim(), false);
+  const handleRemoveAccount = (account: string) => {
+    if (confirm(`Remove the Battle.net account '${account}'?`)) updateAccount(account, true);
   };
-
   if (loading) {
     return (
       <main className="flex-grow w-full max-w-[1280px] mx-auto px-6 py-12 flex flex-col gap-12 items-center justify-center">
@@ -424,7 +367,7 @@ export default function Profile() {
                     type="text"
                     value={editNameValue}
                     onChange={(e) => setEditNameValue(e.target.value)}
-                    className="bg-surface-container/50 border border-toxic-purple/50 rounded px-3 py-1 font-sans text-[32px] md:text-[48px] font-bold text-white uppercase tracking-tighter w-[300px] focus:outline-none focus:border-toxic-purple"
+                    className="bg-surface-container/50 border border-toxic-purple/50 rounded px-3 py-1 font-sans text-[32px] md:text-[48px] font-bold text-white tracking-tighter w-[300px] focus:outline-none focus:border-toxic-purple"
                     autoFocus
                     disabled={editLoading}
                   />
@@ -451,7 +394,7 @@ export default function Profile() {
                     {player.name}
                   </h1>
                   {player.tag && player.tag === "PRO" && (
-                    <Verified className="text-[#9d4edd] w-8 h-8 fill-[#9d4edd]" />
+                    <span className="text-toxic-purple border border-toxic-purple/25 rounded px-2 py-1 text-xs font-bold">PRO</span>
                   )}
 
                   {user && (user.id === player.user_id || user.isAdmin) && (
@@ -470,6 +413,7 @@ export default function Profile() {
               )}
             </div>
             <div className="flex flex-wrap items-center gap-3">
+              <VerifiedBadge verified={player.is_verified} />
               {podiumRank && <ProfileRankBadge rank={podiumRank} />}
               <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-surface-container/50 border border-[#4d4353] rounded">
                 <span className="font-mono text-[12px] font-bold text-on-surface-variant uppercase tracking-widest">
@@ -761,7 +705,7 @@ export default function Profile() {
           </h3>
           <div className="bg-surface-container/30 backdrop-blur-[12px] border border-[#4d4353] rounded-xl p-6 flex flex-col gap-4">
             <p className="text-zinc-400 font-mono text-sm mb-2">
-              Track up to 2 accounts. Try to avoid common names, as workshop only checks for the name (e.g. Klog).
+              Link up to 2 Battle.net accounts. Existing matches for these names will be added to your profile. Workshop logs identify players by name, without the #number.
             </p>
             {bnetAccounts.length > 0 && (
               <div className="flex flex-col gap-2">
@@ -778,6 +722,7 @@ export default function Profile() {
                     {user && user.id === player.user_id && (
                       <button
                         onClick={() => handleRemoveAccount(accName)}
+                        disabled={linkLoading}
                         className="text-red-400 hover:text-red-300 font-mono text-sm uppercase tracking-widest px-2 py-1"
                         title="Remove Account"
                       >

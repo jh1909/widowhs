@@ -1,6 +1,7 @@
 import { HashRouter as Router, Routes, Route, Link, Navigate } from "react-router-dom";
 import Leaderboard from "./pages/Leaderboard";
 import Profile from "./pages/Profile";
+import MatchHistory from "./pages/MatchHistory";
 import Admin from "./pages/Admin";
 import PrivacyPolicy from "./pages/PrivacyPolicy";
 import Imprint from "./pages/Imprint";
@@ -22,6 +23,7 @@ export default function App() {
                   <Routes>
                     <Route path="/" element={<Leaderboard />} />
                     <Route path="/profile/:id" element={<Profile />} />
+                    <Route path="/matches" element={<MatchHistory />} />
                     <Route path="/privacy" element={<PrivacyPolicy />} />
                     <Route path="/imprint" element={<Imprint />} />
                     <Route path="/terms" element={<Navigate to="/" replace />} />

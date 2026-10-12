@@ -17,6 +17,7 @@ export default function Navigation() {
         </Link>
         <nav aria-label="Main navigation" className="desktop-nav">
           <NavLink to="/" end className={navClass}>Leaderboard</NavLink>
+          <NavLink to="/matches" className={navClass}>Match history</NavLink>
           <NavLink to={profilePath} className={navClass}>My profile</NavLink>
           {isAdmin && <NavLink to="/admin" className={navClass}><Shield size={14} /> Admin</NavLink>}
         </nav>
@@ -33,6 +34,7 @@ export default function Navigation() {
       </div>
       <nav aria-label="Mobile navigation" className="mobile-nav">
         <NavLink to="/" end className={navClass}>Leaderboard</NavLink>
+        <NavLink to="/matches" className={navClass}>Match history</NavLink>
         <NavLink to={profilePath} className={navClass}>My profile</NavLink>
         {isAdmin && <NavLink to="/admin" className={navClass}>Admin</NavLink>}
       </nav>

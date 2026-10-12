@@ -2,10 +2,10 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.39.3";
 import Papa from "npm:papaparse@5.4.1";
 import { normalizeMatchLog, parseMatchRows, type MatchData } from "./parser.ts";
-import { rankPlayers } from "../_shared/leaderboard.ts";
+import { buildMatchImport, type ImportPlayer } from "../_shared/import-stats.ts";
 import { readMatchSources, assignMatchId } from "../_shared/match-upload.ts";
-import { calculateRating } from "../_shared/rating.ts";
-import { createPlayerMap } from "../_shared/player-map.ts";
+
+
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -40,6 +40,25 @@ serve(async (req) => {
       Deno.env.get("SERVICE_ROLE_KEY") ?? Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
       { auth: { persistSession: false } }
     );
+
+    if (!validApiKey || apiKey !== validApiKey) {
+      const token = authHeader?.replace(/^Bearer\s+/i, "");
+      const { data: auth, error: authError } = token
+        ? await supabaseClient.auth.getUser(token) : { data: { user: null }, error: null };
+      if (authError || !auth.user) {
+        return new Response(JSON.stringify({ error: "Please sign in as an administrator." }), {
+          status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      const { data: admins, error: adminError } = await supabaseClient.from("players")
+        .select("name").eq("user_id", auth.user.id).eq("is_admin", true).limit(1);
+      if (adminError) throw adminError;
+      if (!admins?.length) {
+        return new Response(JSON.stringify({ error: "Only administrators may import matches." }), {
+          status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+    }
 
     // Parse each file separately (including its own header), then import the
     // combined matches once so overlapping players accumulate every file.
@@ -77,144 +96,27 @@ serve(async (req) => {
       .from("leaderboard_state").select("revision").eq("singleton", true).single();
     if (stateErr) throw stateErr;
 
-    // 4. Lade alle Spieler für das Name-Mapping (Bnet Account -> Tracker Profil)
-    const { data: dbPlayers, error: dbErr } = await supabaseClient.from("players").select("*");
-    if (dbErr) throw dbErr;
-
-    const playerMap = createPlayerMap<any>(dbPlayers);
-
-    // 5. Only import players linked to a tracked profile.
-    const parsedMatches = matches.filter((m) => playerMap.has(m.player_name.toLowerCase()));
-
-    if (parsedMatches.length === 0) {
-      return new Response(JSON.stringify({ error: "Empty CSV/TXT file or no tracked accounts found." }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+    // Read every profile, beyond PostgREST's default page size.
+    const dbPlayers: ImportPlayer[] = [];
+    for (let offset = 0; ; offset += 1000) {
+      const { data, error } = await supabaseClient.from("players").select("*")
+        .order("name").range(offset, offset + 999);
+      if (error) throw error;
+      dbPlayers.push(...(data ?? []));
+      if (!data || data.length < 1000) break;
     }
-
-    const roundCount = new Set(parsedMatches.map((match) => match.match_id)).size;
-
-    // Verify the duration, match-date and round-count migrations before changing statistics.
-    const { error: schemaErr } = await supabaseClient
-      .from("player_matches").select("total_match_time, played_at, match_id").limit(0);
+    const { error: schemaErr } = await supabaseClient.from("player_matches")
+      .select("total_match_time, played_at, match_id, logged_player_name").limit(0);
     if (schemaErr) throw schemaErr;
-
-    // 6. Match-Aggregation wie vorher
-    const playerStats: Record<string, any> = {};
-
-    parsedMatches.forEach((m: any) => {
-      const mainPlayer = playerMap.get(m.player_name.toLowerCase());
-      if (!mainPlayer) return;
-      const mainName = mainPlayer.name;
-
-      if (!playerStats[mainName]) {
-        const existingMatches = mainPlayer.matches || 0;
-        const existingKdrAvg = parseFloat(mainPlayer.kdr as string) || 0;
-        const existingAccAvg = parseFloat(mainPlayer.accuracy as string) || 0;
-        const existingKpmAvg = parseFloat(mainPlayer.kpm as string) || 0;
-
-        playerStats[mainName] = {
-          name: mainName,
-          matches: existingMatches,
-          score: mainPlayer.score || 0,
-          deaths: mainPlayer.deaths || 0,
-          kdr_sum: existingKdrAvg * existingMatches,
-          accuracy_sum: existingAccAvg * existingMatches,
-          kpm_sum: existingKpmAvg * existingMatches,
-          crouches: mainPlayer.crouches || 0,
-          time_in_lobby: mainPlayer.time_in_lobby || 0,
-          new_matches: [],
-        };
-      }
-
-      playerStats[mainName].matches += 1;
-      playerStats[mainName].score += m.score;
-      playerStats[mainName].deaths += m.deaths;
-      playerStats[mainName].kdr_sum += m.kdr;
-      playerStats[mainName].accuracy_sum += m.accuracy;
-      playerStats[mainName].kpm_sum += m.kpm;
-      playerStats[mainName].crouches += m.crouches;
-      playerStats[mainName].time_in_lobby += m.time_in_lobby;
-
-      const matchPerformanceScore = calculateRating(m);
-
-      playerStats[mainName].new_matches.push({
-        player_name: mainName,
-        score: m.score,
-        deaths: m.deaths,
-        accuracy: m.accuracy,
-        kpm: m.kpm,
-        kdr: m.kdr,
-        crouches: m.crouches,
-        time_in_lobby: m.time_in_lobby,
-        total_match_time: m.total_match_time,
-        played_at: m.played_at,
-        match_id: m.match_id,
-        performance_score: matchPerformanceScore,
-      });
-    });
-
-    const newPlayers = Object.values(playerStats).map((p) => {
-      const avg_kdr = p.matches > 0 ? p.kdr_sum / p.matches : 0;
-      const avg_acc = p.matches > 0 ? p.accuracy_sum / p.matches : 0;
-      const avg_kpm = p.matches > 0 ? p.kpm_sum / p.matches : 0;
-
-      const finalElo = calculateRating({ kpm: avg_kpm, accuracy: avg_acc, kdr: avg_kdr });
-
-      return {
-        name: p.name,
-        tag: finalElo >= 1200 ? "PRO" : "",
-        matches: p.matches,
-        score: p.score,
-        deaths: p.deaths,
-        kdr: avg_kdr.toFixed(2),
-        accuracy: avg_acc.toFixed(2) + "%",
-        kpm: avg_kpm.toFixed(2),
-        crouches: p.crouches,
-        time_in_lobby: p.time_in_lobby,
-        elo: finalElo.toLocaleString("en-US"),
-        new_matches: p.new_matches,
-      };
-    });
-
-    // Merge the changed statistics into the entire leaderboard. Ranking only
-    // this upload's players would assign another rank 1 on every partial import.
-    const updatedNames = new Set(newPlayers.map((p) => p.name));
-    const globalRanking = rankPlayers([
-      ...dbPlayers.filter((p: any) => !updatedNames.has(p.name)),
-      ...newPlayers,
-    ]);
-    const ranks = new Map(globalRanking.map((p) => [p.name, p.rank]));
-    const finalPlayers = newPlayers.map((p) => ({ ...p, rank: ranks.get(p.name)! }));
-
-    // 7. Datenbank Upserts (als Service Role bypassen wir jegliche RLS)
-    const playersToUpsert = finalPlayers.map(({ new_matches, ...rest }) => rest);
-    const shiftedRanks = dbPlayers.filter((player: any) =>
-      !updatedNames.has(player.name) && Number(player.rank) !== (ranks.get(player.name) ?? 999999),
-    ).map((player: any) => ({ name: player.name, rank: ranks.get(player.name) ?? 999999 }));
-
-    const historyRows = finalPlayers.map((p) => ({
-      player_name: p.name,
-      elo: parseInt(p.elo.replace(/,/g, "")),
-      rank: p.rank,
-    }));
-
-    const matchRows: any[] = [];
-    finalPlayers.forEach((p) => {
-      if (p.new_matches && p.new_matches.length > 0) {
-        matchRows.push(...p.new_matches);
-      }
-    });
-
+    const imported = buildMatchImport(dbPlayers, matches);
     const { error: importErr } = await supabaseClient.rpc("apply_match_import", {
       p_expected_revision: state.revision,
-      p_players: playersToUpsert,
-      p_ranks: shiftedRanks,
-      p_history: historyRows,
-      p_matches: matchRows,
+      p_players: imported.players,
+      p_ranks: imported.ranks,
+      p_history: imported.history,
+      p_matches: imported.matches,
       p_admin_user: apiKey ? "API_AUTOMATION" : "ADMIN_DASHBOARD",
-      p_details: `Imported ${roundCount} round(s) with ${parsedMatches.length} tracked player participation(s) from ${fileCount} file(s), updated ${finalPlayers.length} players.`,
+      p_details: `Imported ${imported.roundCount} round(s) with ${matches.length} player participation(s) from ${fileCount} file(s), updated ${imported.players.length} players.`,
     });
     if (importErr) {
       if (importErr.code === "40001") {
@@ -228,7 +130,7 @@ serve(async (req) => {
     return new Response(
       JSON.stringify({
         success: true,
-        message: `Successfully imported ${roundCount} round(s) with ${parsedMatches.length} tracked player participation(s) from ${fileCount} file(s).`,
+        message: `Successfully imported ${imported.roundCount} round(s) with ${matches.length} player participation(s) from ${fileCount} file(s).`,
       }),
       {
         status: 200,

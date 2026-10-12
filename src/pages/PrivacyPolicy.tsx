@@ -9,7 +9,7 @@ export default function PrivacyPolicy() {
       <article className="panel p-7 sm:p-10">
         <p className="eyebrow mb-4">WIDOW HS · Deine Daten</p>
         <h1 className="section-heading mb-3">Datenschutzhinweise</h1>
-        <p className="text-xs text-zinc-500 mb-8">Stand: 5. Oktober 2026</p>
+        <p className="text-xs text-zinc-500 mb-8">Stand: 12. Oktober 2026</p>
         <div className="legal-copy">
           <p>WIDOW HS ist eine öffentliche Community-Rangliste. Du kannst sie ohne Anmeldung ansehen. Für dein eigenes Profil und die Verknüpfung von Battle.net-Namen ist eine freiwillige Anmeldung über Discord möglich.</p>
 
@@ -27,6 +27,7 @@ export default function PrivacyPolicy() {
 
           <h2>4. Öffentliche Spielstatistiken</h2>
           <p>Spielernamen und Matchstatistiken stammen aus den vom Betreiber importierten WIDOW-HS-Spieldateien. Verarbeitet werden unter anderem Kills, Deaths, Genauigkeit, KPM, KDR, Crouches, Lobbyzeit und Matchdauer. Daraus entstehen ELO, Rang und Verlauf. Wenn du Battle.net-Namen mit deinem Profil verknüpfst, werden die passenden Matchdaten diesem Profil zugeordnet.</p>
+          <p>Importierte Runden enthalten auch die Spielernamen und Ergebnisse von Teilnehmern ohne Website-Account. Diese werden in der Rangliste und der globalen Match-History angezeigt. Datum, Rundendauer und die Einzelwerte aller gespeicherten Teilnehmer einer Runde sind öffentlich abrufbar. Eine spätere Account-Verknüpfung führt die passenden bisherigen Ergebnisse mit dem Discord-Profil zusammen. „Verified“ zeigt an, dass ein Discord-Account mit mindestens einem Battle.net-Namen verknüpft ist.</p>
           <p>Dein Anzeigename, deine Statistiken und dein Verlauf sind öffentlich sichtbar. Für selbst angeforderte Profilfunktionen gilt Art. 6 Abs. 1 lit. b DSGVO. Die Zuordnung importierter Spielergebnisse und die Community-Rangliste beruhen auf Art. 6 Abs. 1 lit. f DSGVO: dem Interesse an nachvollziehbaren Spielergebnissen und vergleichbaren Statistiken. Gegen eine Verarbeitung auf dieser Grundlage kannst du Widerspruch einlegen.</p>
           <p>ELO wird automatisch aus Spielwerten berechnet. Diese Rangfolge hat keine rechtlichen oder vergleichbar erheblichen Auswirkungen auf dich.</p>
 

@@ -4,6 +4,8 @@ WIDOW HS is an Overwatch custom game, designed to measure your Widowmaker accura
 
 ## Features
 - Global leaderboard
+- Global match history with all-player result dialogs
+- All log participants are tracked, with verified Discord-linked profiles
 - Detailed player statistics and matching metrics
 - Secure matching and tracking
 - Discord integration
@@ -22,7 +24,7 @@ The signed-in player is highlighted at their actual position. Imports recalculat
 ranks against all existing players, including players absent from that upload.
 
 The homepage **Matches played** counter counts rounds, with one uploaded file
-representing one round. All tracked player records from that file share a
+representing one round. All player records from that file share a
 `player_matches.match_id`, and `get_match_count()` counts distinct round IDs
 in the database without a client-side row limit. Personal match totals still
 count each player's participation. Admin resets also clear the round count.
@@ -45,8 +47,9 @@ Columns: player, kills, deaths, accuracy, kills/min, KDR, crouches, time in lobb
 total match time. Times are in seconds. Timestamps and a header row are optional.
 Timestamped records can also appear on the same line. Legacy eight-column CSV
 files retain their original lobby time; their total match time is unknown (`NULL`).
-Imports add matches to tracked players, including linked Battle.net accounts and
-previous profile nicknames. Ambiguous account links reject the import instead of
+Imports store all participants, creating unclaimed profiles for new names.
+Linked Battle.net accounts and previous profile nicknames map to their existing
+profiles. Ambiguous account links reject the import instead of
 assigning a match to the wrong player.
 Multiple files are sent in one request using repeated `file` form fields. Each
 file is parsed separately, then all matches are aggregated together. A malformed
@@ -80,6 +83,37 @@ supabase functions deploy upload-csv
 ```
 
 Run `npm test`, `npm run lint` and `npm run build` for local validation.
+
+## Global match history and verification
+
+Apply `supabase/migrations/20261012140000_global_match_history.sql` **after** the
+existing rename, match-date and round-ID migrations. Then deploy the updated
+`upload-csv` function and frontend. The Supabase Dashboard can be used for both:
+run the migration in the SQL Editor, then replace the Edge Function's code with
+the generated standalone `outputs/upload-csv-dashboard.ts` from the workspace.
+
+The `/matches` page lists rounds newest first with server-side pagination.
+Opening a round loads all saved participants and their stats, ordered by kills.
+The public RPCs expose game results and display avatars; they exclude auth IDs,
+account aliases, emails and admin permissions. Imports retain each original log
+name separately from the current profile name. Renames therefore preserve the
+match identity and original participant name. Admin resets clear this history.
+
+`players.is_verified` is maintained by a database trigger. It requires a trusted
+Discord identity in Supabase Auth and at least one linked Battle.net name. This
+indicates a Discord-linked profile, not Battle.net OAuth ownership verification.
+Removing the last linked account removes the badge. Login uses
+`ensure_discord_player`; matching Discord display names alone never claim an
+imported profile. `link_bnet_account` checks ownership, account collisions and
+the two-account limit. Linking a previously unclaimed player moves its saved
+matches/history into the owner's profile, combines aggregate stats, recalculates
+ELO/ranks and invalidates concurrent imports atomically. Both existing `text[]`
+and `jsonb` account columns are supported. Imports preserve ownership and roles.
+
+Old imports only contain the participants saved at the time; discarded players
+cannot be recovered from the database. New imports keep every named participant.
+The importer reads all profile pages, accepts a configured automation API key or
+a server-validated admin session, and rejects non-admin browser imports.
 
 ## Rating
 
