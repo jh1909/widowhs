@@ -10,6 +10,17 @@ function nonNegativeNumber(value: NumericValue): number | null {
   return Number.isFinite(number) && number >= 0 ? number : null;
 }
 
+// Personal participation count includes every round that the player joined.
+export function crouchesPerMatch(player: {
+  crouches?: NumericValue;
+  matches?: NumericValue;
+}): number | null {
+  const crouches = nonNegativeNumber(player.crouches);
+  const matches = nonNegativeNumber(player.matches);
+  if (crouches === null || matches === null || matches === 0) return null;
+  return crouches / matches;
+}
+
 // Aggregate totals weight short, late-joined rounds by actual playing time.
 export function crouchesPerMinute(player: {
   crouches?: NumericValue;

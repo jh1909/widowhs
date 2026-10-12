@@ -19,9 +19,10 @@ import { useEffect, useState, useMemo } from "react";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../lib/AuthContext";
 import PlayerAvatar from "../components/PlayerAvatar";
+import ProfileRankBadge, { ProfileRankFrame, getPodiumRank, podiumThemes } from "../components/ProfileRankDecoration";
 import { getAchievements, type SpeedrunnerMatch, type AchievementId } from "../lib/achievements";
 import { formatPlayerKdr } from "../lib/player-kdr";
-import { crouchesPerMinute, formatLobbyTime, escapeLikePattern } from "../lib/profile-stats";
+import { crouchesPerMatch, crouchesPerMinute, formatLobbyTime, escapeLikePattern } from "../lib/profile-stats";
 import {
   AreaChart,
   Area,
@@ -389,6 +390,9 @@ export default function Profile() {
     );
   }
 
+  const podiumRank = getPodiumRank(player.rank);
+  const averageCrouches = crouchesPerMatch(player);
+
   return (
     <main className="page-shell flex flex-col gap-9">
       {/* Navigation Back Action */}
@@ -403,98 +407,102 @@ export default function Profile() {
       </div>
 
       {/* Profile Header */}
-      <header className="panel p-7 sm:p-9 flex flex-col md:flex-row md:items-end justify-between gap-6">
-        <div className="flex flex-col gap-3">
-          <div className="flex items-center gap-4">
-            <PlayerAvatar
-              name={String(player.name)}
-              avatarUrl={player.avatar_url || (user?.id === player.user_id ? user?.avatar_url : undefined)}
-              className="w-16 h-16 rounded-2xl border border-toxic-purple/20 bg-toxic-purple/10 text-toxic-purple font-bold text-xl"
-            />
+      <header className={`panel profile-header${podiumRank ? ` profile-header--podium profile-header--${podiumThemes[podiumRank]}` : ""}`}>
+          {podiumRank && <ProfileRankFrame rank={podiumRank} />}
+        <div className="profile-header-body p-7 sm:p-9 flex flex-col md:flex-row md:items-end justify-between gap-6">
+          <div className="flex flex-col gap-3 min-w-0">
+            <div className="flex items-center gap-4">
+              <PlayerAvatar
+                name={String(player.name)}
+                avatarUrl={player.avatar_url || (user?.id === player.user_id ? user?.avatar_url : undefined)}
+                className="profile-portrait w-16 h-16 rounded-2xl border border-toxic-purple/20 bg-toxic-purple/10 text-toxic-purple font-bold text-xl"
+              />
 
-            {isEditingName ? (
-              <div className="flex items-center gap-2">
-                <input
-                  type="text"
-                  value={editNameValue}
-                  onChange={(e) => setEditNameValue(e.target.value)}
-                  className="bg-surface-container/50 border border-toxic-purple/50 rounded px-3 py-1 font-sans text-[32px] md:text-[48px] font-bold text-white uppercase tracking-tighter w-[300px] focus:outline-none focus:border-toxic-purple"
-                  autoFocus
-                  disabled={editLoading}
-                />
-                <button
-                  onClick={handleUpdateName}
-                  disabled={editLoading}
-                  className="p-2 bg-green-500/20 text-green-400 hover:bg-green-500/30 rounded transition-colors disabled:opacity-50"
-                  title="Save Name"
-                >
-                  <Check className="w-6 h-6" />
-                </button>
-                <button
-                  onClick={() => setIsEditingName(false)}
-                  disabled={editLoading}
-                  className="p-2 bg-red-500/20 text-red-400 hover:bg-red-500/30 rounded transition-colors disabled:opacity-50"
-                  title="Cancel"
-                >
-                  <X className="w-6 h-6" />
-                </button>
-              </div>
-            ) : (
-              <>
-                <h1 className="font-sans text-3xl sm:text-5xl font-bold text-on-surface tracking-tight leading-none break-all">
-                  {player.name}
-                </h1>
-                {player.tag && player.tag === "PRO" && (
-                  <Verified className="text-[#9d4edd] w-8 h-8 fill-[#9d4edd]" />
-                )}
-
-                {user && (user.id === player.user_id || user.isAdmin) && (
+              {isEditingName ? (
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={editNameValue}
+                    onChange={(e) => setEditNameValue(e.target.value)}
+                    className="bg-surface-container/50 border border-toxic-purple/50 rounded px-3 py-1 font-sans text-[32px] md:text-[48px] font-bold text-white uppercase tracking-tighter w-[300px] focus:outline-none focus:border-toxic-purple"
+                    autoFocus
+                    disabled={editLoading}
+                  />
                   <button
-                    onClick={() => {
-                      setEditNameValue(player.name);
-                      setIsEditingName(true);
-                    }}
-                    className="p-2 ml-2 bg-surface-container hover:bg-surface-container-high rounded text-zinc-400 hover:text-toxic-purple transition-colors cursor-pointer"
-                    title="Edit Display Name"
+                    onClick={handleUpdateName}
+                    disabled={editLoading}
+                    className="p-2 bg-green-500/20 text-green-400 hover:bg-green-500/30 rounded transition-colors disabled:opacity-50"
+                    title="Save Name"
                   >
-                    <Edit2 className="w-5 h-5" />
+                    <Check className="w-6 h-6" />
                   </button>
-                )}
-              </>
-            )}
+                  <button
+                    onClick={() => setIsEditingName(false)}
+                    disabled={editLoading}
+                    className="p-2 bg-red-500/20 text-red-400 hover:bg-red-500/30 rounded transition-colors disabled:opacity-50"
+                    title="Cancel"
+                  >
+                    <X className="w-6 h-6" />
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <h1 className="font-sans text-3xl sm:text-5xl font-bold text-on-surface tracking-tight leading-none break-all">
+                    {player.name}
+                  </h1>
+                  {player.tag && player.tag === "PRO" && (
+                    <Verified className="text-[#9d4edd] w-8 h-8 fill-[#9d4edd]" />
+                  )}
+
+                  {user && (user.id === player.user_id || user.isAdmin) && (
+                    <button
+                      onClick={() => {
+                        setEditNameValue(player.name);
+                        setIsEditingName(true);
+                      }}
+                      className="p-2 ml-2 bg-surface-container hover:bg-surface-container-high rounded text-zinc-400 hover:text-toxic-purple transition-colors cursor-pointer"
+                      title="Edit Display Name"
+                    >
+                      <Edit2 className="w-5 h-5" />
+                    </button>
+                  )}
+                </>
+              )}
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              {podiumRank && <ProfileRankBadge rank={podiumRank} />}
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-surface-container/50 border border-[#4d4353] rounded">
+                <span className="font-mono text-[12px] font-bold text-on-surface-variant uppercase tracking-widest">
+                  Total Matches Played: {player.matches || 0}
+                </span>
+              </div>
+              {!podiumRank && <span className="font-mono text-[14px] text-on-surface-variant border-l border-[#4d4353] pl-3">
+                Rank #{Number(player.rank) >= 999999 ? "-" : player.rank || "?"}{" "}
+                Global
+              </span>}
+            </div>
           </div>
-          <div className="flex items-center gap-3">
-            <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-surface-container/50 border border-[#4d4353] rounded">
+
+          <div className="flex flex-wrap gap-3 shrink-0">
+            <div className="flex flex-col items-start md:items-end gap-2 bg-surface-container/30 border border-[#4d4353] rounded-lg p-4 backdrop-blur-[12px]">
               <span className="font-mono text-[12px] font-bold text-on-surface-variant uppercase tracking-widest">
-                Total Matches Played: {player.matches || 0}
+                ELO
+              </span>
+              <span className="font-sans text-[32px] font-semibold text-[#f2daff] drop-shadow-[0_0_12px_rgba(157,78,221,0.5)] leading-none text-toxic-purple">
+                {player.elo || "0"}
               </span>
             </div>
-            <span className="font-mono text-[14px] text-on-surface-variant border-l border-[#4d4353] pl-3">
-              Rank #{Number(player.rank) >= 999999 ? "-" : player.rank || "?"}{" "}
-              Global
-            </span>
-          </div>
-        </div>
-
-        <div className="flex flex-wrap gap-3 shrink-0">
-          <div className="flex flex-col items-start md:items-end gap-2 bg-surface-container/30 border border-[#4d4353] rounded-lg p-4 backdrop-blur-[12px]">
-            <span className="font-mono text-[12px] font-bold text-on-surface-variant uppercase tracking-widest">
-              ELO
-            </span>
-            <span className="font-sans text-[32px] font-semibold text-[#f2daff] drop-shadow-[0_0_12px_rgba(157,78,221,0.5)] leading-none text-toxic-purple">
-              {player.elo || "0"}
-            </span>
-          </div>
-          <div
-            className="flex flex-col items-start md:items-end gap-2 bg-surface-container/30 border border-[#4d4353] rounded-lg p-4 backdrop-blur-[12px]"
-            title="Fastest time from joining the lobby to reaching 50 kills"
-          >
-            <span className="inline-flex items-center gap-2 font-mono text-[12px] font-bold text-on-surface-variant uppercase tracking-widest">
-              PB
-            </span>
-            <span className="font-sans text-[32px] font-semibold text-on-surface leading-none tabular-nums">
-              {formatLobbyTime(personalBestTime)}
-            </span>
+            <div
+              className="flex flex-col items-start md:items-end gap-2 bg-surface-container/30 border border-[#4d4353] rounded-lg p-4 backdrop-blur-[12px]"
+              title="Fastest time from joining the lobby to reaching 50 kills"
+            >
+              <span className="inline-flex items-center gap-2 font-mono text-[12px] font-bold text-on-surface-variant uppercase tracking-widest">
+                PB
+              </span>
+              <span className="font-sans text-[32px] font-semibold text-on-surface leading-none tabular-nums">
+                {formatLobbyTime(personalBestTime)}
+              </span>
+            </div>
           </div>
         </div>
       </header>
@@ -515,6 +523,7 @@ export default function Profile() {
           title="Crouches / min"
           value={crouchesPerMinute(player)?.toFixed(1) ?? "—"}
           icon={<CrouchIcon />}
+          detail={averageCrouches === null ? undefined : `${averageCrouches.toFixed(1)} per match on average`}
         />
         <StatCard
           title="Total Kills"
@@ -836,10 +845,12 @@ function StatCard({
   title,
   value,
   icon,
+  detail,
 }: {
   title: string;
   value: string;
   icon: React.ReactNode;
+  detail?: string;
 }) {
   return (
     <div className="bg-surface-container/40 backdrop-blur-[12px] border border-[#4d4353] rounded-xl p-6 flex flex-col gap-4 hover:bg-surface-container/60 transition-colors duration-200 ease-out relative overflow-hidden group">
@@ -855,6 +866,7 @@ function StatCard({
           {value}
         </span>
       </div>
+      {detail && <p className="relative z-10 text-xs text-zinc-400">{detail}</p>}
     </div>
   );
 }

@@ -64,3 +64,30 @@ test("unranked and missing ranks cannot grant Top 10", () => {
   }
   assert.equal(getAchievements({ rank: 10 }).some((badge) => badge.id === "elite"), true);
 });
+
+const hasSquatMaster = (player: Parameters<typeof getAchievements>[0]) =>
+  getAchievements(player).some((badge) => badge.id === "fitness");
+
+test("Squat Master rewards a current average of at least 100 crouches, not lifetime totals", () => {
+  assert.equal(hasSquatMaster({ crouches: 100, matches: 1 }), true);
+  assert.equal(hasSquatMaster({ crouches: "1000", matches: "10" }), true);
+  assert.equal(hasSquatMaster({ crouches: 1500, matches: 30 }), false);
+  assert.equal(hasSquatMaster({ crouches: 199, matches: 2 }), false);
+  const badge = getAchievements({ crouches: 200, matches: 2 }).find((badge) => badge.id === "fitness");
+  assert.equal(badge?.desc, "Average of 100+ crouches per match");
+});
+
+test("Squat Master disappears below the threshold and can be earned again", () => {
+  assert.equal(hasSquatMaster({ crouches: 200, matches: 2 }), true);
+  assert.equal(hasSquatMaster({ crouches: 200, matches: 3 }), false);
+  assert.equal(hasSquatMaster({ crouches: 400, matches: 4 }), true);
+});
+
+test("missing or invalid match counts and crouch totals cannot grant Squat Master", () => {
+  for (const matches of [0, null, undefined, "", "-", -1, NaN, Infinity]) {
+    assert.equal(hasSquatMaster({ crouches: 10000, matches }), false);
+  }
+  for (const crouches of [null, undefined, "", "-", -1, NaN, Infinity]) {
+    assert.equal(hasSquatMaster({ crouches, matches: 1 }), false);
+  }
+});

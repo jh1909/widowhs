@@ -1,4 +1,5 @@
 import { playerKdr } from "./player-kdr.ts";
+import { crouchesPerMatch } from "./profile-stats.ts";
 
 type NumericValue = number | string | null | undefined;
 
@@ -43,8 +44,8 @@ export function getAchievements(player: PlayerAchievementStats, speedrunnerMatch
   if (numberOrZero(player.matches) >= 100) {
     badges.push({ id: "veteran", name: "Veteran", desc: "Played 100+ matches" });
   }
-  if (numberOrZero(player.crouches) > 1000) {
-    badges.push({ id: "fitness", name: "Squat Master", desc: "1,000+ tactical crouches" });
+  if ((crouchesPerMatch(player) ?? 0) >= 100) {
+    badges.push({ id: "fitness", name: "Squat Master", desc: "Average of 100+ crouches per match" });
   }
   const rank = numberOrZero(player.rank);
   if (rank >= 1 && rank <= 10) {

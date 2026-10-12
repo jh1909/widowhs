@@ -141,6 +141,21 @@ requires this value to be above 2.00 at the displayed two-decimal precision. It
 disappears when the current value falls below the threshold and can be earned
 again. Unknown K/D is shown as a dash and never grants Slayer.
 
+Squat Master requires a current average of at least **100 crouches per match**:
+`players.crouches / players.matches >= 100`. Missing or zero match counts never
+grant the badge, and it disappears when the average drops below the threshold.
+The crouch stats card displays this average alongside the time-weighted
+crouches/minute rate. These are frontend changes using existing aggregate data.
+
+Profiles currently ranked 1–3 receive blue/gold, red/gold or green/gold frames
+around the player card. Small, equally sized winged crests and the rank are
+integrated into the card. The decoration reflects the current rank and disappears
+when a player leaves the podium or stats are reset.
+The frame becomes more ornate with each higher place: first place has a double
+gold border, layered corner scrollwork and central gem ornaments; second place
+has simpler scrollwork and smaller central ornaments; third place has restrained
+geometric corners. Crests and card layouts remain equally sized across ranks.
+
 The profile shows ELO and a PB for 50-kill wins. PB is the shortest positive
 `time_in_lobby` among matches with at least 50 kills, formatted as a duration:
 the player's time from joining the lobby until reaching the winning score.

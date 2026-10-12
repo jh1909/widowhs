@@ -71,6 +71,30 @@
 .rank-badge.first { background: #dbc49112; color: #dbc491; border: 1px solid #dbc49120; }
 .rank-badge.second { background: #afbcd012; color: #afbcd0; }
 .rank-badge.third { background: #c8977f12; color: #c8977f; }
+.profile-header { position: relative; isolation: isolate; overflow: hidden; }
+.profile-header--sapphire { --podium-accent: #49a6d7; --podium-light: #b1e9ff; --podium-dark: #143b62; --podium-rgb: 73, 166, 215; --podium-frame: #dbc18a99; --podium-corner-width: 120px; --podium-center-width: 240px; }
+.profile-header--ruby { --podium-accent: #bf4854; --podium-light: #ffb1a5; --podium-dark: #531c2e; --podium-rgb: 191, 72, 84; --podium-frame: #dbc18a77; --podium-corner-width: 96px; --podium-center-width: 160px; }
+.profile-header--emerald { --podium-accent: #429b78; --podium-light: #acebc9; --podium-dark: #143e35; --podium-rgb: 66, 155, 120; --podium-frame: #dbc18a55; --podium-corner-width: 72px; }
+.profile-header--podium { --podium-gold: #dbc18a; border-color: #b6955873; border-radius: 5px; background: radial-gradient(ellipse at 0% 0%, rgba(var(--podium-rgb), .16), transparent 65%), #12131c; box-shadow: 0 18px 50px #00000026, inset 0 0 24px rgba(var(--podium-rgb), .025); }
+.profile-header--podium::before, .profile-header--podium::after { content: ""; position: absolute; pointer-events: none; left: 20%; right: 20%; height: 1px; background: linear-gradient(90deg, transparent, var(--podium-light), transparent); opacity: .65; }
+.profile-header--podium::before { top: 0; }
+.profile-header--podium::after { bottom: 0; }
+.profile-header-body { position: relative; z-index: 1; }
+.profile-header--podium .profile-portrait { border-radius: 6px; border-color: #dbc18a66; box-shadow: 0 0 0 3px #12131c, 0 0 0 4px #dbc18a18; }
+.profile-rank-frame { position: absolute; inset: 10px; width: calc(100% - 20px); height: calc(100% - 20px); color: var(--podium-frame); pointer-events: none; }
+.profile-rank-corner, .profile-rank-center { position: absolute; color: var(--podium-gold); pointer-events: none; }
+.profile-rank-corner { width: var(--podium-corner-width); height: auto; opacity: .85; }
+.profile-rank-corner--top-left { top: 3px; left: 3px; }
+.profile-rank-corner--top-right { top: 3px; right: 3px; transform: scaleX(-1); }
+.profile-rank-corner--bottom-left { bottom: 3px; left: 3px; transform: scaleY(-1); }
+.profile-rank-corner--bottom-right { bottom: 3px; right: 3px; transform: scale(-1); }
+.profile-rank-center { width: var(--podium-center-width); height: auto; left: 50%; }
+.profile-rank-center--top { top: 2px; transform: translateX(-50%); }
+.profile-rank-center--bottom { bottom: 2px; transform: translateX(-50%) scaleY(-1); }
+.profile-rank-badge { display: inline-flex; align-items: center; gap: 8px; margin-right: 8px; }
+.profile-rank-crest { width: 58px; height: 58px; flex-shrink: 0; filter: drop-shadow(0 2px 4px #00000070); }
+.profile-rank-label { color: var(--podium-gold); font-size: 8px; font-weight: 600; letter-spacing: 1.4px; text-transform: uppercase; margin-bottom: 3px; }
+.profile-rank-title { color: #f1e4c8; font-family: Georgia, "Times New Roman", serif; font-size: 18px; font-weight: 400; line-height: 1.15; }
 .player-avatar { width: 32px; height: 32px; border-radius: 9px; background: #ffffff06; border: 1px solid #ffffff08; display: grid; place-items: center; color: #9690a7; font-size: 12px; font-weight: 700; overflow: hidden; flex-shrink: 0; }
 .sidebar-card { padding: 24px; }
 .card-label { font-size: 11px; font-weight: 650; color: #a49bb6; display: flex; align-items: center; gap: 8px; }
@@ -95,6 +119,9 @@
   .nav-login svg { display: none; }
   .page-shell { padding: 24px 16px 40px; }
   .hero { padding: 28px 24px; border-radius: 14px; }
+  .profile-rank-frame { inset: 8px; width: calc(100% - 16px); height: calc(100% - 16px); }
+  .profile-header--sapphire { --podium-corner-width: 100px; --podium-center-width: 180px; }
+  .profile-header--ruby { --podium-corner-width: 80px; --podium-center-width: 120px; }
   .hero-metrics { gap: 28px; flex-wrap: wrap; }
   .metric-value { font-size: 19px; }
   .footer-shell { flex-direction: column; align-items: flex-start; gap: 15px; }

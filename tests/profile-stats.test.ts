@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { crouchesPerMinute, formatLobbyTime, escapeLikePattern } from "../src/lib/profile-stats.ts";
+import { crouchesPerMatch, crouchesPerMinute, formatLobbyTime, escapeLikePattern } from "../src/lib/profile-stats.ts";
 
 test("nickname searches treat wildcard characters as literal text", () => {
   assert.equal(escapeLikePattern("NZT"), "NZT");
@@ -12,6 +12,15 @@ test("crouches per minute weights a late join by actual lobby time", () => {
   assert.equal(crouchesPerMinute({ crouches: 36, time_in_lobby: 330 }), 36 / 5.5);
   assert.equal(crouchesPerMinute({ crouches: "6", time_in_lobby: "30" }), 12);
   assert.equal(crouchesPerMinute({ crouches: 0, time_in_lobby: 300 }), 0);
+});
+
+test("average crouches per match divides lifetime total by personal participations", () => {
+  assert.equal(crouchesPerMatch({ crouches: 200, matches: 2 }), 100);
+  assert.equal(crouchesPerMatch({ crouches: "300", matches: "4" }), 75);
+  assert.equal(crouchesPerMatch({ crouches: 0, matches: 2 }), 0);
+  for (const matches of [0, null, undefined, "", -1, NaN, Infinity]) {
+    assert.equal(crouchesPerMatch({ crouches: 1000, matches }), null);
+  }
 });
 
 test("no playing time or invalid totals do not produce a misleading rate", () => {
