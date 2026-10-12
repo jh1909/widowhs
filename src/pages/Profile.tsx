@@ -333,7 +333,8 @@ export default function Profile() {
     );
   }
 
-  const podiumRank = getPodiumRank(player.rank);
+  const inPlacements = Number(player.matches ?? 0) < 10;
+  const podiumRank = inPlacements ? null : getPodiumRank(player.rank);
   const averageCrouches = crouchesPerMatch(player);
 
   return (
@@ -420,7 +421,7 @@ export default function Profile() {
                   Total Matches Played: {player.matches || 0}
                 </span>
               </div>
-              {!podiumRank && <span className="font-mono text-[14px] text-on-surface-variant border-l border-[#4d4353] pl-3">
+              {!inPlacements && !podiumRank && <span className="font-mono text-[14px] text-on-surface-variant border-l border-[#4d4353] pl-3">
                 Rank #{Number(player.rank) >= 999999 ? "-" : player.rank || "?"}{" "}
                 Global
               </span>}
@@ -430,11 +431,16 @@ export default function Profile() {
           <div className="flex flex-wrap gap-3 shrink-0">
             <div className="flex flex-col items-start md:items-end gap-2 bg-surface-container/30 border border-[#4d4353] rounded-lg p-4 backdrop-blur-[12px]">
               <span className="font-mono text-[12px] font-bold text-on-surface-variant uppercase tracking-widest">
-                ELO
+                {inPlacements ? "Placements" : "ELO"}
               </span>
               <span className="font-sans text-[32px] font-semibold text-[#f2daff] drop-shadow-[0_0_12px_rgba(157,78,221,0.5)] leading-none text-toxic-purple">
-                {player.elo || "0"}
+                {inPlacements ? `${player.matches ?? 0}/10` : player.elo || "0"}
               </span>
+              {inPlacements && (
+                <span className="font-mono text-[12px] text-on-surface-variant">
+                  Matches played
+                </span>
+              )}
             </div>
             <div
               className="flex flex-col items-start md:items-end gap-2 bg-surface-container/30 border border-[#4d4353] rounded-lg p-4 backdrop-blur-[12px]"
