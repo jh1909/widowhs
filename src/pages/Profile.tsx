@@ -754,7 +754,7 @@ export default function Profile() {
       </section>
 
       {/* Linked Accounts Section */}
-      {user && player && user.id === player.user_id && (
+      {player && (
         <section className="flex flex-col gap-3 mt-4">
           <h3 className="font-sans text-[24px] font-semibold text-on-surface uppercase tracking-tight">
             Battle.net Accounts
@@ -775,19 +775,21 @@ export default function Profile() {
                         {accName}
                       </span>
                     </div>
-                    <button
-                      onClick={() => handleRemoveAccount(accName)}
-                      className="text-red-400 hover:text-red-300 font-mono text-sm uppercase tracking-widest px-2 py-1"
-                      title="Remove Account"
-                    >
-                      <X className="w-5 h-5" />
-                    </button>
+                    {user && user.id === player.user_id && (
+                      <button
+                        onClick={() => handleRemoveAccount(accName)}
+                        className="text-red-400 hover:text-red-300 font-mono text-sm uppercase tracking-widest px-2 py-1"
+                        title="Remove Account"
+                      >
+                        <X className="w-5 h-5" />
+                      </button>
+                    )}
                   </div>
                 ))}
               </div>
             )}
 
-            {bnetAccounts.length < 2 && (
+            {user && user.id === player.user_id && bnetAccounts.length < 2 && (
               <div className="mt-4 flex flex-col sm:flex-row gap-3">
                 <input
                   type="text"
@@ -805,7 +807,7 @@ export default function Profile() {
                 </button>
               </div>
             )}
-            {bnetAccounts.length >= 2 && (
+            {user && user.id === player.user_id && bnetAccounts.length >= 2 && (
               <p className="text-zinc-500 font-mono text-xs mt-2">
                 You have reached the maximum of 2 Battle.net accounts.
               </p>
