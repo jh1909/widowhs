@@ -39,7 +39,9 @@ export default function Leaderboard() {
         if (error) throw error;
         if (matchCountResult.error) console.warn("Could not load round count", matchCountResult.error);
         if (active) {
-          setLeaderboardData(rankPlayers((data || []) as Player[]));
+          setLeaderboardData(rankPlayers(
+            ((data || []) as Player[]).filter(player => Number(player.matches) >= 10)
+          ));
           const count = Number(matchCountResult.data);
           setTotalMatches(!matchCountResult.error && matchCountResult.data != null &&
             Number.isSafeInteger(count) && count >= 0 ? count : null);
@@ -92,7 +94,9 @@ export default function Leaderboard() {
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-5">
             <div>
               <h1 id="rankings-title" className="section-heading">Global rankings<span className="text-toxic-purple">.</span></h1>
-              <p className="text-[12px] text-zinc-500 mt-1">Sorted by ELO.</p>
+              <p className="text-[12px] text-zinc-500 mt-1">
+                Sorted by ELO. Play 10 or more matches to qualify.
+              </p>
             </div>
             <div className="relative">
               <Search size={15} className="absolute left-3.5 top-3.5 text-zinc-500" />
