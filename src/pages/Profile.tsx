@@ -761,8 +761,7 @@ export default function Profile() {
           </h3>
           <div className="bg-surface-container/30 backdrop-blur-[12px] border border-[#4d4353] rounded-xl p-6 flex flex-col gap-4">
             <p className="text-zinc-400 font-mono text-sm mb-2">
-              Track up to 2 actual Battle.net account names. The CSV/TXT data will
-              be mapped to these exact names.
+              Track up to 2 accounts. Try to avoid common names, as workshop only checks for the name (e.g. Klog).
             </p>
             {bnetAccounts.length > 0 && (
               <div className="flex flex-col gap-2">
