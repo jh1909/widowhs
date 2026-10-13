@@ -7,8 +7,7 @@ import { rankPlayers, recordHolder } from "../../supabase/functions/_shared/lead
 import { isQualified } from "../../supabase/functions/_shared/elo-weight";
 import PlayerAvatar from "../components/PlayerAvatar";
 import VerifiedBadge from "../components/VerifiedBadge";
-import StatMedal from "../components/StatMedal";
-import { statMedals, medalCategories, formatMedalValue } from "../lib/stat-medals";
+import { formatPlayerKdr } from "../lib/player-kdr";
 import { formatLobbyTime } from "../lib/profile-stats";
 import { getPodiumRank, podiumThemes } from "../components/ProfileRankDecoration";
 
@@ -20,7 +19,6 @@ type Player = {
   bnet_accounts?: string[] | null;
   personal_best_time?: number | string | null;
   placement_matches?: number | string | null;
-  crouches?: number | string | null; time_in_lobby?: number | string | null;
 };
 
 export default function Leaderboard() {
@@ -83,7 +81,6 @@ export default function Leaderboard() {
     return () => clearTimeout(timer);
   }, [copyState]);
 
-  const medals = useMemo(() => statMedals(leaderboardData), [leaderboardData]);
   const filteredData = useMemo(() => {
     const query = searchTerm.trim().toLowerCase();
     return leaderboardData.filter(player =>
@@ -144,28 +141,25 @@ export default function Leaderboard() {
           </div>
           <div className="panel overflow-hidden">
             <div className="overflow-x-auto">
-              <table className="leaderboard-table rankings-table w-full text-left min-w-[330px] sm:min-w-[760px] text-[12px]">
-                <caption className="sr-only">Players ranked by descending ELO. Your profile is highlighted. Gold, silver and bronze medals mark the highest stats across the full ranked leaderboard.</caption>
+              <table className="leaderboard-table w-full text-left min-w-[330px] sm:min-w-[700px] text-[12px]">
+                <caption className="sr-only">Players ranked by descending ELO. Your profile is highlighted.</caption>
                 <thead><tr>
                   <th scope="col" className="w-16 text-center">Rank</th><th scope="col">Player</th>
-                  <th scope="col" className="text-right">Kills</th><th scope="col" className="text-right hidden sm:table-cell">K/D</th>
-                  <th scope="col" className="text-right hidden sm:table-cell">Accuracy</th>
-                  <th scope="col" className="text-right hidden sm:table-cell" title="Crouches per minute of playing time">Crouches/min</th>
-                  <th scope="col" className="text-right hidden sm:table-cell" title="Average kills per minute">Pace</th>
+                  <th scope="col" className="text-right">Kills</th><th scope="col" className="text-right hidden sm:table-cell">KDR</th>
+                  <th scope="col" className="text-right hidden sm:table-cell">Accuracy</th><th scope="col" className="text-right hidden sm:table-cell">KPM</th>
                   <th scope="col" className="text-right text-toxic-purple!" aria-sort="descending">ELO ↓</th>
                 </tr></thead>
                 <tbody>
                   {loading ? (
-                    <tr><td colSpan={8} className="text-center text-zinc-500 py-14!" role="status">Loading rankings...</td></tr>
+                    <tr><td colSpan={7} className="text-center text-zinc-500 py-14!" role="status">Loading rankings...</td></tr>
                   ) : error ? (
-                    <tr><td colSpan={8} className="text-center py-14!"><p className="text-zinc-400">{error}</p>
+                    <tr><td colSpan={7} className="text-center py-14!"><p className="text-zinc-400">{error}</p>
                       <button onClick={() => setReload((value) => value + 1)} className="button-secondary mt-4">Try again</button>
                     </td></tr>
                   ) : paginatedData.length ? paginatedData.map((player) => {
                     const isCurrentUser = user?.username.toLowerCase() === player.name.toLowerCase();
                     const rankClass = player.rank === 1 ? "first" : player.rank === 2 ? "second" : player.rank === 3 ? "third" : "";
                     const podiumRank = getPodiumRank(player.rank);
-                    const playerMedals = medals.get(player.name);
                     return (
                       <tr key={player.name} className={[isCurrentUser ? "own-row" : "",
                         podiumRank ? `podium-row podium-row--${podiumThemes[podiumRank]}` : ""].filter(Boolean).join(" ")}>
@@ -181,25 +175,16 @@ export default function Leaderboard() {
                             <VerifiedBadge verified={player.is_verified} compact />
                             {player.tag === "PRO" && <span className="hidden sm:inline text-[8px] font-bold px-1.5 py-0.5 rounded border border-toxic-purple/20 text-toxic-purple">PRO</span>}
                           </div>
-                          {playerMedals && <div className="mobile-stat-medals sm:hidden" aria-label="Stat medals">
-                            {medalCategories.filter(category => playerMedals[category]).map(category => <span key={category} className="mobile-stat-medal">
-                              <StatMedal tier={playerMedals[category]} category={category} value={formatMedalValue(player, category)} />
-                              <span>{category === "kdr" ? "K/D" : category === "accuracy" ? "Acc" : category === "crouches" ? "Cr/min" : "Pace"}</span>
-                            </span>)}
-                          </div>}
                         </td>
                         <td className="text-right text-zinc-300">{(Number(player.score) || 0).toLocaleString("en-US")}</td>
-                        {medalCategories.map(category => <td key={category} className="text-right text-zinc-400 hidden sm:table-cell">
-                          <span className="stat-medal-value">
-                            <StatMedal tier={playerMedals?.[category]} category={category} value={formatMedalValue(player, category)} />
-                            <span>{formatMedalValue(player, category)}</span>
-                          </span>
-                        </td>)}
+                        <td className="text-right text-zinc-400 hidden sm:table-cell">{formatPlayerKdr(player)}</td>
+                        <td className="text-right text-zinc-400 hidden sm:table-cell">{player.accuracy ?? "—"}</td>
+                        <td className="text-right text-zinc-400 hidden sm:table-cell">{player.kpm ?? "—"}</td>
                         <td className="text-right font-bold text-toxic-purple">{player.elo}</td>
                       </tr>
                     );
                   }) : (
-                    <tr><td colSpan={8} className="text-center text-zinc-500 py-14!">{searchTerm ? `No players found for “${searchTerm}”.` : "No ranked players yet. Be the first to play."}</td></tr>
+                    <tr><td colSpan={7} className="text-center text-zinc-500 py-14!">{searchTerm ? `No players found for “${searchTerm}”.` : "No ranked players yet. Be the first to play."}</td></tr>
                   )}
                 </tbody>
               </table>
@@ -217,8 +202,7 @@ export default function Leaderboard() {
               </div>
             )}
           </div>
-          <p className="sm:hidden text-[10px] text-zinc-500 mt-3">Tap a player for all stats.</p>
-          <p className="stat-medal-legend"><span className="text-[#efcf8b]">Gold</span>, <span className="text-[#c3cedc]">silver</span> &amp; <span className="text-[#d2a080]">bronze</span> mark the three highest values in each stat. Ties share a medal.</p>
+          <p className="sm:hidden text-[10px] text-zinc-500 mt-3">Tap a player for accuracy, KDR and KPM.</p>
           <details className="mt-4 text-xs text-zinc-500">
             <summary className="inline-flex items-center gap-2 py-2"><Info size={13} /> How ELO works</summary>
             <p className="max-w-xl leading-7 mt-2">ELO is a performance score based on your participation-weighted average kills per minute (65%), accuracy (25%) and kill/death ratio (10%). Join within the first 10 seconds, reach 35 kills, or play at least 3 minutes for full weight. Later joins with fewer than 15 kills and less than 1 minute are ineligible. Other late joins receive the higher of kills / 35 or seconds / 180 as their weight. Logs without a total duration receive full weight. Round ratings and general stats stay unchanged. Equal ELO uses the fastest PB, then player name.</p>

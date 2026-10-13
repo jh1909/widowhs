@@ -19,6 +19,8 @@ import { supabase } from "../lib/supabase";
 import { rankPlayers } from "../../supabase/functions/_shared/leaderboard";
 import { isQualified, placementMatches } from "../../supabase/functions/_shared/elo-weight";
 import RatingWeight from "../components/RatingWeight";
+import StatMedal from "../components/StatMedal";
+import { statMedals, formatMedalValue, type MedalCategory, type MedalTier, type StatMedalPlayer } from "../lib/stat-medals";
 import { useAuth } from "../lib/AuthContext";
 import PlayerAvatar from "../components/PlayerAvatar";
 import VerifiedBadge from "../components/VerifiedBadge";
@@ -53,6 +55,7 @@ export default function Profile() {
   const [loading, setLoading] = useState(true);
   const [player, setPlayer] = useState<any>(null);
   const [qualifiedRank, setQualifiedRank] = useState<number | null>(null);
+  const [profileMedals, setProfileMedals] = useState<Partial<Record<MedalCategory, MedalTier>>>({});
   const [error, setError] = useState<string | null>(null);
 
   const [isEditingName, setIsEditingName] = useState(false);
@@ -92,6 +95,7 @@ export default function Profile() {
       setMatchHistoryPage(1);
       setSelectedMatch(null);
       setQualifiedRank(null);
+      setProfileMedals({});
 
       if (id === "me" && !user) {
         setLoading(false);
@@ -121,20 +125,27 @@ export default function Profile() {
           setError(null);
           // Only fully eligible matches qualify, exactly as on the leaderboard.
           if (isQualified(mainPlayer)) {
-            const { data: rankings, error: rankingError } = await supabase
-              .from("players")
-              .select("name, elo, matches, personal_best_time, placement_matches")
-              .gte("placement_matches", 10);
-          
-            if (!active) return;
-          
-            if (rankingError) {
-              console.warn("Could not load qualified ranking", rankingError);
-            } else {
-              const ranked = rankPlayers((rankings ?? []).filter(isQualified));
+            try {
+              // Fetch the full placed population: medals are global even when
+              // a stat leader would be on another leaderboard page.
+              const rankings: (StatMedalPlayer & { personal_best_time?: number | string | null })[] = [];
+              for (let offset = 0; ; offset += 1000) {
+                const { data: page, error: rankingError } = await supabase.from("players")
+                  .select("name, elo, matches, personal_best_time, placement_matches, kdr, accuracy, kpm, crouches, time_in_lobby")
+                  .gte("placement_matches", 10).order("name").range(offset, offset + 999);
+                if (!active) return;
+                if (rankingError) throw rankingError;
+                rankings.push(...(page ?? []));
+                if (!page || page.length < 1000) break;
+              }
+              const ranked = rankPlayers(rankings.filter(isQualified));
               setQualifiedRank(
                 ranked.find((p) => p.name === mainPlayer.name)?.rank ?? null
               );
+              setProfileMedals(statMedals(rankings).get(mainPlayer.name) ?? {});
+            } catch (rankingError) {
+              if (!active) return;
+              console.warn("Could not load qualified ranking and stat medals", rankingError);
             }
           }
 
@@ -314,6 +325,8 @@ export default function Profile() {
   const inPlacements = !isQualified(player);
   const podiumRank = inPlacements ? null : getPodiumRank(qualifiedRank);
   const averageCrouches = crouchesPerMatch(player);
+  const medalFor = (category: MedalCategory) => profileMedals[category]
+    ? <StatMedal tier={profileMedals[category]} category={category} value={formatMedalValue(player, category)} /> : null;
 
   return (
     <main className="page-shell flex flex-col gap-9">
@@ -443,17 +456,20 @@ export default function Profile() {
           title="Avg Accuracy"
           value={player.accuracy || "0%"}
           icon={<Target />}
+          medal={medalFor("accuracy")}
         />
         <StatCard
           title="Avg Pace"
           value={player.kpm?.toString() || "0"}
           icon={<Timer />}
+          medal={medalFor("pace")}
         />
         <StatCard
           title="Crouches / min"
           value={crouchesPerMinute(player)?.toFixed(1) ?? "—"}
           icon={<CrouchIcon />}
           detail={averageCrouches === null ? undefined : `${averageCrouches.toFixed(1)} per match on average`}
+          medal={medalFor("crouches")}
         />
         <StatCard
           title="Total Kills"
@@ -469,6 +485,7 @@ export default function Profile() {
           title="Avg K/D"
           value={formatPlayerKdr(player)}
           icon={<Swords />}
+          medal={medalFor("kdr")}
         />
       </section>
 
@@ -737,11 +754,13 @@ function StatCard({
   value,
   icon,
   detail,
+  medal,
 }: {
   title: string;
   value: string;
   icon: React.ReactNode;
   detail?: string;
+  medal?: React.ReactNode;
 }) {
   return (
     <div className="bg-surface-container/40 backdrop-blur-[12px] border border-[#4d4353] rounded-xl p-6 flex flex-col gap-4 hover:bg-surface-container/60 transition-colors duration-200 ease-out relative overflow-hidden group">
@@ -752,10 +771,11 @@ function StatCard({
         </span>
         {icon}
       </div>
-      <div className="flex items-baseline gap-2 relative z-10">
+      <div className="flex items-center gap-3 relative z-10">
         <span className="font-mono text-[40px] leading-none font-bold text-on-surface">
           {value}
         </span>
+        {medal && <span className="profile-stat-medal">{medal}</span>}
       </div>
       {detail && <p className="relative z-10 text-xs text-zinc-400">{detail}</p>}
     </div>

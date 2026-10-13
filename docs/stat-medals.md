@@ -1,4 +1,4 @@
-# Stat-Medaillen im Leaderboard
+# Stat-Medaillen auf dem Spielerprofil
 
 Gold, Silber und Bronze kennzeichnen die drei höchsten angezeigten Werte
 jeweils für K/D, Accuracy, Crouches/min und Pace (Kills pro Minute).
@@ -17,13 +17,17 @@ verwenden die bestehenden allgemeinen Profil-Stats, nicht die ELO-gewichteten
 Durchschnitte. Suche und Pagination verändern die Vergabe nicht; Grundlage
 ist immer die vollständige platzierte Rangliste.
 
-Desktop: kleine metallische SVG-Medaillen neben dem jeweiligen Wert, mit
-numerischer Kennzeichnung und zugänglicher Beschreibung/Tooltip. Crouches/min
-hat eine eigene Spalte. Mobil: gewonnene Medaillen mit Kategorie-Kürzel unter
-dem Spielernamen, weil die Stat-Spalten auf kleinen Bildschirmen verborgen sind.
+Auf jedem Spielerprofil erscheinen gewonnene metallische SVG-Medaillen direkt
+neben dem Wert in den Karten Avg K/D, Avg Accuracy, Avg Pace und Crouches/min.
+Die Darstellung gilt auf Desktop und Mobil. Numerische Kennzeichnung und
+Beschreibung/Tooltip zeigen die globale Kategorie und die Medaillenfarbe.
+Im Leaderboard werden keine Medaillen angezeigt; die zusätzlich eingeführte
+Crouches-Spalte und die Medaillen-Legende wurden vollständig zurückgenommen.
 
 Nur Frontend-Änderungen. Die bestehenden `players`-Felder genügen; es werden
-keine neuen Daten gespeichert und keine zusätzlichen Supabase-Abfragen benötigt.
+keine neuen Daten gespeichert. Die bestehende Profil-Rangabfrage lädt zusätzlich
+die Stat-Felder und bei mehr als 1.000 platzierten Spielern weitere Seiten,
+damit die Vergabe die vollständige platzierte Population berücksichtigt.
 Kein SQL- oder Edge-Function-Update erforderlich.
 
 249 Tests, TypeScript und Produktions-Build bestanden. Die sechs neuen Tests

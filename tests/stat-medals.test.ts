@@ -86,7 +86,7 @@ test('search and pagination do not redistribute global medals', () => {
 
 test('medals expose colour, tier and category accessibly and missing medals render nothing', () => {
   const markup = renderToStaticMarkup(createElement(StatMedal, { tier: 'gold', category: 'accuracy', value: '60.00%' }));
-  assert.match(markup, /aria-label="Gold medal · Accuracy: 60.00%"/);
+  assert.match(markup, /aria-label="Gold medal · Global Accuracy: 60.00%"/);
   assert.match(markup, /stat-medal--gold/);
   assert.match(markup, />1<\/text>/);
   assert.equal(renderToStaticMarkup(createElement(StatMedal, { category: 'kdr', value: '2.00' })), '');

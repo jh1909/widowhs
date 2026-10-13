@@ -13,7 +13,7 @@ export default function StatMedal({ tier, category, value }: {
   const gradient = useId();
   if (!tier) return null;
   const medal = tiers[tier];
-  const description = `${medal.label} medal · ${medalLabels[category]}: ${value}`;
+  const description = `${medal.label} medal · Global ${medalLabels[category]}: ${value}`;
   return <span className={`stat-medal stat-medal--${tier}`} role="img" aria-label={description} title={description}>
     <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
       <defs><linearGradient id={gradient} x1="0" y1="0" x2="1" y2="1">
