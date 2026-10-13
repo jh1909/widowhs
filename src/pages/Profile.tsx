@@ -38,6 +38,14 @@ import {
   ResponsiveContainer,
 } from "recharts";
 
+const eloDate = new Intl.DateTimeFormat("en-US", {
+  month: "short", day: "numeric", timeZone: "Europe/Berlin",
+});
+const eloDateTime = new Intl.DateTimeFormat("en-US", {
+  month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit",
+  hour12: false, timeZone: "Europe/Berlin",
+});
+
 export default function Profile() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -53,7 +61,8 @@ export default function Profile() {
   const [editNameValue, setEditNameValue] = useState("");
   const [editLoading, setEditLoading] = useState(false);
 
-  const [historyData, setHistoryData] = useState<any[]>([]);
+  const [historyData, setHistoryData] = useState<{ elo: number; created_at: string }[]>([]);
+  const [historyError, setHistoryError] = useState<string | null>(null);
   const [matchHistory, setMatchHistory] = useState<any[]>([]);
   const [personalBestTime, setPersonalBestTime] = useState<number | null>(null);
   const [speedrunnerMatch, setSpeedrunnerMatch] = useState<SpeedrunnerMatch | null>(null);
@@ -78,6 +87,7 @@ export default function Profile() {
     async function fetchPlayerData() {
       if (!id) return;
       setHistoryData([]);
+      setHistoryError(null);
       setMatchHistory([]);
       setPersonalBestTime(null);
       setSpeedrunnerMatch(null);
@@ -139,61 +149,16 @@ export default function Profile() {
             setBnetAccounts([]);
           }
 
-          // Fetch historical data
-          const { data: history } = await supabase
-            .from("player_history")
-            .select("elo, created_at")
-            .eq("player_name", mainPlayer.name)
-            .order("created_at", { ascending: true })
-            .limit(30);
+          // The RPC returns the latest 30 recorded updates in chronological order.
+          const { data: history, error: historyFetchError } = await supabase
+            .rpc("get_player_elo_history", { p_player_name: mainPlayer.name });
 
           if (!active) return;
 
-          if (history && history.length > 0) {
-            const formattedHistory = history.map((h) => ({
-              date: new Date(h.created_at).toLocaleDateString("en-US", {
-                month: "short",
-                day: "numeric",
-              }),
-              elo: h.elo,
-            }));
-
-            // Ensure there's a point for the current data
-            const lastData = formattedHistory[formattedHistory.length - 1];
-            const currentEloRaw = parseInt(
-              mainPlayer.elo.toString().replace(/,/g, ""),
-            );
-
-            if (
-              !isNaN(currentEloRaw) &&
-              (!lastData || lastData.elo !== currentEloRaw)
-            ) {
-              formattedHistory.push({
-                date: new Date().toLocaleDateString("en-US", {
-                  month: "short",
-                  day: "numeric",
-                }),
-                elo: currentEloRaw,
-              });
-            }
-
-            setHistoryData(formattedHistory);
-          } else {
-            const currentEloRaw = parseInt(
-              mainPlayer.elo.toString().replace(/,/g, ""),
-            );
-            if (!isNaN(currentEloRaw)) {
-              setHistoryData([
-                {
-                  date: new Date().toLocaleDateString("en-US", {
-                    month: "short",
-                    day: "numeric",
-                  }),
-                  elo: currentEloRaw,
-                },
-              ]);
-            }
-          }
+          if (historyFetchError) {
+            console.warn("Could not load ELO history", historyFetchError);
+            setHistoryError("Could not load ELO history. Please try again.");
+          } else setHistoryData(history ?? []);
 
           // Fetch Match History
           try {
@@ -544,7 +509,7 @@ export default function Profile() {
         <div className="w-full bg-surface-container/30 backdrop-blur-[12px] border border-[#4d4353] rounded-xl p-6 h-[300px] flex flex-col relative overflow-hidden">
           <div className="flex justify-between items-center mb-6">
             <span className="font-mono text-[12px] font-bold text-on-surface-variant uppercase tracking-widest">
-              Elo Progression (Last 30 Days)
+              ELO progression · Latest 30 updates
             </span>
             <div className="flex gap-2 items-center">
               <span className="w-2 h-2 rounded-full bg-[#9d4edd]"></span>
@@ -555,7 +520,12 @@ export default function Profile() {
           </div>
 
           <div className="flex-grow w-full relative h-[220px]">
-            {historyData.length > 0 ? (
+            {historyError ? (
+              <div className="flex flex-col items-center justify-center gap-3 w-full h-full text-sm">
+                <p role="alert" className="text-zinc-400 text-center">{historyError}</p>
+                <button className="button-secondary" onClick={() => setProfileReload(value => value + 1)}>Try again</button>
+              </div>
+            ) : historyData.length > 0 ? (
               <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
                 <AreaChart
                   data={historyData}
@@ -574,7 +544,8 @@ export default function Profile() {
                     </linearGradient>
                   </defs>
                   <XAxis
-                    dataKey="date"
+                    dataKey="created_at"
+                    tickFormatter={value => eloDate.format(new Date(value))}
                     stroke="#4d4353"
                     tick={{
                       fill: "#998d9e",
@@ -603,6 +574,8 @@ export default function Profile() {
                     opacity={0.3}
                   />
                   <Tooltip
+                    labelFormatter={value => eloDateTime.format(new Date(String(value)))}
+                    formatter={value => [value, "ELO"]}
                     contentStyle={{
                       backgroundColor: "rgba(17, 17, 20, 0.9)",
                       border: "1px solid #4d4353",
@@ -613,8 +586,9 @@ export default function Profile() {
                     itemStyle={{ color: "#ce8df2", fontWeight: "bold" }}
                   />
                   <Area
-                    type="monotone"
+                    type="linear"
                     dataKey="elo"
+                    dot={historyData.length === 1 ? { r: 4, fill: "#ce8df2" } : false}
                     stroke="#9d4edd"
                     strokeWidth={3}
                     fillOpacity={1}
@@ -630,7 +604,7 @@ export default function Profile() {
               </ResponsiveContainer>
             ) : (
               <div className="flex items-center justify-center w-full h-full text-zinc-500 font-mono text-sm">
-                NOT ENOUGH DATA
+                No ELO updates recorded yet.
               </div>
             )}
           </div>
