@@ -41,10 +41,6 @@ import {
 const eloDate = new Intl.DateTimeFormat("en-US", {
   month: "short", day: "numeric", timeZone: "Europe/Berlin",
 });
-const eloDateTime = new Intl.DateTimeFormat("en-US", {
-  month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit",
-  hour12: false, timeZone: "Europe/Berlin",
-});
 
 export default function Profile() {
   const { id } = useParams();
@@ -149,7 +145,7 @@ export default function Profile() {
             setBnetAccounts([]);
           }
 
-          // The RPC returns the latest 30 recorded updates in chronological order.
+          // The RPC returns the latest 30 active days with their average ELO.
           const { data: history, error: historyFetchError } = await supabase
             .rpc("get_player_elo_history", { p_player_name: mainPlayer.name });
 
@@ -509,12 +505,12 @@ export default function Profile() {
         <div className="w-full bg-surface-container/30 backdrop-blur-[12px] border border-[#4d4353] rounded-xl p-6 h-[300px] flex flex-col relative overflow-hidden">
           <div className="flex justify-between items-center mb-6">
             <span className="font-mono text-[12px] font-bold text-on-surface-variant uppercase tracking-widest">
-              ELO progression · Latest 30 updates
+              Daily average ELO · Last 30 active days
             </span>
             <div className="flex gap-2 items-center">
               <span className="w-2 h-2 rounded-full bg-[#9d4edd]"></span>
               <span className="font-mono text-[14px] text-on-surface">
-                Rank Rating
+                Daily average
               </span>
             </div>
           </div>
@@ -574,8 +570,8 @@ export default function Profile() {
                     opacity={0.3}
                   />
                   <Tooltip
-                    labelFormatter={value => eloDateTime.format(new Date(String(value)))}
-                    formatter={value => [value, "ELO"]}
+                    labelFormatter={value => eloDate.format(new Date(String(value)))}
+                    formatter={value => [value, "Average ELO"]}
                     contentStyle={{
                       backgroundColor: "rgba(17, 17, 20, 0.9)",
                       border: "1px solid #4d4353",
