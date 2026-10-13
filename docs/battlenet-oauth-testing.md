@@ -1,6 +1,6 @@
-# Battle.net OAuth auf dem Testbranch
+# Battle.net OAuth
 
-Branch: `feature/battlenet-oauth`. Discord bleibt der Website-Login. Battle.net
+Branch: `main`. Discord bleibt der Website-Login. Battle.net
 wird zusätzlich mit dem bestehenden Discord-Profil verknüpft. Maximal zwei
 Konten. Ein OAuth-bestätigtes Konto hat Vorrang vor unbestätigten Namensansprüchen
 (Groß-/Kleinschreibung egal). Zwischen bereits OAuth-bestätigten Konten gewinnt
@@ -69,6 +69,8 @@ Das Secret nur in Supabase hinterlegen, niemals im Frontend, Git oder Chat.
    OAuth-bestätigten Namen Vorrang vor importierten/manuellen Ansprüchen zu geben.
    Die Installation selbst überträgt keine Profile oder Matches; das passiert
    erst bei einer erfolgreichen OAuth-Verknüpfung.
+   Danach `20261013180000_pb_rankings_and_records.sql` für PB-Sortierung und
+   Record Holder installieren; Details stehen in `docs/pb-rankings.md`.
    Vorherige Migrationen nicht nach der neuesten OAuth-Korrektur erneut installieren,
    da sie sonst die alten Account-Link-/Verified-Funktionen wiederherstellen.
 2. Unter **Edge Functions → Secrets** diese Werte speichern:

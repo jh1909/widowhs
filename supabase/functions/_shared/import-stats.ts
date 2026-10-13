@@ -1,6 +1,6 @@
 import { createPlayerMap } from "./player-map.ts";
 import { calculateRating } from "./rating.ts";
-import { rankPlayers } from "./leaderboard.ts";
+import { rankPlayers, personalBest } from "./leaderboard.ts";
 import type { MatchData } from "../upload-csv/parser.ts";
 
 export type ImportedMatch = MatchData & { played_at: string | null; match_id: string };
@@ -9,6 +9,7 @@ export type ImportPlayer = {
   matches?: number; score?: number; deaths?: number; crouches?: number;
   time_in_lobby?: number; kdr?: string | number; accuracy?: string | number;
   kpm?: string | number; elo: string | number | null; rank?: number | string;
+  personal_best_time?: number | string | null;
 };
 
 // Keep every participation, including players who have never signed in.
@@ -16,7 +17,7 @@ export function buildMatchImport(dbPlayers: ImportPlayer[], matches: ImportedMat
   const playerMap = createPlayerMap(dbPlayers);
   const aggregates = new Map<string, {
     player: ImportPlayer; matches: number; score: number; deaths: number;
-    crouches: number; time: number; kdrSum: number; accuracySum: number; kpmSum: number;
+    crouches: number; time: number; kdrSum: number; accuracySum: number; kpmSum: number; best: number | null;
   }>();
   const matchRows = matches.map(match => {
     let player = playerMap.get(match.player_name.toLowerCase());
@@ -34,12 +35,15 @@ export function buildMatchImport(dbPlayers: ImportPlayer[], matches: ImportedMat
         time: Number(player.time_in_lobby) || 0,
         kdrSum: (parseFloat(String(player.kdr)) || 0) * count,
         accuracySum: (parseFloat(String(player.accuracy)) || 0) * count,
-        kpmSum: (parseFloat(String(player.kpm)) || 0) * count };
+        kpmSum: (parseFloat(String(player.kpm)) || 0) * count, best: personalBest(player.personal_best_time) };
       aggregates.set(player.name, stats);
     }
     stats.matches++; stats.score += match.score; stats.deaths += match.deaths;
     stats.crouches += match.crouches; stats.time += match.time_in_lobby;
     stats.kdrSum += match.kdr; stats.accuracySum += match.accuracy; stats.kpmSum += match.kpm;
+    if (match.score >= 50 && personalBest(match.time_in_lobby) !== null) {
+      stats.best = Math.min(stats.best ?? Infinity, match.time_in_lobby);
+    }
     return { ...match, player_name: player.name, logged_player_name: match.player_name,
       performance_score: calculateRating(match) };
   });
@@ -49,7 +53,7 @@ export function buildMatchImport(dbPlayers: ImportPlayer[], matches: ImportedMat
     const kpm = stats.kpmSum / stats.matches;
     const elo = calculateRating({ kdr, accuracy, kpm });
     return { name: stats.player.name, previous_names: stats.player.previous_names ?? [],
-      matches: stats.matches, score: stats.score, deaths: stats.deaths,
+      matches: stats.matches, score: stats.score, deaths: stats.deaths, personal_best_time: stats.best,
       crouches: stats.crouches, time_in_lobby: stats.time,
       kdr: kdr.toFixed(2), accuracy: `${accuracy.toFixed(2)}%`, kpm: kpm.toFixed(2),
       elo: elo.toLocaleString("en-US"), tag: elo >= 1200 ? "PRO" : "", rank: 999999 };

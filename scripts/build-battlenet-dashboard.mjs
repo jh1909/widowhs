@@ -17,4 +17,6 @@ await writeFile(resolve(output, "20261013010000_battlenet_owned_profile_claims.s
   await readFile(resolve(root, "supabase/migrations/20261013010000_battlenet_owned_profile_claims.sql"), "utf8"));
 await writeFile(resolve(output, "20261013140000_verified_battlenet_claim_priority.sql"),
   await readFile(resolve(root, "supabase/migrations/20261013140000_verified_battlenet_claim_priority.sql"), "utf8"));
+await writeFile(resolve(output, "20261013180000_pb_rankings_and_records.sql"),
+  await readFile(resolve(root, "supabase/migrations/20261013180000_pb_rankings_and_records.sql"), "utf8"));
 console.log(`Battle.net Dashboard code and SQL written to ${output}`);

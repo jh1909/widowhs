@@ -1,12 +1,14 @@
-import { ArrowUpRight, Check, ChevronLeft, ChevronRight, Copy, Crosshair, MessageSquare, Search, Users, Info } from "lucide-react";
+import { ArrowUpRight, Check, ChevronLeft, ChevronRight, Copy, Crosshair, MessageSquare, Search, Users, Info, Trophy } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useState, useEffect, useMemo } from "react";
 import { useAuth } from "../lib/AuthContext";
 import { supabase } from "../lib/supabase";
-import { rankPlayers } from "../../supabase/functions/_shared/leaderboard";
+import { rankPlayers, recordHolder } from "../../supabase/functions/_shared/leaderboard";
 import PlayerAvatar from "../components/PlayerAvatar";
 import VerifiedBadge from "../components/VerifiedBadge";
 import { formatPlayerKdr } from "../lib/player-kdr";
+import { formatLobbyTime } from "../lib/profile-stats";
+import { getPodiumRank, podiumThemes } from "../components/ProfileRankDecoration";
 
 type Player = {
   rank: number | string; name: string; elo: string; tag?: string;
@@ -14,6 +16,7 @@ type Player = {
   kdr?: string | number; kpm?: string | number; accuracy?: string | number;
   is_verified?: boolean;
   bnet_accounts?: string[] | null;
+  personal_best_time?: number | string | null;
 };
 
 export default function Leaderboard() {
@@ -21,6 +24,7 @@ export default function Leaderboard() {
   const [searchTerm, setSearchTerm] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const [leaderboardData, setLeaderboardData] = useState<Player[]>([]);
+  const [recordPlayer, setRecordPlayer] = useState<Player | null>(null);
   const [totalMatches, setTotalMatches] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -50,6 +54,7 @@ export default function Leaderboard() {
         ]);
         if (matchCountResult.error) console.warn("Could not load round count", matchCountResult.error);
         if (active) {
+          setRecordPlayer(recordHolder(data));
           setLeaderboardData(rankPlayers(
             ((data || []) as Player[]).filter(player => Number(player.matches) >= 10)
           ));
@@ -103,13 +108,30 @@ export default function Leaderboard() {
         </div>
       </section>
 
+      <section className="record-holder" aria-label="Fastest personal best" aria-busy={loading}>
+        <div className="record-holder-mark" aria-hidden="true"><Trophy size={21} strokeWidth={1.5} /></div>
+        <div className="min-w-0 flex-1">
+          <p className="record-holder-label">Record Holder</p>
+          {loading ? <p className="text-sm text-zinc-500" role="status">Loading record…</p>
+            : error ? <p className="text-sm text-zinc-500">Record unavailable</p>
+            : recordPlayer ? <div className="flex flex-wrap items-center gap-2 mt-1">
+              <Link to={`/profile/${encodeURIComponent(recordPlayer.name)}`} className="record-holder-name hover:underline break-all">{recordPlayer.name}</Link>
+              <VerifiedBadge verified={recordPlayer.is_verified} compact />
+            </div> : <p className="text-sm text-zinc-500 mt-1">No winning time recorded yet.</p>}
+        </div>
+        {recordPlayer && !loading && !error && <div className="text-right shrink-0">
+          <p className="record-holder-time">{formatLobbyTime(recordPlayer.personal_best_time)}</p>
+          <p className="text-[10px] text-zinc-500 mt-1">Fastest PB</p>
+        </div>}
+      </section>
+
       <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_270px] gap-6 items-start">
         <section id="rankings" className="min-w-0 scroll-mt-36" aria-labelledby="rankings-title">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-5">
             <div>
               <h1 id="rankings-title" className="section-heading">Global rankings<span className="text-toxic-purple">.</span></h1>
               <p className="text-[12px] text-zinc-500 mt-1">
-                Sorted by ELO. Play 10 or more matches to qualify.
+                Sorted by ELO, then fastest PB. Play 10 or more matches to qualify.
               </p>
             </div>
             <div className="relative">
@@ -139,8 +161,10 @@ export default function Leaderboard() {
                   ) : paginatedData.length ? paginatedData.map((player) => {
                     const isCurrentUser = user?.username.toLowerCase() === player.name.toLowerCase();
                     const rankClass = player.rank === 1 ? "first" : player.rank === 2 ? "second" : player.rank === 3 ? "third" : "";
+                    const podiumRank = getPodiumRank(player.rank);
                     return (
-                      <tr key={player.name} className={isCurrentUser ? "own-row" : ""}>
+                      <tr key={player.name} className={[isCurrentUser ? "own-row" : "",
+                        podiumRank ? `podium-row podium-row--${podiumThemes[podiumRank]}` : ""].filter(Boolean).join(" ")}>
                         <td className="text-center"><span className={`rank-badge ${rankClass}`}>{player.rank}</span></td>
                         <td>
                           <div className="flex items-center gap-3">
@@ -183,7 +207,7 @@ export default function Leaderboard() {
           <p className="sm:hidden text-[10px] text-zinc-500 mt-3">Tap a player for accuracy, KDR and KPM.</p>
           <details className="mt-4 text-xs text-zinc-500">
             <summary className="inline-flex items-center gap-2 py-2"><Info size={13} /> How ELO works</summary>
-            <p className="max-w-xl leading-7 mt-2">ELO is a performance score based on your average kills per minute (65%), accuracy (25%) and kill/death ratio (10%). Higher scores mean stronger overall performance. Equal scores are ordered by player name.</p>
+            <p className="max-w-xl leading-7 mt-2">ELO is a performance score based on your average kills per minute (65%), accuracy (25%) and kill/death ratio (10%). Higher scores mean stronger overall performance. Equal scores use the fastest PB: your playing time from joining to reaching 50 kills. Recorded PBs come before players without a win; equal PBs use player name.</p>
           </details>
         </section>
 

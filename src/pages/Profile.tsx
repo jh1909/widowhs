@@ -114,7 +114,7 @@ export default function Profile() {
           if (Number(mainPlayer.matches ?? 0) >= 10) {
             const { data: rankings, error: rankingError } = await supabase
               .from("players")
-              .select("name, elo, matches")
+              .select("name, elo, matches, personal_best_time")
               .gte("matches", 10);
           
             if (!active) return;

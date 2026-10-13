@@ -55,6 +55,11 @@
 .hero-metrics { display: flex; gap: 48px; }
 .metric-value { font-size: 22px; font-weight: 700; letter-spacing: -.6px; font-variant-numeric: tabular-nums; }
 .metric-label { color: #8f889f; font-size: 11px; margin-top: 4px; }
+.record-holder { display: flex; align-items: center; gap: 17px; padding: 18px 24px; border: 1px solid #dbc18a24; border-radius: 12px; background: linear-gradient(105deg, #dbc18a08, #15151e 65%); }
+.record-holder-mark { display: grid; place-items: center; flex-shrink: 0; width: 40px; height: 40px; color: #dbc18a; border: 1px solid #dbc18a30; border-radius: 9px; background: #dbc18a06; }
+.record-holder-label { color: #bca477; font-size: 9px; font-weight: 650; letter-spacing: 1.8px; text-transform: uppercase; }
+.record-holder-name { color: #ede5d6; font-size: 17px; font-weight: 650; letter-spacing: -.3px; }
+.record-holder-time { color: #e9d4a8; font-family: var(--font-mono); font-size: 25px; font-weight: 650; font-variant-numeric: tabular-nums; letter-spacing: -.6px; }
 .section-heading { font-size: 25px; font-weight: 750; letter-spacing: -.8px; }
 .panel, .glass-panel { background: #15151eee; border: 1px solid #ffffff0e; border-radius: 14px; }
 .glow-top { box-shadow: inset 0 1px 0 #d2bdff14; }
@@ -71,6 +76,19 @@
 .rank-badge.first { background: #dbc49112; color: #dbc491; border: 1px solid #dbc49120; }
 .rank-badge.second { background: #afbcd012; color: #afbcd0; }
 .rank-badge.third { background: #c8977f12; color: #c8977f; }
+.leaderboard-table .podium-row { --podium-rgb: 73, 166, 215; --podium-gold: #dbc18a66; background: linear-gradient(90deg, rgba(var(--podium-rgb), .075), transparent 80%); }
+.leaderboard-table .podium-row--sapphire { --podium-rgb: 73, 166, 215; --podium-gold: #dbc18a66; }
+.leaderboard-table .podium-row--ruby { --podium-rgb: 191, 72, 84; --podium-gold: #dbc18a40; }
+.leaderboard-table .podium-row--emerald { --podium-rgb: 66, 155, 120; --podium-gold: #dbc18a28; }
+.leaderboard-table .podium-row td { border-top: 1px solid var(--podium-gold); border-bottom: 1px solid var(--podium-gold); }
+.leaderboard-table .podium-row td:first-child { border-left: 2px solid var(--podium-gold); }
+.leaderboard-table .podium-row td:last-child { border-right: 1px solid var(--podium-gold); }
+.leaderboard-table .podium-row:hover { background: linear-gradient(90deg, rgba(var(--podium-rgb), .12), #ffffff02 80%); }
+.leaderboard-table .podium-row.own-row, .leaderboard-table .podium-row.own-row:hover { background: linear-gradient(90deg, rgba(var(--podium-rgb), .09), #ac86ff12); }
+.leaderboard-table .podium-row.own-row td:first-child { box-shadow: inset 3px 0 #ac86ff; }
+.podium-row .rank-badge { position: relative; color: #e4cfaa; background: rgba(var(--podium-rgb), .13); border: 1px solid var(--podium-gold); border-radius: 5px; }
+.podium-row--sapphire .rank-badge { box-shadow: inset 0 0 0 2px #15151e, 0 0 12px #49a6d70a; }
+.podium-row--sapphire .rank-badge::after { content: ""; position: absolute; width: 4px; height: 4px; top: -3px; left: calc(50% - 2px); transform: rotate(45deg); background: #dbc18a; }
 .profile-header { position: relative; isolation: isolate; overflow: hidden; }
 .profile-header--sapphire { --podium-accent: #49a6d7; --podium-light: #b1e9ff; --podium-dark: #143b62; --podium-rgb: 73, 166, 215; --podium-frame: #dbc18a99; --podium-corner-width: 120px; --podium-center-width: 240px; }
 .profile-header--ruby { --podium-accent: #bf4854; --podium-light: #ffb1a5; --podium-dark: #531c2e; --podium-rgb: 191, 72, 84; --podium-frame: #dbc18a77; --podium-corner-width: 96px; --podium-center-width: 160px; }
