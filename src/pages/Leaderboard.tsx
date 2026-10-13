@@ -13,6 +13,7 @@ type Player = {
   matches: number | string; avatar_url?: string; score?: number;
   kdr?: string | number; kpm?: string | number; accuracy?: string | number;
   is_verified?: boolean;
+  bnet_accounts?: string[] | null;
 };
 
 export default function Leaderboard() {
@@ -73,9 +74,12 @@ export default function Leaderboard() {
     return () => clearTimeout(timer);
   }, [copyState]);
 
-  const filteredData = useMemo(() => leaderboardData.filter(
-    (player) => player.name.toLowerCase().includes(searchTerm.toLowerCase()),
-  ), [leaderboardData, searchTerm]);
+  const filteredData = useMemo(() => {
+    const query = searchTerm.trim().toLowerCase();
+    return leaderboardData.filter(player =>
+      [player.name, ...(player.bnet_accounts ?? [])].some(name => name.toLowerCase().includes(query))
+    );
+  }, [leaderboardData, searchTerm]);
   const totalPages = Math.ceil(filteredData.length / itemsPerPage);
   const paginatedData = filteredData.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
   const totalKills = leaderboardData.reduce((sum, player) => sum + (Number(player.score) || 0), 0);
@@ -110,7 +114,7 @@ export default function Leaderboard() {
             </div>
             <div className="relative">
               <Search size={15} className="absolute left-3.5 top-3.5 text-zinc-500" />
-              <input aria-label="Search players" placeholder="Find a player..." value={searchTerm}
+              <input aria-label="Search players and Battle.net accounts" placeholder="Player or account name..." value={searchTerm}
                 onChange={(event) => { setSearchTerm(event.target.value); setCurrentPage(1); }}
                 className="w-full sm:w-56 bg-surface-container-lowest border border-white/10 rounded-lg py-3 pl-10 pr-3 text-xs text-white placeholder:text-zinc-600 focus:border-toxic-purple/60 focus:outline-none" />
             </div>
