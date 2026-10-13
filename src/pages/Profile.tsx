@@ -17,6 +17,8 @@ import { Link, useParams, useNavigate } from "react-router-dom";
 import { useEffect, useState, useMemo } from "react";
 import { supabase } from "../lib/supabase";
 import { rankPlayers } from "../../supabase/functions/_shared/leaderboard";
+import { isQualified, formatParticipationWeight } from "../../supabase/functions/_shared/elo-weight";
+import RatingWeight from "../components/RatingWeight";
 import { useAuth } from "../lib/AuthContext";
 import PlayerAvatar from "../components/PlayerAvatar";
 import VerifiedBadge from "../components/VerifiedBadge";
@@ -117,19 +119,19 @@ export default function Profile() {
           const mainPlayer = data[0];
           setPlayer(mainPlayer);
           setError(null);
-          // Calculate rank using only players with 10+ matches
-          if (Number(mainPlayer.matches ?? 0) >= 10) {
+          // Use the same weighted qualification as the leaderboard.
+          if (isQualified(mainPlayer)) {
             const { data: rankings, error: rankingError } = await supabase
               .from("players")
-              .select("name, elo, matches, personal_best_time")
-              .gte("matches", 10);
+              .select("name, elo, matches, personal_best_time, elo_weight_sum")
+              .gte("elo_weight_sum", 10 - 1e-9);
           
             if (!active) return;
           
             if (rankingError) {
               console.warn("Could not load qualified ranking", rankingError);
             } else {
-              const ranked = rankPlayers(rankings ?? []);
+              const ranked = rankPlayers((rankings ?? []).filter(isQualified));
               setQualifiedRank(
                 ranked.find((p) => p.name === mainPlayer.name)?.rank ?? null
               );
@@ -309,7 +311,7 @@ export default function Profile() {
     );
   }
 
-  const inPlacements = Number(player.matches ?? 0) < 10;
+  const inPlacements = !isQualified(player);
   const podiumRank = inPlacements ? null : getPodiumRank(qualifiedRank);
   const averageCrouches = crouchesPerMatch(player);
 
@@ -410,11 +412,11 @@ export default function Profile() {
                 {inPlacements ? "Placements" : "ELO"}
               </span>
               <span className="font-sans text-[32px] font-semibold text-[#f2daff] drop-shadow-[0_0_12px_rgba(157,78,221,0.5)] leading-none text-toxic-purple">
-                {inPlacements ? `${player.matches ?? 0}/10` : player.elo || "0"}
+                {inPlacements ? `${formatParticipationWeight(player)}/10` : player.elo || "0"}
               </span>
               {inPlacements && (
                 <span className="font-mono text-[12px] text-on-surface-variant">
-                  Matches played
+                  Participation weight
                 </span>
               )}
             </div>
@@ -658,7 +660,8 @@ export default function Profile() {
                          <td className="py-3 px-4 whitespace-nowrap">{formatLobbyTime(m.time_in_lobby)}</td>
                          <td className="py-3 px-4 whitespace-nowrap">{formatLobbyTime(m.total_match_time)}</td>
                          <td className="py-3 px-4 text-toxic-purple font-bold">
-                            {m.performance_score ? Math.round(m.performance_score) : "-"}
+                            {m.performance_score != null ? Math.round(m.performance_score) : "-"}
+                            <RatingWeight match={m} />
                          </td>
                       </tr>
                     ))}

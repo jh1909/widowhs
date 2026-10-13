@@ -137,15 +137,22 @@ Match performance scores and profile ELO use the same formula, rounded once to
 the nearest integer:
 
 ```text
-Pace = min(KPM / (50/3))
+Pace = min(KPM / 16.67, 1.67)
 Acc  = min(Accuracy / 60, 1.15)
 KDR  = min(KDR, 4.0) / 3.0
 Rating = (650 * Pace + 250 * Acc + 100 * KDR)
 ```
 
 Accuracy is a percentage (e.g. 60), not a fraction. Profile ELO applies the
-formula to the existing averages of KPM, accuracy and KDR; match scores apply it
+formula to the participation-weighted averages of KPM, accuracy and KDR; match scores apply it
 to that match's statistics. A rating of at least 1200 still grants the PRO tag.
+
+See [weighted ELO and placement rules](docs/weighted-elo.md). Install
+`20261013233000_weighted_elo_participation.sql` before publishing the frontend.
+It recalculates current profile ELO from stored matches and requires 10 full
+participation weights for leaderboard qualification. Raw round ratings, general
+stats and PBs remain unchanged. Match views label excluded/reduced participation.
+Existing Edge deployments remain compatible; no function redeployment is required.
 
 Deploy the updated `upload-csv` function, then apply
 `supabase/migrations/20261007120000_update_rating_formula.sql` while uploads are

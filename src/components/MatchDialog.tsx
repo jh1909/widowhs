@@ -4,6 +4,7 @@ import { Trophy, X } from "lucide-react";
 import { supabase } from "../lib/supabase";
 import PlayerAvatar from "./PlayerAvatar";
 import VerifiedBadge from "./VerifiedBadge";
+import RatingWeight from "./RatingWeight";
 import { formatLobbyTime } from "../lib/profile-stats";
 import { formatMatchDate, type MatchSummary } from "../lib/match-history";
 
@@ -69,7 +70,7 @@ export default function MatchDialog({ match, onClose }: { match: MatchSummary; o
                   <VerifiedBadge verified={player.is_verified} compact /></div>
                   {player.logged_player_name !== player.player_name && <span className="block text-[10px] text-zinc-500 mt-1 pl-10">{player.player_name}</span>}
                 </td><td className="font-semibold">{player.score}</td><td>{player.deaths}</td><td>{metric(player.accuracy, 2)}%</td><td>{metric(player.kpm, 2)}</td><td>{metric(player.kdr, 2)}</td>
-                <td>{player.crouches}</td><td>{formatLobbyTime(player.time_in_lobby)}</td><td className="text-toxic-purple font-semibold">{metric(player.performance_score)}</td>
+                <td>{player.crouches}</td><td>{formatLobbyTime(player.time_in_lobby)}</td><td className="text-toxic-purple font-semibold">{metric(player.performance_score)}<RatingWeight match={player} /></td>
               </tr>)}</tbody>
             </table>
           </div></>}

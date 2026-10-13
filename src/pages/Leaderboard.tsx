@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo } from "react";
 import { useAuth } from "../lib/AuthContext";
 import { supabase } from "../lib/supabase";
 import { rankPlayers, recordHolder } from "../../supabase/functions/_shared/leaderboard";
+import { isQualified } from "../../supabase/functions/_shared/elo-weight";
 import PlayerAvatar from "../components/PlayerAvatar";
 import VerifiedBadge from "../components/VerifiedBadge";
 import { formatPlayerKdr } from "../lib/player-kdr";
@@ -17,6 +18,7 @@ type Player = {
   is_verified?: boolean;
   bnet_accounts?: string[] | null;
   personal_best_time?: number | string | null;
+  elo_weight_sum?: number | string | null;
 };
 
 export default function Leaderboard() {
@@ -56,7 +58,7 @@ export default function Leaderboard() {
         if (active) {
           setRecordPlayer(recordHolder(data));
           setLeaderboardData(rankPlayers(
-            ((data || []) as Player[]).filter(player => Number(player.matches) >= 10)
+            ((data || []) as Player[]).filter(isQualified)
           ));
           const count = Number(matchCountResult.data);
           setTotalMatches(!matchCountResult.error && matchCountResult.data != null &&
@@ -127,7 +129,7 @@ export default function Leaderboard() {
             <div>
               <h1 id="rankings-title" className="section-heading">Global rankings<span className="text-toxic-purple">.</span></h1>
               <p className="text-[12px] text-zinc-500 mt-1">
-                Sorted by ELO, then fastest PB. Play 10 or more matches to qualify.
+                Sorted by ELO, then fastest PB. Earn 10 full participation weights to qualify.
               </p>
             </div>
             <div className="relative">
@@ -203,7 +205,7 @@ export default function Leaderboard() {
           <p className="sm:hidden text-[10px] text-zinc-500 mt-3">Tap a player for accuracy, KDR and KPM.</p>
           <details className="mt-4 text-xs text-zinc-500">
             <summary className="inline-flex items-center gap-2 py-2"><Info size={13} /> How ELO works</summary>
-            <p className="max-w-xl leading-7 mt-2">ELO is a performance score based on your average kills per minute (65%), accuracy (25%) and kill/death ratio (10%). Higher scores mean stronger overall performance. Equal scores use the fastest PB: your playing time from joining to reaching 50 kills. Recorded PBs come before players without a win; equal PBs use player name.</p>
+            <p className="max-w-xl leading-7 mt-2">ELO is a performance score based on your participation-weighted average kills per minute (65%), accuracy (25%) and kill/death ratio (10%). Join within the first 10 seconds, reach 35 kills, or play at least 3 minutes for full weight. Later joins with fewer than 15 kills and less than 1 minute are ineligible. Other late joins receive the higher of kills / 35 or seconds / 180 as their weight. Logs without a total duration receive full weight. Round ratings and general stats stay unchanged. Equal ELO uses the fastest PB, then player name.</p>
           </details>
         </section>
 
