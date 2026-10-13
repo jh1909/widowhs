@@ -12,6 +12,10 @@ Der Record Holder wird aus allen erfassten Spielern gewählt, einschließlich
 Spielern in Placements und importierten Spielern ohne Discord-Verknüpfung.
 Bei gleich schnellen Rekorden wird ein Name alphabetisch als erster angezeigt.
 
+Der Record Holder erscheint als kompakte goldene Karte innerhalb der oberen
+Statistikbox. Auf schmalen Bildschirmen steht sie unter den allgemeinen Werten;
+Name und PB bleiben innerhalb derselben begrenzten Kartenbreite zusammen.
+
 ## Datenbank
 
 `supabase/migrations/20261013180000_pb_rankings_and_records.sql` nach

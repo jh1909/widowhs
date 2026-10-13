@@ -52,14 +52,15 @@
 .page-shell { max-width: 1320px; width: 100%; margin: auto; padding: 32px 28px 64px; flex: 1; }
 .hero { padding: 28px 32px; border: 1px solid #ffffff0d; border-radius: 16px; background: linear-gradient(120deg, #191721, #111019); }
 .eyebrow { color: #b99bdd; font-size: 10px; font-weight: 750; letter-spacing: 2.2px; text-transform: uppercase; display: flex; align-items: center; gap: 9px; }
-.hero-metrics { display: flex; gap: 48px; }
+.hero-overview { display: flex; flex-wrap: wrap; align-items: center; gap: 24px 32px; }
+.hero-metrics { display: flex; flex: 1 1 370px; gap: 48px; }
 .metric-value { font-size: 22px; font-weight: 700; letter-spacing: -.6px; font-variant-numeric: tabular-nums; }
 .metric-label { color: #8f889f; font-size: 11px; margin-top: 4px; }
-.record-holder { display: flex; align-items: center; gap: 17px; padding: 18px 24px; border: 1px solid #dbc18a24; border-radius: 12px; background: linear-gradient(105deg, #dbc18a08, #15151e 65%); }
-.record-holder-mark { display: grid; place-items: center; flex-shrink: 0; width: 40px; height: 40px; color: #dbc18a; border: 1px solid #dbc18a30; border-radius: 9px; background: #dbc18a06; }
-.record-holder-label { color: #bca477; font-size: 9px; font-weight: 650; letter-spacing: 1.8px; text-transform: uppercase; }
-.record-holder-name { color: #ede5d6; font-size: 17px; font-weight: 650; letter-spacing: -.3px; }
-.record-holder-time { color: #e9d4a8; font-family: var(--font-mono); font-size: 25px; font-weight: 650; font-variant-numeric: tabular-nums; letter-spacing: -.6px; }
+.record-holder { display: flex; flex: 0 1 330px; min-width: 0; max-width: 360px; align-items: center; gap: 12px; padding: 14px 16px; border: 1px solid #dbc18a45; border-radius: 11px; background: linear-gradient(120deg, #dbc18a18, #dbc18a08); box-shadow: inset 0 1px 0 #f4dfaf12; }
+.record-holder-mark { display: grid; place-items: center; flex-shrink: 0; width: 34px; height: 34px; color: #e3c58b; border: 1px solid #dbc18a30; border-radius: 8px; background: #dbc18a0b; }
+.record-holder-label { color: #c4aa78; font-size: 9px; font-weight: 650; letter-spacing: 1.2px; text-transform: uppercase; }
+.record-holder-name { color: #f0e5ce; font-size: 15px; font-weight: 650; letter-spacing: -.2px; }
+.record-holder-time { color: #efdaa9; font-family: var(--font-mono); font-size: 22px; font-weight: 650; font-variant-numeric: tabular-nums; letter-spacing: -.6px; }
 .section-heading { font-size: 25px; font-weight: 750; letter-spacing: -.8px; }
 .panel, .glass-panel { background: #15151eee; border: 1px solid #ffffff0e; border-radius: 14px; }
 .glow-top { box-shadow: inset 0 1px 0 #d2bdff14; }
@@ -162,7 +163,8 @@
   .match-list-winner { grid-column: 1; grid-row: 2; }
   .match-list-stat { grid-column: 2; }
   .match-list-row > svg { grid-column: 3; grid-row: 1 / 3; }
-  .hero-metrics { gap: 28px; flex-wrap: wrap; }
+  .hero-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); flex-basis: 100%; gap: 16px; }
+  .record-holder { flex-basis: 100%; }
   .metric-value { font-size: 19px; }
   .footer-shell { flex-direction: column; align-items: flex-start; gap: 15px; }
   .leaderboard-table th, .leaderboard-table td { padding: 16px 14px; }

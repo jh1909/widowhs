@@ -96,30 +96,29 @@ export default function Leaderboard() {
   return (
     <main className="page-shell space-y-9">
       <section className="hero" aria-label="Community statistics">
-        <div className="flex flex-wrap items-center justify-between gap-4">
+        <div className="hero-overview">
           <div className="hero-metrics">
             <Metric label="Ranked players" value={loading || error ? "—" : leaderboardData.length.toLocaleString("en-US")} />
             <Metric label="Matches played" value={loading || error || totalMatches === null ? "—" : totalMatches.toLocaleString("en-US")} />
             <Metric label="Kills recorded" value={loading || error ? "—" : totalKills.toLocaleString("en-US")} />
           </div>
+          <section className="record-holder" aria-label="Fastest personal best" aria-busy={loading}>
+            <div className="record-holder-mark" aria-hidden="true"><Trophy size={18} strokeWidth={1.5} /></div>
+            <div className="min-w-0 flex-1">
+              <p className="record-holder-label">Record Holder</p>
+              {loading ? <p className="text-sm text-zinc-500" role="status">Loading record…</p>
+                : error ? <p className="text-sm text-zinc-500">Record unavailable</p>
+                : recordPlayer ? <div className="flex flex-wrap items-center gap-2 mt-1">
+                  <Link to={`/profile/${encodeURIComponent(recordPlayer.name)}`} className="record-holder-name hover:underline break-all">{recordPlayer.name}</Link>
+                  <VerifiedBadge verified={recordPlayer.is_verified} compact />
+                </div> : <p className="text-sm text-zinc-500 mt-1">No winning time recorded yet.</p>}
+            </div>
+            {recordPlayer && !loading && !error && <div className="text-right shrink-0">
+              <p className="record-holder-time">{formatLobbyTime(recordPlayer.personal_best_time)}</p>
+              <p className="text-[10px] text-zinc-500 mt-1">Fastest PB</p>
+            </div>}
+          </section>
         </div>
-      </section>
-
-      <section className="record-holder" aria-label="Fastest personal best" aria-busy={loading}>
-        <div className="record-holder-mark" aria-hidden="true"><Trophy size={21} strokeWidth={1.5} /></div>
-        <div className="min-w-0 flex-1">
-          <p className="record-holder-label">Record Holder</p>
-          {loading ? <p className="text-sm text-zinc-500" role="status">Loading record…</p>
-            : error ? <p className="text-sm text-zinc-500">Record unavailable</p>
-            : recordPlayer ? <div className="flex flex-wrap items-center gap-2 mt-1">
-              <Link to={`/profile/${encodeURIComponent(recordPlayer.name)}`} className="record-holder-name hover:underline break-all">{recordPlayer.name}</Link>
-              <VerifiedBadge verified={recordPlayer.is_verified} compact />
-            </div> : <p className="text-sm text-zinc-500 mt-1">No winning time recorded yet.</p>}
-        </div>
-        {recordPlayer && !loading && !error && <div className="text-right shrink-0">
-          <p className="record-holder-time">{formatLobbyTime(recordPlayer.personal_best_time)}</p>
-          <p className="text-[10px] text-zinc-500 mt-1">Fastest PB</p>
-        </div>}
       </section>
 
       <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_270px] gap-6 items-start">
