@@ -52,5 +52,10 @@ weil sie die bisherigen Einzelpunkte dauerhaft durch Tageswerte ersetzt.
 Die Live-Vorschau vom 13. Oktober 2026 ergibt 1.713 bisherige Einträge und
 634 Spieler/Tageswerte. Für `prx` ergeben die 13 Updates am 13. Oktober einen
 gerundeten Tagesdurchschnitt von 640 ELO. 221 Tests, TypeScript und Build
-bestanden. Die Migration ist vorbereitet; die Live-Ausführung wartet auf die
-Bestätigung zur Zusammenfassung der Einzelpunkte.
+bestanden. Nach ausdrücklicher Bestätigung wurde die Migration am selben Tag
+live installiert: 634 Tageszeilen mit unverändert 1.713 berücksichtigten
+Samples und einer ELO-Summe von 715.092. Es bestehen keine doppelten Spieler/
+Tag-Zeilen oder Abweichungen der Mittelwerte. Die 621 Spieler und 1.748
+Match-Einträge blieben erhalten. Der öffentliche API-Abruf liefert für `prx`
+einen Tageswert (640) und für `Klog` drei Tageswerte (675, 705, 732).
+Das neue Frontend benötigt noch den Push auf `main`.
