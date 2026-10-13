@@ -21,6 +21,8 @@ import { useAuth } from "../lib/AuthContext";
 import PlayerAvatar from "../components/PlayerAvatar";
 import VerifiedBadge from "../components/VerifiedBadge";
 import BattleNetAccounts from "../components/BattleNetAccounts";
+import MatchDialog from "../components/MatchDialog";
+import { formatMatchDate, type MatchSummary } from "../lib/match-history";
 import ProfileRankBadge, { ProfileRankFrame, getPodiumRank, podiumThemes } from "../components/ProfileRankDecoration";
 import { getAchievements, type SpeedrunnerMatch, type AchievementId } from "../lib/achievements";
 import { formatPlayerKdr } from "../lib/player-kdr";
@@ -55,7 +57,17 @@ export default function Profile() {
   const [personalBestTime, setPersonalBestTime] = useState<number | null>(null);
   const [speedrunnerMatch, setSpeedrunnerMatch] = useState<SpeedrunnerMatch | null>(null);
   const [matchHistoryPage, setMatchHistoryPage] = useState(1);
+  const [selectedMatch, setSelectedMatch] = useState<MatchSummary | null>(null);
   const matchesPerPage = 10;
+
+  const openMatch = (match: any) => {
+    if (!match.match_id) return;
+    setSelectedMatch({
+      match_id: match.match_id,
+      played_at: match.played_at ?? match.created_at,
+      total_match_time: match.total_match_time ?? null,
+    });
+  };
 
   const [bnetAccounts, setBnetAccounts] = useState<string[]>([]);
   const [profileReload, setProfileReload] = useState(0);
@@ -69,6 +81,7 @@ export default function Profile() {
       setPersonalBestTime(null);
       setSpeedrunnerMatch(null);
       setMatchHistoryPage(1);
+      setSelectedMatch(null);
       setQualifiedRank(null);
 
       if (id === "me" && !user) {
@@ -652,10 +665,17 @@ export default function Profile() {
                     .map((m, idx) => (
                       <tr
                         key={m.id || idx}
-                        className="border-b border-white/5 transition-colors hover:bg-white/[0.02]"
+                        onClick={() => openMatch(m)}
+                        className={`border-b border-white/5 transition-colors hover:bg-white/[0.02] ${m.match_id ? "cursor-pointer" : ""}`}
                       >
                          <td className="py-3 px-4 text-zinc-400 whitespace-nowrap">
-                           {new Date(m.played_at ?? m.created_at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23" })}
+                           <button type="button" disabled={!m.match_id}
+                             aria-haspopup="dialog"
+                             aria-label={`Open match ${formatMatchDate(m.played_at ?? m.created_at)}`}
+                             onClick={event => { event.stopPropagation(); openMatch(m); }}
+                             className="hover:text-toxic-purple hover:underline focus-visible:outline focus-visible:outline-toxic-purple rounded-sm disabled:pointer-events-none">
+                             {formatMatchDate(m.played_at ?? m.created_at)}
+                           </button>
                          </td>
                          <td className="py-3 px-4 text-white font-bold">{m.score}</td>
                          <td className="py-3 px-4">{m.deaths}</td>
@@ -707,6 +727,8 @@ export default function Profile() {
       {player && <BattleNetAccounts playerName={player.name} accounts={bnetAccounts}
         isOwner={!!user && user.id === player.user_id}
         onChanged={() => setProfileReload(value => value + 1)} />}
+      {selectedMatch && <MatchDialog key={selectedMatch.match_id} match={selectedMatch}
+        onClose={() => setSelectedMatch(null)} />}
     </main>
   );
 }
