@@ -17,7 +17,7 @@ import { Link, useParams, useNavigate } from "react-router-dom";
 import { useEffect, useState, useMemo } from "react";
 import { supabase } from "../lib/supabase";
 import { rankPlayers } from "../../supabase/functions/_shared/leaderboard";
-import { isQualified, formatParticipationWeight } from "../../supabase/functions/_shared/elo-weight";
+import { isQualified, placementMatches } from "../../supabase/functions/_shared/elo-weight";
 import RatingWeight from "../components/RatingWeight";
 import { useAuth } from "../lib/AuthContext";
 import PlayerAvatar from "../components/PlayerAvatar";
@@ -119,12 +119,12 @@ export default function Profile() {
           const mainPlayer = data[0];
           setPlayer(mainPlayer);
           setError(null);
-          // Use the same weighted qualification as the leaderboard.
+          // Only fully eligible matches qualify, exactly as on the leaderboard.
           if (isQualified(mainPlayer)) {
             const { data: rankings, error: rankingError } = await supabase
               .from("players")
-              .select("name, elo, matches, personal_best_time, elo_weight_sum")
-              .gte("elo_weight_sum", 10 - 1e-9);
+              .select("name, elo, matches, personal_best_time, placement_matches")
+              .gte("placement_matches", 10);
           
             if (!active) return;
           
@@ -412,11 +412,11 @@ export default function Profile() {
                 {inPlacements ? "Placements" : "ELO"}
               </span>
               <span className="font-sans text-[32px] font-semibold text-[#f2daff] drop-shadow-[0_0_12px_rgba(157,78,221,0.5)] leading-none text-toxic-purple">
-                {inPlacements ? `${formatParticipationWeight(player)}/10` : player.elo || "0"}
+                {inPlacements ? `${placementMatches(player)}/10` : player.elo || "0"}
               </span>
               {inPlacements && (
                 <span className="font-mono text-[12px] text-on-surface-variant">
-                  Participation weight
+                  Fully eligible matches
                 </span>
               )}
             </div>

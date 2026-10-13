@@ -15,8 +15,12 @@ korrigiert auch Payloads älterer Upload-Funktionen.
 | Alte Logs ohne Gesamtdauer | 1 |
 
 Ein später Join bedeutet `total_match_time - time_in_lobby > 10`.
-Für die Platzierung werden insgesamt 10 Teilnahmegewichte benötigt. Beispielsweise
-zählen zwei Teilnahmen mit jeweils Gewicht 0,5 wie eine volle Teilnahme.
+Für die Platzierung werden **10 vollständig eligible Matches** benötigt.
+Nur ein Match mit Gewicht 1 zählt als ein Placement-Match. Reduzierte Matches
+zählen nicht zu den Placements, auch wenn ihre ELO-Gewichte zusammen 1 ergeben.
+`placement_matches` ist ein ganzzahliger, serverseitig abgeleiteter Zähler.
+Die Korrektur `20261014010000_count_fully_eligible_placements.sql` muss nach der
+Gewichtungs-Migration und vor Veröffentlichung des neuen Frontends installiert werden.
 Allgemeine Stats und die Anzahl gespielter Matches erfassen weiterhin jede Teilnahme.
 
 Die Profil-ELO verwendet jeweils `sum(stat * weight) / sum(weight)` für KPM,
@@ -56,7 +60,8 @@ Die bisherigen Kontozuordnungs- und Admin-Prüfungen bleiben erhalten.
 Am 13. Oktober 2026 live installiert und geprüft: 631 Spieler, 309 Runden und
 1.773 Teilnahmen unverändert; 364 Teilnahmen mit reduziertem Gewicht, keine
 ausgeschlossene Teilnahme. 22 ältere Teilnahmen ohne vollständige Logs bleiben
-mit Gewicht 1 erhalten. 31 Spieler erreichen mindestens 10 Teilnahmegewichte.
+mit Gewicht 1 erhalten. Nach der damaligen, inzwischen korrigierten Placement-Regel
+erreichten 31 Spieler mindestens 10 aufsummierte Teilnahmegewichte.
 Rundenrating-Summe (744.697), Kills (48.604), PB-Anzahl (60), PB-Summe (23.572)
 und die Prüfsumme der allgemeinen K/D-Werte sind unverändert. Cache-, ELO- und
 Tagesmittel-Gegenprüfungen ergeben keine Abweichungen. Die Neukalibrierung erzeugte
@@ -65,3 +70,14 @@ Tagesmittel-Gegenprüfungen ergeben keine Abweichungen. Die Neukalibrierung erze
 239 Tests, TypeScript und Produktions-Build bestanden. Tests berücksichtigen
 Fließkomma-Spielzeiten wie im Live-Schema und beide Account-Spaltentypen.
 Die Frontend-Anzeige benötigt den Push auf `main`; die Datenbank ist bereits bereit.
+
+Am 14. Oktober 2026 wurde die Placement-Korrektur live installiert. Der neue
+Zähler zählt nur Matches mit Gewicht 1, einschließlich der als volle Matches
+bewahrten Legacy-Teilnahmen. Der Abgleich aller 740 Profile ergibt keine
+Zählerabweichungen; 33 Spieler haben mindestens 10 vollständig eligible Matches.
+Die Prüfsummen aller bisherigen Spielerfelder und aller 788 ELO-Verlauf-Zeilen
+blieben unverändert, ebenso die 2.206 Match-Teilnahmen. Beispiel: Yōkai hat
+3 Placement-Matches, obwohl seine ELO-Gewichte zusammen etwa 3,51 betragen.
+243 Tests, TypeScript, Build und die öffentliche Placement-Abfrage bestanden.
+Für die Korrektur ist kein Edge-Function-Update erforderlich; die neue Anzeige
+wird mit dem nächsten Frontend-Push veröffentlicht.

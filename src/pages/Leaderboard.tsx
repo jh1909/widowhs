@@ -18,7 +18,7 @@ type Player = {
   is_verified?: boolean;
   bnet_accounts?: string[] | null;
   personal_best_time?: number | string | null;
-  elo_weight_sum?: number | string | null;
+  placement_matches?: number | string | null;
 };
 
 export default function Leaderboard() {
@@ -129,7 +129,7 @@ export default function Leaderboard() {
             <div>
               <h1 id="rankings-title" className="section-heading">Global rankings<span className="text-toxic-purple">.</span></h1>
               <p className="text-[12px] text-zinc-500 mt-1">
-                Sorted by ELO, then fastest PB. Earn 10 full participation weights to qualify.
+                Sorted by ELO, then fastest PB. Play 10 fully eligible matches to qualify.
               </p>
             </div>
             <div className="relative">

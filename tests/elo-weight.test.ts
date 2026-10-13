@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFile } from 'node:fs/promises';
 import { PGlite } from '@electric-sql/pglite';
-import { scoreWeight, isQualified, formatParticipationWeight } from '../supabase/functions/_shared/elo-weight.ts';
+import { scoreWeight, isQualified, placementMatches } from '../supabase/functions/_shared/elo-weight.ts';
 import { calculateRating } from '../supabase/functions/_shared/rating.ts';
 import { buildMatchImport, type ImportPlayer } from '../supabase/functions/_shared/import-stats.ts';
 import { assignMatchId } from '../supabase/functions/_shared/match-upload.ts';
@@ -15,10 +15,12 @@ const cases: [number,number,number|null,number][] = [
 test('participation thresholds include exactly 10s, 15 kills, 60s, 35 kills and 180s',()=>{
   for(const [score,time_in_lobby,total_match_time,expected] of cases)
     assert.equal(scoreWeight({score,time_in_lobby,total_match_time}),expected);
-  assert.equal(isQualified({matches:100,elo_weight_sum:9.99}),false);
-  assert.equal(isQualified({matches:12,elo_weight_sum:10}),true);
+  assert.equal(isQualified({matches:100,placement_matches:9}),false);
+  assert.equal(isQualified({matches:12,placement_matches:10}),true);
   assert.equal(isQualified({matches:10}),true); // Before the server migration.
-  assert.equal(formatParticipationWeight({elo_weight_sum:9.9999}),'9.99');
+  const fractional = { matches: 10, elo_weight_sum: 3.51, placement_matches: 3 };
+  assert.equal(placementMatches(fractional),3);
+  assert.equal(isQualified(fractional),false);
 });
 
 const makeMatch=(name:string,kills=50,time=200,total:number|null=200,kpm=10,accuracy=60,kdr=2)=>assignMatchId([{
@@ -33,22 +35,26 @@ test('imports weight ELO inputs, keep raw ratings and stats, and skip excluded E
   const expected=calculateRating({kpm:(10+17*w)/(1+w),accuracy:(60+90*w)/(1+w),kdr:(2+8.5*w)/(1+w)});
   assert.equal(combined.players[0].elo,String(expected));
   assert.equal(combined.players[0].matches,2);
+  assert.equal(combined.players[0].placement_matches,1);
   assert.equal(combined.players[0].kdr,'5.25');
   assert.equal(combined.matches[0].performance_score,calculateRating(reduced[0]));
   const excluded=buildMatchImport(combined.players,makeMatch('A',14,59,300,999,100,999));
   assert.equal(excluded.players[0].elo,combined.players[0].elo);
   assert.equal(excluded.players[0].elo_weight_sum,combined.players[0].elo_weight_sum);
   assert.equal(excluded.players[0].matches,3);
+  assert.equal(excluded.players[0].placement_matches,1);
   assert.equal(excluded.history.length,0);
   const onlyExcluded=buildMatchImport([],makeMatch('New',2,20,300));
   assert.equal(onlyExcluded.players[0].elo,'-');
   assert.equal(onlyExcluded.players[0].rank,999999);
+  assert.equal(onlyExcluded.players[0].placement_matches,0);
 });
 
 const alice='00000000-0000-0000-0000-000000000001';
 const bob='00000000-0000-0000-0000-000000000002';
 const admin='00000000-0000-0000-0000-000000000003';
 const latest='20261013233000_weighted_elo_participation.sql';
+const placementsMigration='20261014010000_count_fully_eligible_placements.sql';
 const migration=(name:string)=>readFile(new URL(`../supabase/migrations/${name}`,import.meta.url),'utf8');
 for(const accounts of ['text[]','jsonb']) test(`weighted ELO survives old imports, account changes, daily history and reset (${accounts})`,async t=>{
   const db=new PGlite();
@@ -88,6 +94,11 @@ for(const accounts of ['text[]','jsonb']) test(`weighted ELO survives old import
       values('Legacy',30,10,60,10,2,100,200,200,707);
       insert into public.player_history(player_name,elo,rank,created_at) values('Legacy',999,1,'2026-10-01T12:00:00Z');`);
     await db.exec(await migration(latest));
+    const beforePlacements=(await db.query<any>('select * from public.players order by name')).rows;
+    const historyBeforePlacements=(await db.query<any>('select * from public.player_history order by id')).rows;
+    await db.exec(await migration(placementsMigration));
+    assert.deepEqual((await db.query<any>('select * from public.players order by name')).rows.map(({placement_matches,...rest})=>rest),beforePlacements);
+    assert.deepEqual((await db.query<any>('select * from public.player_history order by id')).rows,historyBeforePlacements);
     const asRole=async<T>(role:string,actor:string,action:()=>Promise<T>)=>{
       await db.query("select set_config('request.jwt.claim.sub',$1,false)",[actor]);
       await db.exec(`set role ${role}`); try { return await action(); } finally { await db.exec('reset role'); }
@@ -108,9 +119,11 @@ for(const accounts of ['text[]','jsonb']) test(`weighted ELO survives old import
       for(const [kills,time,total,expected] of cases) {
         const actual=Number((await db.query<any>('select public.match_elo_weight($1,$2,$3) w',[kills,time,total])).rows[0].w);
         assert.ok(Math.abs(actual-expected)<1e-12);
+        assert.equal(buildMatchImport([],makeMatch('Threshold',kills,time,total)).players[0].placement_matches,expected===1?1:0);
       }
       const old=await profile('Legacy');
       assert.equal(Number(old.elo_weight_sum),3);
+      assert.equal(old.placement_matches,3);
       assert.equal(Number(old.elo_kpm_sum),30);
       assert.equal(Number((await db.query<any>("select weight from public.player_elo_legacy where player_name='Legacy'")).rows[0].weight),2);
       assert.equal((await db.query<any>("select elo from public.player_history where player_name='Legacy' and history_day='2026-10-01'")).rows[0].elo,999);
@@ -136,17 +149,24 @@ for(const accounts of ['text[]','jsonb']) test(`weighted ELO survives old import
       assert.equal((await profile('Excluded')).elo,'-');
       assert.equal(Number((await db.query<any>("select count(*) n from public.player_history where player_name='Excluded'")).rows[0].n),0);
     });
-    await t.test('ten reduced rounds do not qualify; accumulated weights can qualify',async()=>{
+    await t.test('only ten fully eligible matches qualify, even if reduced weights sum past ten',async()=>{
       await importMatches(Array.from({length:10},()=>makeMatch('Placements',15,60,300)).flat());
       assert.equal(isQualified(await profile('Placements')),false);
+      assert.equal((await profile('Placements')).placement_matches,0);
       await importMatches(Array.from({length:6},()=>makeMatch('Placements')).flat());
+      assert.ok(Number((await profile('Placements')).elo_weight_sum)>10);
+      assert.equal((await profile('Placements')).placement_matches,6);
+      assert.equal(isQualified(await profile('Placements')),false);
+      await importMatches(Array.from({length:4},()=>makeMatch('Placements')).flat());
+      assert.equal((await profile('Placements')).placement_matches,10);
       assert.equal(isQualified(await profile('Placements')),true);
     });
     await t.test('browser cache forgery is rederived and private functions/baselines remain inaccessible',async()=>{
       const before=await profile('Alice');
-      await asRole('authenticated',alice,()=>db.query("update public.players set elo='9999',elo_weight_sum=99,elo_kpm_sum=9999,tag='PRO' where name='Alice'"));
+      await asRole('authenticated',alice,()=>db.query("update public.players set elo='9999',elo_weight_sum=99,elo_kpm_sum=9999,placement_matches=99,tag='PRO' where name='Alice'"));
       assert.equal((await profile('Alice')).elo,before.elo);
       assert.equal((await profile('Alice')).elo_weight_sum,before.elo_weight_sum);
+      assert.equal((await profile('Alice')).placement_matches,1);
       for(const role of ['anon','authenticated','service_role'])
         await assert.rejects(asRole(role,alice,()=>db.query('select * from public.player_elo_legacy')),(e:any)=>e.code==='42501');
       await assert.rejects(db.query("update public.player_matches set elo_weight=1 where player_name='Alice'"));
@@ -161,6 +181,7 @@ for(const accounts of ['text[]','jsonb']) test(`weighted ELO survives old import
       assert.equal(Number((await db.query<any>("select weight from public.player_elo_legacy where player_name='Again'")).rows[0].weight),2);
       await db.query("update public.player_matches set time_in_lobby=180 where player_name='Again' and score=17");
       assert.equal(Number((await profile('Again')).elo_weight_sum),5);
+      assert.equal((await profile('Again')).placement_matches,5);
       assert.equal(Number((await profile('Again')).personal_best_time),200);
     });
     await t.test('verified priority moves only matching logs without transferring a foreign Discord profile',async()=>{
@@ -171,17 +192,20 @@ for(const accounts of ['text[]','jsonb']) test(`weighted ELO survives old import
       assert.equal((await profile('Bob')).user_id,bob);
       assert.equal(Number((await profile('Bob')).elo_weight_sum),0);
       assert.ok(Math.abs(Number((await profile('Again')).elo_weight_sum)-before-17/35)<1e-12);
+      assert.equal((await profile('Again')).placement_matches,5);
     });
     await t.test('reinstall changes no history samples; admin reset clears legacy and weighted stats',async()=>{
       const before=(await db.query<any>('select * from public.player_history order by id')).rows;
       await db.exec(await migration(latest));
+      await db.exec(await migration(placementsMigration));
       assert.deepEqual((await db.query<any>('select * from public.player_history order by id')).rows,before);
       await asRole('authenticated',admin,()=>db.query("select public.reset_leaderboard('RESET')"));
       const profiles=(await db.query<any>('select * from public.players')).rows;
-      assert.ok(profiles.every(p=>Number(p.elo_weight_sum)===0&&p.elo==='-'&&p.personal_best_time===null));
+      assert.ok(profiles.every(p=>p.placement_matches===0&&Number(p.elo_weight_sum)===0&&p.elo==='-'&&p.personal_best_time===null));
       assert.equal(Number((await db.query<any>('select count(*) n from public.player_elo_legacy')).rows[0].n),0);
       await importMatches(makeMatch('Again'));
       assert.equal(Number((await profile('Again')).elo_weight_sum),1);
+      assert.equal((await profile('Again')).placement_matches,1);
       assert.equal((await profile('Again')).is_verified,true);
     });
   } finally { await db.close(); }

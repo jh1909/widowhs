@@ -8,17 +8,11 @@ export function scoreWeight(match: Participation): number {
   return Math.min(1, Math.max(match.score / 35, match.time_in_lobby / 180));
 }
 
-export type WeightedPlayer = { matches?: number | string; elo_weight_sum?: number | string | null };
-export function participationWeight(player: WeightedPlayer): number {
-  return Math.max(0, Number(player.elo_weight_sum ?? player.matches) || 0);
+export type PlacementPlayer = { matches?: number | string; placement_matches?: number | string | null };
+export function placementMatches(player: PlacementPlayer): number {
+  return Math.max(0, Math.trunc(Number(player.placement_matches ?? player.matches) || 0));
 }
 
-export function isQualified(player: WeightedPlayer): boolean {
-  return participationWeight(player) >= 10 - 1e-9;
-}
-
-export function formatParticipationWeight(player: WeightedPlayer): string {
-  // Never display 10/10 while the player is still in placements.
-  const weight = participationWeight(player);
-  return (Math.floor((weight + 1e-9) * 100) / 100).toLocaleString("en-US", { maximumFractionDigits: 2 });
+export function isQualified(player: PlacementPlayer): boolean {
+  return placementMatches(player) >= 10;
 }

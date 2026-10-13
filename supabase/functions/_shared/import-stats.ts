@@ -1,6 +1,6 @@
 import { createPlayerMap } from "./player-map.ts";
 import { calculateRating } from "./rating.ts";
-import { scoreWeight } from "./elo-weight.ts";
+import { scoreWeight, placementMatches } from "./elo-weight.ts";
 import { rankPlayers, personalBest } from "./leaderboard.ts";
 import type { MatchData } from "../upload-csv/parser.ts";
 
@@ -11,6 +11,7 @@ export type ImportPlayer = {
   time_in_lobby?: number; kdr?: string | number; accuracy?: string | number;
   kpm?: string | number; elo: string | number | null; rank?: number | string;
   personal_best_time?: number | string | null;
+  placement_matches?: number | string | null;
   elo_weight_sum?: number | string | null;
   elo_kpm_sum?: number | string | null; elo_accuracy_sum?: number | string | null; elo_kdr_sum?: number | string | null;
 };
@@ -22,6 +23,7 @@ export function buildMatchImport(dbPlayers: ImportPlayer[], matches: ImportedMat
     player: ImportPlayer; matches: number; score: number; deaths: number;
     crouches: number; time: number; kdrSum: number; accuracySum: number; kpmSum: number; best: number | null;
     weight: number; weightedKdr: number; weightedAccuracy: number; weightedKpm: number; addedWeight: number;
+    placements: number;
   }>();
   const matchRows = matches.map(match => {
     let player = playerMap.get(match.player_name.toLowerCase());
@@ -40,7 +42,7 @@ export function buildMatchImport(dbPlayers: ImportPlayer[], matches: ImportedMat
         kdrSum: (parseFloat(String(player.kdr)) || 0) * count,
         accuracySum: (parseFloat(String(player.accuracy)) || 0) * count,
         kpmSum: (parseFloat(String(player.kpm)) || 0) * count, best: personalBest(player.personal_best_time),
-        weight: Number(player.elo_weight_sum ?? count),
+        placements: placementMatches(player), weight: Number(player.elo_weight_sum ?? count),
         weightedKdr: Number(player.elo_kdr_sum ?? ((parseFloat(String(player.kdr)) || 0) * count)),
         weightedAccuracy: Number(player.elo_accuracy_sum ?? ((parseFloat(String(player.accuracy)) || 0) * count)),
         weightedKpm: Number(player.elo_kpm_sum ?? ((parseFloat(String(player.kpm)) || 0) * count)), addedWeight: 0 };
@@ -50,6 +52,7 @@ export function buildMatchImport(dbPlayers: ImportPlayer[], matches: ImportedMat
     stats.crouches += match.crouches; stats.time += match.time_in_lobby;
     stats.kdrSum += match.kdr; stats.accuracySum += match.accuracy; stats.kpmSum += match.kpm;
     const weight = scoreWeight(match);
+    if (weight === 1) stats.placements++;
     stats.weight += weight; stats.addedWeight += weight;
     stats.weightedKdr += match.kdr * weight; stats.weightedAccuracy += match.accuracy * weight;
     stats.weightedKpm += match.kpm * weight;
@@ -69,7 +72,7 @@ export function buildMatchImport(dbPlayers: ImportPlayer[], matches: ImportedMat
       matches: stats.matches, score: stats.score, deaths: stats.deaths, personal_best_time: stats.best,
       crouches: stats.crouches, time_in_lobby: stats.time,
       kdr: kdr.toFixed(2), accuracy: `${accuracy.toFixed(2)}%`, kpm: kpm.toFixed(2),
-      elo_weight_sum: stats.weight, elo_kpm_sum: stats.weightedKpm,
+      placement_matches: stats.placements, elo_weight_sum: stats.weight, elo_kpm_sum: stats.weightedKpm,
       elo_accuracy_sum: stats.weightedAccuracy, elo_kdr_sum: stats.weightedKdr,
       elo: elo?.toLocaleString("en-US") ?? "-", tag: elo != null && elo >= 1200 ? "PRO" : "", rank: 999999 };
   });

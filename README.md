@@ -149,8 +149,10 @@ to that match's statistics. A rating of at least 1200 still grants the PRO tag.
 
 See [weighted ELO and placement rules](docs/weighted-elo.md). Install
 `20261013233000_weighted_elo_participation.sql` before publishing the frontend.
-It recalculates current profile ELO from stored matches and requires 10 full
-participation weights for leaderboard qualification. Raw round ratings, general
+It recalculates current profile ELO from stored matches and requires 10
+fully eligible matches for leaderboard qualification. Install the subsequent
+`20261014010000_count_fully_eligible_placements.sql` correction too: reduced
+weights affect ELO but do not count towards placements. Raw round ratings, general
 stats and PBs remain unchanged. Match views label excluded/reduced participation.
 Existing Edge deployments remain compatible; no function redeployment is required.
 
