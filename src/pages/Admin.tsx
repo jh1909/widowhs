@@ -1007,7 +1007,12 @@ function ActivityRow({
         <div className="w-6 h-6 rounded bg-surface-container flex items-center justify-center text-[10px] font-sans font-bold text-zinc-500 border border-zinc-800">
           {initial}
         </div>
-        <span className="text-white">{id}</span>
+        <Link
+          to={`/profile/${encodeURIComponent(id)}`}
+          className="text-white hover:text-toxic-purple hover:underline focus-visible:outline focus-visible:outline-toxic-purple rounded-sm"
+        >
+          {id}
+        </Link>
       </td>
       <td className="py-3 px-6">
         <span
