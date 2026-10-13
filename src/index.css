@@ -72,6 +72,16 @@
 .leaderboard-table td { padding: 18px 20px; border-top: 1px solid #ffffff06; font-variant-numeric: tabular-nums; }
 .leaderboard-table tbody tr:hover { background: #ffffff03; }
 .leaderboard-table .own-row, .leaderboard-table .own-row:hover { background: #ac86ff12; }
+.leaderboard-table.rankings-table th, .leaderboard-table.rankings-table td { padding-left: 12px; padding-right: 12px; }
+.stat-medal-value { display: inline-flex; align-items: center; justify-content: flex-end; gap: 7px; white-space: nowrap; }
+.stat-medal { display: inline-flex; align-items: center; flex: 0 0 22px; width: 22px; height: 22px; vertical-align: middle; }
+.stat-medal--gold { filter: drop-shadow(0 0 4px #d3a65320); }
+.stat-medal-legend { margin-top: 12px; color: #827b91; font-size: 10px; line-height: 1.7; }
+.mobile-stat-medals { display: flex; flex-wrap: wrap; gap: 3px 9px; max-width: 150px; margin-top: 7px; }
+.mobile-stat-medal { display: inline-flex; align-items: center; gap: 3px; color: #aaa3b7; font-size: 9px; white-space: nowrap; }
+.mobile-stat-medal .stat-medal { flex-basis: 18px; width: 18px; height: 18px; }
+.mobile-stat-medal svg { width: 18px; height: 18px; }
+@media (min-width: 640px) { .mobile-stat-medals { display: none; } }
 .own-row td:first-child { box-shadow: inset 3px 0 #ac86ff; }
 .rank-badge { display: inline-grid; place-items: center; width: 29px; height: 29px; border-radius: 8px; color: #9c94ad; font-size: 12px; font-weight: 700; }
 .rank-badge.first { background: #dbc49112; color: #dbc491; border: 1px solid #dbc49120; }

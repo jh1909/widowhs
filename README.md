@@ -133,6 +133,11 @@ a server-validated admin session, and rejects non-admin browser imports.
 
 ## Rating
 
+The leaderboard awards gold, silver and bronze stat medals for K/D, accuracy,
+crouches/minute and pace (KPM) among placed players. Equal displayed values share
+a medal; search and pagination retain global medals. See [stat medals](docs/stat-medals.md).
+This requires only the frontend push, with no database or Edge Function update.
+
 Match performance scores and profile ELO use the same formula, rounded once to
 the nearest integer:
 
