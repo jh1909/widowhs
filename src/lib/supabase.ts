@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { browserAuthLock } from './auth-lock';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || import.meta.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || import.meta.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || '';
@@ -7,5 +8,10 @@ const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || import.meta.en
 // though database queries will fail.
 export const supabase = createClient(
   supabaseUrl || 'https://placeholder.supabase.co',
-  supabaseAnonKey || 'placeholder'
+  supabaseAnonKey || 'placeholder',
+  {
+    auth: {
+      ...(typeof navigator !== 'undefined' && navigator.locks ? { lock: browserAuthLock } : {}),
+    },
+  }
 );
