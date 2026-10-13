@@ -9,7 +9,7 @@ const verifierKey = "widowhs.battlenet.verifier";
 const outcomes: Record<string, string> = {
   success: "Battle.net account connected and verified. Your matches are now linked to your profile.",
   cancelled: "Battle.net linking was cancelled. Your accounts have not changed.",
-  claimed: "This Battle.net account or player name is already claimed by another Discord profile.",
+  claimed: "This Battle.net account or player name already has a verified claim. It cannot be linked to this profile.",
   limit: "This account could not be linked. You can connect up to two Battle.net accounts.",
   failed: "Battle.net linking failed. Please try again from your profile.",
 };
@@ -129,7 +129,8 @@ export default function BattleNetAccounts({ playerName, accounts, isOwner, onCha
       <div className="panel p-6 flex flex-col gap-4">
         <p className="text-zinc-400 text-sm leading-relaxed">
           Connect up to two accounts through Battle.net to verify ownership and add their matches to your profile.
-          Workshop logs use player names. A name already claimed by another profile cannot be linked.
+          Workshop logs use player names. Verified accounts take priority over unverified names.
+          A name already verified through another Battle.net account cannot be linked.
         </p>
         {isOwner && result && outcomes[result] && (
           <div role="status" className={`rounded-lg border p-3 text-sm flex items-start justify-between gap-3 ${result === "success" ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-200" : "border-amber-500/30 bg-amber-500/10 text-amber-200"}`}>

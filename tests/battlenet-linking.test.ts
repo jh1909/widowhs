@@ -10,6 +10,7 @@ const bob = "00000000-0000-0000-0000-000000000002";
 const outsider = "00000000-0000-0000-0000-000000000003";
 const oauthMigration = new URL("../supabase/migrations/20261012220000_battlenet_oauth.sql", import.meta.url);
 const ownClaimsMigration = new URL("../supabase/migrations/20261013010000_battlenet_owned_profile_claims.sql", import.meta.url);
+const priorityMigration = new URL("../supabase/migrations/20261013140000_verified_battlenet_claim_priority.sql", import.meta.url);
 
 for (const accountColumn of ["text[]", "jsonb"]) {
 test(`Battle.net OAuth claims and verification (${accountColumn})`, async t => {
@@ -47,14 +48,22 @@ test(`Battle.net OAuth claims and verification (${accountColumn})`, async t => {
       try { return await action(); } finally { await db.exec("reset role"); }
     };
     const actor = (value: string) => db.query("select set_config('request.jwt.claim.sub', $1, false)", [value]);
+    const createOwner = async (name: string, userId: string) => {
+      await db.query("insert into auth.users values ($1)", [userId]);
+      await db.query("insert into auth.identities values ($1,'discord')", [userId]);
+      await actor(userId);
+      return (await role("authenticated", () => db.query<any>(
+        "select public.ensure_discord_player($1) as data", [name]))).rows[0].data.name as string;
+    };
     const profile = async (name = "Alice") => (await db.query<any>("select * from public.players where name = $1", [name])).rows[0];
     const connect = (userId: string, id: string, tag: string) => role("service_role", () => db.query(
       "select public.complete_battlenet_account_link($1, $2, $3)", [userId, id, tag]));
     const publicAccounts = async (name = "Alice") => (await role("anon", () => db.query<{ data: any[] }>(
       "select public.get_player_bnet_accounts($1) as data", [name]))).rows[0].data;
-    const importMatch = async (name: string) => {
+    const importMatch = async (name: string, values: Partial<{ score: number; deaths: number; accuracy: number;
+      kpm: number; kdr: number; crouches: number; time_in_lobby: number }> = {}) => {
       const matches = assignMatchId([{ player_name: name, score: 50, deaths: 10, accuracy: 60,
-        kpm: 20, kdr: 5, crouches: 100, time_in_lobby: 149, total_match_time: 160, played_at: "2026-10-12T20:00:00" }]);
+        kpm: 20, kdr: 5, crouches: 100, time_in_lobby: 149, total_match_time: 160, played_at: "2026-10-12T20:00:00", ...values }]);
       const payload = buildMatchImport((await db.query<any>("select * from public.players")).rows, matches);
       const revision = (await db.query<any>("select revision from public.leaderboard_state")).rows[0].revision;
       await role("service_role", () => db.query("select public.apply_match_import($1,$2,$3,$4,$5,'TEST','test')",
@@ -67,6 +76,7 @@ test(`Battle.net OAuth claims and verification (${accountColumn})`, async t => {
     assert.equal((await profile()).is_verified, true);
     await db.exec(await readFile(oauthMigration, "utf8"));
     await db.exec(await readFile(ownClaimsMigration, "utf8"));
+    await db.exec(await readFile(priorityMigration, "utf8"));
 
     await t.test("migration preserves legacy claims/stats but requires proof for verification", async () => {
       assert.deepEqual((await profile()).bnet_accounts, ["Legacy"]);
@@ -83,6 +93,7 @@ test(`Battle.net OAuth claims and verification (${accountColumn})`, async t => {
         for (const sql of ["select * from public.battlenet_account_links", "select * from public.battlenet_oauth_requests",
           `select public.complete_battlenet_account_link('${alice}','1','Forged#12345')`,
           `select public._link_bnet_account_impl('${alice}','Alice','Forged',false)`,
+          `select public._release_unverified_bnet_name('${alice}','Alice','Legacy')`,
           `select public.create_battlenet_oauth_request('${"a".repeat(64)}','${alice}','https://evil.test/','bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb')`,
           `select public.consume_battlenet_oauth_request('${"a".repeat(64)}')`]) {
           await assert.rejects(role(who, () => db.query(sql)), (error: any) => error.code === "42501");
@@ -111,12 +122,12 @@ test(`Battle.net OAuth claims and verification (${accountColumn})`, async t => {
     });
 
     await t.test("first claimant wins even for different Battle.net IDs with the same base name", async () => {
+      await connect(alice, "101", "Legacy#12345");
       await assert.rejects(connect(bob, "200", "battlealice#98765"), (error: any) => error.code === "23505");
       await assert.rejects(connect(bob, "100", "Different#98765"), (error: any) => error.code === "23505");
       await assert.rejects(connect(bob, "201", "Legacy#98765"), (error: any) => error.code === "23505");
-      await assert.rejects(connect(bob, "202", "Alice#98765"), (error: any) => error.code === "23505");
       assert.equal((await profile("Bob")).is_verified, false);
-      assert.equal((await db.query<any>("select count(*)::int as n from public.battlenet_account_links")).rows[0].n, 1);
+      assert.equal((await db.query<any>("select count(*)::int as n from public.battlenet_account_links")).rows[0].n, 2);
     });
 
     await t.test("reverification is idempotent and legacy slots can be verified at the two-account limit", async () => {
@@ -137,7 +148,6 @@ test(`Battle.net OAuth claims and verification (${accountColumn})`, async t => {
       await importMatch("NewBattleAlice");
       assert.equal((await profile()).matches, 4);
       assert.equal((await db.query<any>("select count(*)::int as n from public.battlenet_account_links where account_id='100'")).rows[0].n, 1);
-      await assert.rejects(connect(bob, "203", "BattleAlice#98765"), (error: any) => error.code === "23505");
     });
 
     await t.test("unlinking removes proof and verification while preserving matches; ownership checks remain", async () => {
@@ -184,6 +194,7 @@ test(`Battle.net OAuth claims and verification (${accountColumn})`, async t => {
       const match = (await db.query<any>("select player_name,logged_player_name from public.player_matches where match_id=$1", [round])).rows[0];
       assert.deepEqual(match, { player_name: "Alice", logged_player_name: "AliceOld" });
       assert.ok((await db.query<any>("select count(*)::int as n from public.player_history where player_name='Alice'")).rows[0].n > 0);
+      await connect(alice, "803", "KeptAccount#12345");
       await assert.rejects(connect(bob, "801", "KeptAccount#98765"), (error: any) => error.code === "23505");
       await actor(alice);
       for (const account of ["AliceOld", "KeptAccount"]) {
@@ -201,6 +212,139 @@ test(`Battle.net OAuth claims and verification (${accountColumn})`, async t => {
       assert.deepEqual(await profile(), before);
       assert.deepEqual(await profile("AliceOverflow"), donor);
       assert.equal((await db.query<any>("select count(*)::int as n from public.battlenet_account_links where account_id='802'")).rows[0].n, 0);
+    });
+
+    await t.test("a new Discord user can verify an existing imported name and then use it as display name", async () => {
+      const userId = "00000000-0000-0000-0000-000000000010";
+      const round = await importMatch("ImportFirst");
+      const name = await createOwner("ImportFirst", userId);
+      assert.notEqual(name, "ImportFirst");
+      await connect(userId, "1000", "ImportFirst#12345");
+      assert.equal(await profile("ImportFirst"), undefined);
+      assert.equal((await profile(name)).is_verified, true);
+      assert.equal((await profile(name)).matches, 1);
+      assert.equal((await db.query<any>("select player_name from public.player_matches where match_id=$1", [round])).rows[0].player_name, name);
+      await actor(userId);
+      await role("authenticated", () => db.query("select public.rename_player($1,'ImportFirst')", [name]));
+      await importMatch("ImportFirst");
+      assert.equal((await profile("ImportFirst")).matches, 2);
+    });
+
+    await t.test("a verified claim displaces a foreign manual slot without taking its Discord profile, other matches or admin rights", async () => {
+      const legacyUser = "00000000-0000-0000-0000-000000000011";
+      const verifiedUser = "00000000-0000-0000-0000-000000000012";
+      await createOwner("LegacyOwner", legacyUser);
+      await createOwner("VerifiedOwner", verifiedUser);
+      const reclaimedRound = await importMatch("Reclaimable");
+      const otherRound = await importMatch("Unrelated", { score: 10, kdr: 1, accuracy: 40, kpm: 8, crouches: 20, time_in_lobby: 60 });
+      // Reproduce pre-OAuth manual claims using the private legacy helper.
+      for (const account of ["Reclaimable", "Unrelated"]) {
+        await db.query("select public._link_bnet_account_impl($1,'LegacyOwner',$2,false)", [legacyUser, account]);
+      }
+      await db.query("update public.players set is_admin=true where name='LegacyOwner'");
+      const rowsBefore = (await db.query<any>("select count(*)::int as n from public.player_matches")).rows[0].n;
+      const historyBefore = (await db.query<any>("select count(*)::int as n from public.player_history where player_name='LegacyOwner'")).rows[0].n;
+      await connect(verifiedUser, "1100", "reCLAIMable#12345");
+      const old = await profile("LegacyOwner"); const owner = await profile("VerifiedOwner");
+      assert.equal(old.user_id, legacyUser); assert.equal(old.is_admin, true);
+      assert.equal(owner.user_id, verifiedUser); assert.equal(owner.is_admin, false);
+      assert.deepEqual(old.bnet_accounts, ["Unrelated"]);
+      assert.ok(!old.previous_names.some((name: string) => name.toLowerCase() === "reclaimable"));
+      assert.equal(old.matches, 1); assert.equal(old.score, 10); assert.equal(old.deaths, 10);
+      assert.equal(old.kdr, "1.00"); assert.equal(old.accuracy, "40.00%"); assert.equal(old.kpm, "8.00");
+      assert.equal(old.crouches, 20); assert.equal(Number(old.time_in_lobby), 60); assert.equal(old.elo, "512");
+      assert.equal(owner.matches, 1); assert.equal(owner.score, 50); assert.equal(owner.is_verified, true);
+      assert.equal(Number(owner.time_in_lobby), 149);
+      assert.equal(owner.kdr, "5.00"); assert.equal(owner.accuracy, "60.00%"); assert.equal(owner.kpm, "20.00");
+      assert.equal(owner.crouches, 100); assert.equal(owner.elo, "1,163");
+      assert.equal((await db.query<any>("select player_name,logged_player_name from public.player_matches where match_id=$1", [reclaimedRound])).rows[0].player_name, owner.name);
+      assert.equal((await db.query<any>("select player_name from public.player_matches where match_id=$1", [otherRound])).rows[0].player_name, old.name);
+      assert.equal((await db.query<any>("select count(*)::int as n from public.player_matches")).rows[0].n, rowsBefore);
+      assert.equal((await db.query<any>("select count(*)::int as n from public.player_history where player_name='LegacyOwner'")).rows[0].n, historyBefore);
+      await importMatch("Reclaimable"); await importMatch("Unrelated");
+      assert.equal((await profile("VerifiedOwner")).matches, 2);
+      assert.equal((await profile("LegacyOwner")).matches, 2);
+      const before = await profile("LegacyOwner");
+      await assert.rejects(connect(legacyUser, "1101", "Reclaimable#98765"), (error: any) => error.code === "23505");
+      assert.deepEqual(await profile("LegacyOwner"), before);
+    });
+
+    await t.test("a matching foreign display name is freed while its unrelated verified account stays verified", async () => {
+      const oldUser = "00000000-0000-0000-0000-000000000013";
+      const newUser = "00000000-0000-0000-0000-000000000014";
+      await createOwner("NameOnly", oldUser);
+      await createOwner("NewNameOwner", newUser);
+      await importMatch("NameOnly");
+      await importMatch("OtherVerified");
+      await connect(oldUser, "1200", "OtherVerified#12345");
+      await connect(newUser, "1201", "NameOnly#12345");
+      assert.equal(await profile("NameOnly"), undefined);
+      const old = (await db.query<any>("select * from public.players where user_id=$1", [oldUser])).rows[0];
+      assert.equal(old.name, "NameOnly (profile 1)");
+      assert.equal(old.is_verified, true); assert.equal(old.matches, 1);
+      assert.deepEqual(old.bnet_accounts, ["OtherVerified"]);
+      assert.ok(!old.previous_names.includes("NameOnly"));
+      assert.equal((await profile("NewNameOwner")).matches, 1);
+      assert.equal((await publicAccounts(old.name))[0].battletag, "OtherVerified#12345");
+      await actor(oldUser);
+      await assert.rejects(role("authenticated", () => db.query("select public.rename_player($1,'NameOnly')", [old.name])), (error: any) => error.code === "23505");
+      await actor(newUser);
+      await role("authenticated", () => db.query("select public.rename_player('NewNameOwner','NameOnly')"));
+      await importMatch("NameOnly"); await importMatch("OtherVerified");
+      assert.equal((await profile("NameOnly")).matches, 2);
+      assert.equal((await profile(old.name)).matches, 2);
+    });
+
+    await t.test("a third-account failure rolls back displacement, stats and the foreign display-name change", async () => {
+      const oldUser = "00000000-0000-0000-0000-000000000015";
+      const newUser = "00000000-0000-0000-0000-000000000016";
+      await createOwner("RollbackName", oldUser);
+      await createOwner("FullOwner", newUser);
+      await importMatch("RollbackName");
+      await connect(newUser, "1300", "FullOne#12345");
+      await connect(newUser, "1301", "FullTwo#12345");
+      const oldBefore = await profile("RollbackName"); const newBefore = await profile("FullOwner");
+      const matchesBefore = (await db.query<any>("select * from public.player_matches where player_name='RollbackName'")).rows;
+      await assert.rejects(connect(newUser, "1302", "RollbackName#12345"), (error: any) => error.code === "22023");
+      assert.deepEqual(await profile("RollbackName"), oldBefore);
+      assert.deepEqual(await profile("FullOwner"), newBefore);
+      assert.deepEqual((await db.query<any>("select * from public.player_matches where player_name='RollbackName'")).rows, matchesBefore);
+      assert.equal((await db.query<any>("select count(*)::int as n from public.battlenet_account_links where account_id='1302'")).rows[0].n, 0);
+    });
+
+    await t.test("reverifying an existing manual slot at the two-account limit releases duplicate claims atomically", async () => {
+      const oldUser = "00000000-0000-0000-0000-000000000017";
+      const newUser = "00000000-0000-0000-0000-000000000018";
+      await createOwner("DuplicateOldOwner", oldUser);
+      await createOwner("DuplicateNewOwner", newUser);
+      await importMatch("DuplicateSlot");
+      await db.query("select public._link_bnet_account_impl($1,'DuplicateOldOwner','DuplicateSlot',false)", [oldUser]);
+      // A legacy database could have duplicate manual entries before OAuth.
+      await db.query("update public.players set bnet_accounts=$1 where name='DuplicateNewOwner'",
+        [accountColumn === "jsonb" ? JSON.stringify(["DuplicateSlot", "RemainingSlot"]) : ["DuplicateSlot", "RemainingSlot"]]);
+      await connect(newUser, "1400", "DuplicateSlot#12345");
+      const old = await profile("DuplicateOldOwner"); const owner = await profile("DuplicateNewOwner");
+      assert.deepEqual(old.bnet_accounts, []); assert.equal(old.matches, 0); assert.equal(old.rank, 999999);
+      assert.deepEqual(owner.bnet_accounts, ["DuplicateSlot", "RemainingSlot"]);
+      assert.equal(owner.matches, 1); assert.equal(owner.is_verified, true);
+      assert.ok(owner.rank < 999999);
+      const before = await profile("DuplicateNewOwner");
+      await connect(newUser, "1400", "DuplicateSlot#12345");
+      assert.deepEqual(await profile("DuplicateNewOwner"), before);
+    });
+
+    await t.test("freeing an unverified admin display name preserves its identity and admin permission", async () => {
+      const oldUser = "00000000-0000-0000-0000-000000000019";
+      const newUser = "00000000-0000-0000-0000-000000000020";
+      await createOwner("AdminDisplay", oldUser); await createOwner("VerifiedAdminNameOwner", newUser);
+      await importMatch("AdminDisplay");
+      await db.query("update public.players set is_admin=true where name='AdminDisplay'");
+      await importMatch("AdminDisplay (profile 1)");
+      await connect(newUser, "1500", "AdminDisplay#12345");
+      const old = await profile("AdminDisplay (profile 2)"); const owner = await profile("VerifiedAdminNameOwner");
+      assert.equal(old.user_id, oldUser); assert.equal(old.is_admin, true); assert.equal(old.matches, 0);
+      assert.equal(owner.user_id, newUser); assert.equal(owner.is_admin, false); assert.equal(owner.matches, 1);
+      assert.equal((await profile("AdminDisplay (profile 1)")).matches, 1);
     });
 
     await t.test("pending states expire, are single-use, require Discord and limit concurrent attempts", async () => {
@@ -265,6 +409,7 @@ test(`Battle.net OAuth claims and verification (${accountColumn})`, async t => {
       await connect(alice, "101", "Legacy#12345");
       await db.exec(await readFile(oauthMigration, "utf8"));
       await db.exec(await readFile(ownClaimsMigration, "utf8"));
+      await db.exec(await readFile(priorityMigration, "utf8"));
       assert.equal((await profile()).is_verified, true);
       await actor(alice);
       await role("authenticated", () => db.query("select public.rename_player('Alice','NewDisplayName')"));

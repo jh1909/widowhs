@@ -2,10 +2,22 @@
 
 Branch: `feature/battlenet-oauth`. Discord bleibt der Website-Login. Battle.net
 wird zusätzlich mit dem bestehenden Discord-Profil verknüpft. Maximal zwei
-Konten, erster Anspruch auf einen Namen gewinnt (Groß-/Kleinschreibung egal).
-Andere bereits verknüpfte Profile, manuelle Alt-Verknüpfungen und deren reservierte
-Namens-Aliase werden nicht übernommen. Unbeanspruchte importierte Profile werden
-wie bisher mit allen Matchdaten zusammengeführt.
+Konten. Ein OAuth-bestätigtes Konto hat Vorrang vor unbestätigten Namensansprüchen
+(Groß-/Kleinschreibung egal). Zwischen bereits OAuth-bestätigten Konten gewinnt
+der erste Anspruch auf einen Namen. Unbeanspruchte importierte Profile werden
+wie bisher mit allen Matchdaten zusammengeführt. Ein belegter Anzeigename wird
+bei der Discord-Registrierung zunächst mit einem eindeutigen Zusatz versehen;
+nach Battle.net-Verifizierung kann der freigegebene Name verwendet werden.
+
+Alte manuelle Ansprüche unter einer fremden Discord-ID werden freigegeben.
+Das fremde Discord-Profil, seine übrigen Konten und seine Admin-Rechte bleiben
+erhalten. Es wechseln nur Match-Zeilen mit dem passenden
+ursprünglichen Log-Namen zum verifizierten Eigentümer; Statistiken werden entsprechend
+umgebucht. Gemischte historische ELO-Snapshots und nicht eindeutig zuordenbare
+Alt-Daten verbleiben beim ursprünglichen Profil. Die Prüfung gilt pro Kontoname;
+ein verifiziertes Zweitkonto schützt keine unbestätigten Namen. Namenswechsel bzw.
+Wiedervergabe bei Blizzard erhalten vorerst keine zusätzliche Sonderbehandlung.
+Neue Logs dieses freigegebenen Namens gehören dem neuen verifizierten Konto.
 
 Verified bedeutet auf diesem Branch eine tatsächliche Battle.net-Anmeldung.
 Alte manuelle Verknüpfungen behalten ihre Namen und Statistiken, verlieren aber
@@ -53,6 +65,10 @@ Das Secret nur in Supabase hinterlegen, niemals im Frontend, Git oder Chat.
    Anschließend `20261013010000_battlenet_owned_profile_claims.sql` ausführen.
    Diese Korrektur verhindert, dass ein eigenes älteres Profil denselben
    Discord-Nutzer beim Verknüpfen blockiert, und bewahrt dessen Konten/Matchdaten.
+   Danach `20261013140000_verified_battlenet_claim_priority.sql` ausführen, um
+   OAuth-bestätigten Namen Vorrang vor importierten/manuellen Ansprüchen zu geben.
+   Die Installation selbst überträgt keine Profile oder Matches; das passiert
+   erst bei einer erfolgreichen OAuth-Verknüpfung.
    Vorherige Migrationen nicht nach der neuesten OAuth-Korrektur erneut installieren,
    da sie sonst die alten Account-Link-/Verified-Funktionen wiederherstellen.
 2. Unter **Edge Functions → Secrets** diese Werte speichern:
@@ -62,7 +78,7 @@ Das Secret nur in Supabase hinterlegen, niemals im Frontend, Git oder Chat.
    | `BATTLENET_CLIENT_ID` | Client ID von Blizzard |
    | `BATTLENET_CLIENT_SECRET` | Client Secret von Blizzard |
    | `BATTLENET_CALLBACK_URL` | Registrierte Callback-URL von oben |
-   | `BATTLENET_REDIRECT_URLS` | `http://localhost:4173/,http://127.0.0.1:4173/` |
+   | `BATTLENET_REDIRECT_URLS` | `https://widowhs.com/,https://jh1909.github.io/widowhs/,http://127.0.0.1:4173/,http://localhost:4173/` |
 
    Rückkehr-Adressen müssen exakt passen, inklusive Unterverzeichnis und
    abschließendem Slash. Kein `#/profile/me`, Querystring oder Wildcard.
@@ -105,7 +121,11 @@ Discord-Sitzung bestätigt. Ein fremder Nutzer, an den nur die Login-URL weiterg
 wurde, kann damit kein Battle.net-Konto auf dem initiierenden Profil hinterlegen.
 
 - Erstes Konto: voller BattleTag, Verified, bestehende passende Matches übernommen.
-- Bereits beanspruchter Name (auch anderer `#Nummer`): Ablehnung ohne Datenänderung.
+- Bereits OAuth-bestätigter Name (auch anderer `#Nummer`): Ablehnung ohne Datenänderung.
+- Unverifizierter manueller Anspruch unter einer anderen Discord-ID: Freigabe,
+  zuordenbare Matchdaten werden übertragen. Fremdes Profil, übrige Konten und
+  Admin-Rechte bleiben bei dessen Discord-Nutzer. Die Prüfung erfolgt je Kontoname,
+  auch wenn dessen Profil ein anderes verifiziertes Konto hat.
 - Ein eigenes früheres Profil unter derselben Discord-ID blockiert den OAuth-Login
   nicht. Passende eigene Profile werden inklusive Statistiken, anderer Konten,
   Aliase und bestehender Admin-Rechte zusammengeführt. Fremde Ansprüche bleiben geschützt.
@@ -136,8 +156,9 @@ npm run build
 Die Tests prüfen Authorization-Code-Austausch und Userinfo mit gemocktem Blizzard,
 einmalige States, Browser-/Discord-Bindung, erlaubte Rückkehr-Adressen, private IDs,
 Namenskollisionen, Migrationen für `text[]` und `jsonb`, History-Merge und Unlink.
-Ein echter Blizzard-Login erfordert den eingerichteten OAuth-Client und wurde
-ohne dessen Zugangsdaten nicht durchgeführt.
+Ein echter Blizzard-Login wurde in dieser Sitzung mit dem vom Nutzer eingerichteten
+OAuth-Client erfolgreich getestet. Die neue Vorrangregel wird separat mit
+PostgreSQL-Migrationstests geprüft.
 
 Interne Account-IDs, OAuth-State-Hashes und vorbereitete Provider-Antworten liegen
 in durch RLS gesperrten Tabellen. Öffentliche RPCs liefern nur Accountnamen,
