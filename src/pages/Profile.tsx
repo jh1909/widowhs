@@ -437,7 +437,7 @@ export default function Profile() {
         </div>
       </header>
 
-      <ProfileDetails key={`${player.name}-${user?.id ?? 'guest'}`} playerName={player.name} isOwner={!!user && user.id === player.user_id} />
+      <ProfileDetails key={`${player.name}-${user?.id ?? 'guest'}`} playerName={player.name} isOwner={!!user && user.id === player.user_id} isAdmin={!!user?.isAdmin && !!player.user_id} />
 
       {/* Stats Grid (Bento/Glassmorphism style) */}
       <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
