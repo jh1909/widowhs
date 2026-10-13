@@ -2,3 +2,8 @@ project_id = "kzymescftenxuspjsssh"
 
 [functions.upload-csv]
 verify_jwt = false
+
+[functions.battlenet-oauth]
+# Blizzard redirects cannot carry a Supabase JWT. POST validates the Discord
+# session with auth.getUser; GET requires an expiring, single-use OAuth state.
+verify_jwt = false
