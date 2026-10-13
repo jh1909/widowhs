@@ -9,7 +9,7 @@ export default function PrivacyPolicy() {
       <article className="panel p-7 sm:p-10">
         <p className="eyebrow mb-4">WIDOW HS · Deine Daten</p>
         <h1 className="section-heading mb-3">Datenschutzhinweise</h1>
-        <p className="text-xs text-zinc-500 mb-8">Stand: 12. Oktober 2026</p>
+        <p className="text-xs text-zinc-500 mb-8">Stand: 13. Oktober 2026</p>
         <div className="legal-copy">
           <p>WIDOW HS ist eine öffentliche Community-Rangliste. Du kannst sie ohne Anmeldung ansehen. Für dein eigenes Profil und die Verknüpfung von Battle.net-Namen ist eine freiwillige Anmeldung über Discord möglich.</p>
 
@@ -31,6 +31,7 @@ export default function PrivacyPolicy() {
           <p>Importierte Runden enthalten auch die Spielernamen und Ergebnisse von Teilnehmern ohne Website-Account. Diese werden in der Rangliste und der globalen Match-History angezeigt. Datum, Rundendauer und die Einzelwerte aller gespeicherten Teilnehmer einer Runde sind öffentlich abrufbar. Eine spätere Account-Verknüpfung führt die passenden bisherigen Ergebnisse mit dem Discord-Profil zusammen. „Verified“ zeigt an, dass mindestens ein zum Discord-Profil gehörendes Battle.net-Konto durch eine Anmeldung bei Blizzard bestätigt wurde. Da die Workshop-Dateien nur Namen ohne eindeutige Account-ID enthalten, wird ein bereits beanspruchter Spielername nicht an einen anderen Nutzer vergeben.</p>
           <p>Dein Anzeigename, deine Statistiken und dein Verlauf sind öffentlich sichtbar. Für selbst angeforderte Profilfunktionen gilt Art. 6 Abs. 1 lit. b DSGVO. Die Zuordnung importierter Spielergebnisse und die Community-Rangliste beruhen auf Art. 6 Abs. 1 lit. f DSGVO: dem Interesse an nachvollziehbaren Spielergebnissen und vergleichbaren Statistiken. Gegen eine Verarbeitung auf dieser Grundlage kannst du Widerspruch einlegen.</p>
           <p>ELO wird automatisch aus Spielwerten berechnet. Diese Rangfolge hat keine rechtlichen oder vergleichbar erheblichen Auswirkungen auf dich.</p>
+          <p>Du kannst freiwillig eine kurze Bio sowie Angaben zu Maus, Mauspad, Tastatur, Bildschirm und Spieleinstellungen ergänzen. Diese Angaben sind öffentlich auf deinem Profil sichtbar und an dein Discord-Konto gebunden. Du kannst sie im Profil jederzeit ändern oder durch Leeren der Felder entfernen.</p>
 
           <h2>5. Speicherung und Löschung</h2>
           <p>Profile, verknüpfte Accountnamen und Matchverläufe bleiben gespeichert, solange sie für das von dir genutzte Spielerprofil beziehungsweise das fortbestehende Statistikangebot erforderlich sind. Du kannst die Löschung per E-Mail anfragen. Entfällt der Verarbeitungszweck oder greift dein Löschrecht, werden die betroffenen personenbezogenen Daten gelöscht oder wirksam anonymisiert, soweit keine gesetzliche Pflicht oder ein anderer rechtmäßiger Aufbewahrungsgrund entgegensteht.</p>

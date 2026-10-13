@@ -1,4 +1,4 @@
-import { ArrowUpRight, Check, ChevronLeft, ChevronRight, Copy, Crosshair, MessageSquare, Search, Users, Info, Trophy } from "lucide-react";
+import { ArrowUpRight, Check, ChevronLeft, ChevronRight, Copy, Crosshair, Search, Users, Info, Trophy } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useState, useEffect, useMemo } from "react";
 import { useAuth } from "../lib/AuthContext";
@@ -102,9 +102,6 @@ export default function Leaderboard() {
             <Metric label="Matches played" value={loading || error || totalMatches === null ? "—" : totalMatches.toLocaleString("en-US")} />
             <Metric label="Kills recorded" value={loading || error ? "—" : totalKills.toLocaleString("en-US")} />
           </div>
-          <a className="button-secondary" href="https://discord.gg/pTHzBNSyEy" target="_blank" rel="noopener noreferrer">
-            <MessageSquare size={15} /> Join the Community
-          </a>
         </div>
       </section>
 
