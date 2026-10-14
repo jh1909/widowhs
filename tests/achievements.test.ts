@@ -91,3 +91,34 @@ test("missing or invalid match counts and crouch totals cannot grant Squat Maste
     assert.equal(hasSquatMaster({ crouches, matches: 1 }), false);
   }
 });
+
+const hasNoCroucher = (player: Parameters<typeof getAchievements>[0]) =>
+  getAchievements(player).some(badge => badge.id === "no-croucher");
+
+test("No Croucher tolerates isolated misclicks up to 0.1 crouches per minute", () => {
+  assert.equal(hasNoCroucher({ matches: 1, crouches: 0, time_in_lobby: 60 }), true);
+  assert.equal(hasNoCroucher({ matches: 2, crouches: 1, time_in_lobby: 600 }), true);
+  assert.equal(hasNoCroucher({ matches: "10", crouches: "2", time_in_lobby: "1200" }), true);
+  assert.equal(hasNoCroucher({ matches: 2, crouches: 1, time_in_lobby: 599 }), false);
+  assert.equal(hasNoCroucher({ matches: 2, crouches: 2, time_in_lobby: 600 }), false);
+});
+
+test("No Croucher uses cumulative playing time and disappears above the current threshold", () => {
+  assert.equal(hasNoCroucher({ matches: 1, crouches: 1, time_in_lobby: 300 }), false);
+  assert.equal(hasNoCroucher({ matches: 2, crouches: 1, time_in_lobby: 600 }), true);
+  assert.equal(hasNoCroucher({ matches: 3, crouches: 2, time_in_lobby: 900 }), false);
+  assert.equal(hasNoCroucher({ matches: 4, crouches: 2, time_in_lobby: 1200 }), true);
+  const badge = getAchievements({ matches: 1, crouches: 0, time_in_lobby: 60 }).find(badge => badge.id === "no-croucher");
+  assert.equal(badge?.name, "No Croucher");
+  assert.equal(badge?.desc, "Average of 0.1 crouches/min or less");
+});
+
+test("No Croucher cannot be awarded to empty profiles or missing/invalid statistics", () => {
+  for (const matches of [0, null, undefined, "", "-", -1, NaN, Infinity])
+    assert.equal(hasNoCroucher({ matches, crouches: 0, time_in_lobby: 600 }), false);
+  for (const time_in_lobby of [0, null, undefined, "", "-", -1, NaN, Infinity])
+    assert.equal(hasNoCroucher({ matches: 1, crouches: 0, time_in_lobby }), false);
+  for (const crouches of [null, undefined, "", "-", -1, NaN, Infinity])
+    assert.equal(hasNoCroucher({ matches: 1, crouches, time_in_lobby: 600 }), false);
+  assert.equal(hasNoCroucher({ matches: 0, crouches: 0, time_in_lobby: 0 }), false);
+});

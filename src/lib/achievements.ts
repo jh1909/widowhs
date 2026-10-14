@@ -1,5 +1,5 @@
 import { playerKdr } from "./player-kdr.ts";
-import { crouchesPerMatch } from "./profile-stats.ts";
+import { crouchesPerMatch, crouchesPerMinute } from "./profile-stats.ts";
 
 type NumericValue = number | string | null | undefined;
 
@@ -10,6 +10,7 @@ export type PlayerAchievementStats = {
   accuracy?: NumericValue;
   matches?: NumericValue;
   crouches?: NumericValue;
+  time_in_lobby?: NumericValue;
   rank?: NumericValue;
 };
 
@@ -18,7 +19,7 @@ export type SpeedrunnerMatch = {
   total_match_time?: NumericValue;
 };
 
-export type AchievementId = "slayer" | "sharpshooter" | "veteran" | "fitness" | "elite" | "speedrunner";
+export type AchievementId = "slayer" | "sharpshooter" | "veteran" | "fitness" | "no-croucher" | "elite" | "speedrunner";
 export type Achievement = { id: AchievementId; name: string; desc: string };
 
 function numberOrZero(value: NumericValue): number {
@@ -46,6 +47,10 @@ export function getAchievements(player: PlayerAchievementStats, speedrunnerMatch
   }
   if ((crouchesPerMatch(player) ?? 0) >= 100) {
     badges.push({ id: "fitness", name: "Squat Master", desc: "Average of 100+ crouches per match" });
+  }
+  const crouchRate = crouchesPerMinute(player);
+  if (numberOrZero(player.matches) >= 1 && crouchRate !== null && crouchRate <= 0.1) {
+    badges.push({ id: "no-croucher", name: "No Croucher", desc: "Average of 0.1 crouches/min or less" });
   }
   const rank = numberOrZero(player.rank);
   if (rank >= 1 && rank <= 10) {

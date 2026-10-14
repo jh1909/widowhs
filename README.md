@@ -199,6 +199,13 @@ and rejection of stale imports. They never connect to a live Supabase database.
 
 ## Achievements
 
+No Croucher requires at least one played match, known crouch statistics and a
+positive total personal playing time. The current overall rate must be at most
+**0.1 crouches per minute**, allowing one misclick per ten minutes of play.
+It disappears when the rate exceeds this threshold and returns when the rate
+falls back to it. The profile uses a standing-person icon. No database update
+or Edge Function deployment is needed.
+
 Leaderboard, profile and Slayer use the same stored `players.kdr` value: the
 current average K/D of the matches. The profile labels it **Avg K/D**. Slayer
 requires this value to be above 2.00 at the displayed two-decimal precision. It

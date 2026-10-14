@@ -12,6 +12,7 @@ import {
   Check,
   X,
   Lock,
+  PersonStanding,
 } from "lucide-react";
 import { Link, useParams, useNavigate } from "react-router-dom";
 import { useEffect, useState, useMemo } from "react";
@@ -238,6 +239,7 @@ export default function Profile() {
       sharpshooter: <Target className="w-5 h-5 text-red-400" />,
       veteran: <Timer className="w-5 h-5 text-blue-400" />,
       fitness: <CrouchIcon className="w-5 h-5 text-green-400" />,
+      "no-croucher": <PersonStanding className="w-5 h-5 text-sky-300" />,
       elite: <Trophy className="w-5 h-5 text-toxic-purple" />,
       speedrunner: <Timer className="w-5 h-5 text-emerald-400" />,
     };
