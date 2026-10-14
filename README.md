@@ -197,6 +197,14 @@ The reset tests execute the actual migration in a local PostgreSQL engine
 (PGlite), including permissions, preservation of accounts, rollback, repeat resets
 and rejection of stale imports. They never connect to a live Supabase database.
 
+## Admin database status
+
+Server Status reports measured database connectivity, request duration, HTTP
+status, the last successful check and verified counts accessible to the session.
+Timeouts, offline state and permission errors are distinguished; unavailable
+counts are not shown as zero. Hardcoded region/uptime claims were removed.
+See [server status](docs/server-status.md). This requires only a frontend push.
+
 ## Achievements
 
 No Croucher requires at least one played match, known crouch statistics and a

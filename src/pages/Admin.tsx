@@ -29,6 +29,7 @@ import {
 import { cn } from "../lib/utils";
 import { validateMatchFile } from "../../supabase/functions/_shared/match-upload";
 import LeaderboardReset from "../components/LeaderboardReset";
+import ServerStatus from "../components/ServerStatus";
 
 export default function Admin() {
   const { user } = useAuth();
@@ -262,109 +263,6 @@ function CsvUpload() {
             {uploading && <Loader2 className="w-4 h-4 animate-spin" />}
             {uploading ? "Processing..." : files.length > 1 ? `Import ${files.length} files` : "Import Data"}
           </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function ServerStatus() {
-  const [latency, setLatency] = useState(0);
-  const [dbStats, setDbStats] = useState({ players: 0, banned: 0, logs: 0 });
-
-  useEffect(() => {
-    const fetchStats = async () => {
-      try {
-        const [{ count: players }, { count: banned }, { count: logs }] =
-          await Promise.all([
-            supabase
-              .from("players")
-              .select("*", { count: "exact", head: true }),
-            supabase
-              .from("players")
-              .select("*", { count: "exact", head: true })
-              .eq("is_banned", true),
-            supabase
-              .from("audit_logs")
-              .select("*", { count: "exact", head: true }),
-          ]);
-
-        setDbStats({
-          players: players || 0,
-          banned: banned || 0,
-          logs: logs || 0,
-        });
-      } catch (err) {
-        console.error(err);
-      }
-    };
-    fetchStats();
-
-    // mock latency check
-    const checkLatency = async () => {
-      const start = Date.now();
-      await supabase.from("players").select("name").limit(1);
-      setLatency(Date.now() - start);
-    };
-    checkLatency();
-    const interval = setInterval(checkLatency, 5000);
-    return () => clearInterval(interval);
-  }, []);
-
-  return (
-    <div className="p-6 lg:p-10 space-y-8 h-full max-w-5xl mx-auto">
-      <div>
-        <h2 className="font-sans text-2xl font-bold text-white tracking-tight">
-          Server Status
-        </h2>
-        <p className="font-sans text-xs text-zinc-500 mt-1">
-          Real-time database connectivity and health.
-        </p>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div className="bg-[#111114] border border-surface-container-highest rounded-md p-6">
-          <h3 className="font-sans text-sm font-bold text-zinc-400 mb-4 uppercase tracking-widest">
-            Database Node
-          </h3>
-          <div className="flex items-center space-x-4 mb-4">
-            <div
-              className={`w-3 h-3 rounded-full ${latency < 200 ? "bg-green-500 shadow-[0_0_10px_rgba(34,197,94,0.5)]" : "bg-yellow-500 shadow-[0_0_10px_rgba(234,179,8,0.5)]"}`}
-            ></div>
-            <span className="text-white font-mono">
-              {latency < 200 ? "Healthy" : "Degraded"}
-            </span>
-          </div>
-          <div className="space-y-2 font-mono text-[13px]">
-            <div className="flex justify-between">
-              <span className="text-zinc-500">Latency</span>
-              <span className="text-zinc-300">{latency}ms</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-zinc-500">Total Players in DB</span>
-              <span className="text-zinc-300">{dbStats.players}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-zinc-500">Banned Accounts</span>
-              <span className="text-zinc-300">{dbStats.banned}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-zinc-500">Audit Events</span>
-              <span className="text-zinc-300">{dbStats.logs}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-zinc-500">Provider</span>
-              <span className="text-zinc-300">Supabase</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-zinc-500">Region</span>
-              <span className="text-zinc-300">eu-central-1</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-zinc-500">Uptime</span>
-              <span className="text-zinc-300">99.99%</span>
-            </div>
-          </div>
         </div>
       </div>
     </div>
