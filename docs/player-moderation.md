@@ -18,7 +18,12 @@ roll back. The leaderboard revision invalidates imports prepared before moderati
 
 - Ban/unban preserves accounts, statistics and matches. Banned players are
   excluded from public rankings, record holder, podium frames and stat medals.
-  Subsequent log uploads preserve the ban. Profiles show a Banned label and no
+  Future uploads skip the banned profile and all currently linked account and
+  previous nickname aliases: no new raw participation, ordinary statistics, PB,
+  placement progress or ELO history. The database enforces this even with the
+  previously deployed Edge Function. Existing data remains stored. Unbanning
+  resumes future tracking without automatically restoring skipped matches.
+  Profiles show a Banned label and no
   global rank. The admin list keeps banned profiles visible for unbanning.
 - Delete removes the profile, its raw match participations, daily ELO history and
   legacy statistics. Other participants in those games are preserved. The user's
@@ -37,4 +42,5 @@ produces an actionable message rather than silently falling back to table writes
 Regression tests use PostgreSQL/PGlite with restrictive RLS and the existing
 rename, verification, daily history, weighted ELO and import triggers. They cover
 the original silent-zero-row failure, role enforcement, self-unban prevention,
-imports after banning, audit rollback, private-data cleanup and unbanning.
+imports after banning (including legacy payloads, Unicode names and alias
+recreation attempts), audit rollback, private-data cleanup and unbanning.

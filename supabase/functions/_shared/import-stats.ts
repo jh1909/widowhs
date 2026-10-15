@@ -17,7 +17,7 @@ export type ImportPlayer = {
   elo_kpm_sum?: number | string | null; elo_accuracy_sum?: number | string | null; elo_kdr_sum?: number | string | null;
 };
 
-// Keep every participation, including players who have never signed in.
+// Keep unregistered players, but never track a banned profile's participations.
 export function buildMatchImport(dbPlayers: ImportPlayer[], matches: ImportedMatch[]) {
   const playerMap = createPlayerMap(dbPlayers);
   const aggregates = new Map<string, {
@@ -26,8 +26,9 @@ export function buildMatchImport(dbPlayers: ImportPlayer[], matches: ImportedMat
     weight: number; weightedKdr: number; weightedAccuracy: number; weightedKpm: number; addedWeight: number;
     placements: number;
   }>();
-  const matchRows = matches.map(match => {
+  const matchRows = matches.flatMap(match => {
     let player = playerMap.get(match.player_name.toLowerCase());
+    if (player?.is_banned === true) return [];
     if (!player) {
       // "me" is reserved by the profile route; retain the log name as an alias.
       player = { name: match.player_name.toLowerCase() === "me" ? "me (player)" : match.player_name, elo: "-",
@@ -60,8 +61,8 @@ export function buildMatchImport(dbPlayers: ImportPlayer[], matches: ImportedMat
     if (match.score >= 50 && personalBest(match.time_in_lobby) !== null) {
       stats.best = Math.min(stats.best ?? Infinity, match.time_in_lobby);
     }
-    return { ...match, player_name: player.name, logged_player_name: match.player_name,
-      performance_score: calculateRating(match), elo_weight: weight };
+    return [{ ...match, player_name: player.name, logged_player_name: match.player_name,
+      performance_score: calculateRating(match), elo_weight: weight }];
   });
   const players = [...aggregates.values()].map(stats => {
     const kdr = stats.kdrSum / stats.matches;
@@ -90,6 +91,7 @@ export function buildMatchImport(dbPlayers: ImportPlayer[], matches: ImportedMat
     history: rankedPlayers.filter(player => aggregates.get(player.name)!.addedWeight > 0)
       .map(player => ({ player_name: player.name, elo: Number(player.elo.replace(/,/g, "")), rank: player.rank })),
     matches: matchRows,
-    roundCount: new Set(matches.map(match => match.match_id)).size,
+    roundCount: new Set(matchRows.map(match => match.match_id)).size,
+    skippedBanned: matches.length - matchRows.length,
   };
 }

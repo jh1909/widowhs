@@ -72,12 +72,15 @@ test('admin moderation works with restrictive RLS and existing import/history tr
       'player_elo_legacy','player_profile_details','battlenet_account_links','battlenet_oauth_requests'].map(table => db.query(`select * from public.${table} order by 1`))));
     const match = (name: string) => assignMatchId([{player_name:name,score:50,deaths:10,accuracy:60,kpm:15,kdr:5,crouches:100,
       time_in_lobby:200,total_match_time:200,played_at:'2026-10-15T12:00:00'}]);
-    const importMatch = async (name: string) => {
-      const payload = buildMatchImport(await players() as ImportPlayer[], match(name));
+    const importRows = async (matches: ReturnType<typeof match>, legacy = false, unknownNames = false) => {
+      const profiles = await players() as ImportPlayer[];
+      const payload = buildMatchImport(unknownNames ? [] : legacy ? profiles.map(p => ({...p,is_banned:false})) : profiles, matches);
       const revision = (await db.query<any>('select revision from public.leaderboard_state')).rows[0].revision;
       await asRole('service_role','',() => db.query('select public.apply_match_import($1,$2,$3,$4,$5,$6,$7)',
         [revision,JSON.stringify(payload.players),JSON.stringify(payload.ranks),JSON.stringify(payload.history),JSON.stringify(payload.matches),'TEST','Test upload']));
+      return payload;
     };
+    const importMatch = (name: string) => importRows(match(name));
     await importMatch('Alice'); await importMatch('Bob');
 
     await t.test('old direct writes silently affect no rows under RLS; the new RPC confirms an actual ban', async () => {
@@ -109,8 +112,30 @@ test('admin moderation works with restrictive RLS and existing import/history tr
       assert.equal(await snapshot(),before);
     });
 
-    await t.test('future imports preserve bans, and unbanning restores rankings without changing statistics', async () => {
-      await importMatch('Alice');
+    await t.test('bans stop tracking for canonical, linked and previous names even through legacy Edge payloads', async () => {
+      await db.query("update public.players set bnet_accounts=$1, previous_names=$2 where name='Alice'",[JSON.stringify(['AccountOne','Лев']),['OldAlice']]);
+      const before = (await players()).find(p => p.name === 'Alice');
+      const beforeMatches = (await db.query("select * from public.player_matches where player_name='Alice' order by id")).rows;
+      const beforeHistory = (await db.query("select * from public.player_history where player_name='Alice' order by id")).rows;
+      const filtered = await importRows([...match('Alice'),...match('accountone'),...match('ЛЕВ'),...match('oldalice')]);
+      assert.equal(filtered.skippedBanned,4);
+      assert.equal(filtered.matches.length,0);
+      assert.equal(filtered.players.length,0);
+      assert.equal(filtered.history.length,0);
+      assert.equal(filtered.roundCount,0);
+      const bobBefore = (await players()).find(p => p.name === 'Bob').matches;
+      // Simulate the already deployed Edge Function that still tracks banned stats.
+      await importRows([...match('Alice'),...match('AccountOne'),...match('Лев'),...match('OldAlice'),...match('Bob')],true);
+      // A stale mapper must not create a second profile under a blocked alias.
+      await importRows(match('AccountOne'),false,true);
+      assert.equal((await players()).some(p => p.name === 'AccountOne'),false);
+      assert.deepEqual((await players()).find(p => p.name === 'Alice'),before);
+      assert.equal((await players()).find(p => p.name === 'Bob').matches,bobBefore+1);
+      assert.deepEqual((await db.query("select * from public.player_matches where player_name='Alice' order by id")).rows,beforeMatches);
+      assert.deepEqual((await db.query("select * from public.player_history where player_name='Alice' order by id")).rows,beforeHistory);
+    });
+
+    await t.test('unbanning resumes future tracking without automatically backfilling skipped matches', async () => {
       let rows = await players();
       assert.equal(rows.find(p => p.name === 'Alice').is_banned,true);
       assert.equal(rows.find(p => p.name === 'Alice').rank,999999);
@@ -119,9 +144,13 @@ test('admin moderation works with restrictive RLS and existing import/history tr
       const reply = await moderate('Alice','unban');
       confirmPlayerModeration(reply,null,'Alice','unban');
       rows = await players();
-      assert.equal(rows.find(p => p.name === 'Alice').rank,1);
-      assert.deepEqual(rows.find(p => p.name === 'Alice'),{...stats,is_banned:false,rank:1});
-      assert.equal(statMedals(rows).get('Alice')?.accuracy,'gold');
+      const expectedRank = rankPlayers(rows).find(p => p.name === 'Alice')!.rank;
+      assert.deepEqual(rows.find(p => p.name === 'Alice'),{...stats,is_banned:false,rank:expectedRank});
+      assert.ok(statMedals(rows).get('Alice')?.accuracy);
+      await importMatch('AccountOne');
+      assert.equal((await players()).find(p => p.name === 'Alice').matches,stats.matches+1);
+      const matches = (await db.query("select * from public.player_matches where player_name='Alice'")).rows;
+      assert.equal(matches.length,2);
     });
 
     await t.test('missing/stale names, invalid actions and revoked admins cannot produce false success', async () => {
@@ -132,6 +161,17 @@ test('admin moderation works with restrictive RLS and existing import/history tr
       await db.exec("update public.players set is_admin=false where name='Admin'");
       await assert.rejects(moderate('Alice','delete'),{code:'42501'});
       await db.exec("update public.players set is_admin=true where name='Admin'");
+    });
+
+    await t.test('a ban invalidates an upload prepared before moderation', async () => {
+      const payload = buildMatchImport(await players() as ImportPlayer[],match('Alice'));
+      const revision = (await db.query<any>('select revision from public.leaderboard_state')).rows[0].revision;
+      await moderate('Alice','ban');
+      const before = await snapshot();
+      await assert.rejects(asRole('service_role','',() => db.query('select public.apply_match_import($1,$2,$3,$4,$5,$6,$7)',
+        [revision,JSON.stringify(payload.players),JSON.stringify(payload.ranks),JSON.stringify(payload.history),JSON.stringify(payload.matches),'TEST','Stale upload'])),{code:'40001'});
+      assert.equal(await snapshot(),before);
+      await moderate('Alice','unban');
     });
 
     await t.test('audit failure rolls back deletion including raw matches, private data and revision', async () => {
@@ -158,7 +198,7 @@ test('admin moderation works with restrictive RLS and existing import/history tr
       const reply = await moderate('Bob','delete');
       confirmPlayerModeration(reply,null,'Bob','delete');
       assert.equal((await players()).some(p => p.name === 'Bob'),false);
-      assert.deepEqual((await players()).find(p => p.name === 'Alice'),aliceBefore);
+      assert.deepEqual((await players()).find(p => p.name === 'Alice'),{...aliceBefore,rank:1});
       assert.deepEqual((await db.query("select * from public.player_matches where player_name='Alice' order by id")).rows,aliceMatches);
       for (const table of ['player_matches','player_history','player_elo_legacy'])
         assert.equal((await db.query(`select * from public.${table} where player_name='Bob'`)).rows.length,0);

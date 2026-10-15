@@ -116,7 +116,7 @@ serve(async (req) => {
       p_history: imported.history,
       p_matches: imported.matches,
       p_admin_user: apiKey ? "API_AUTOMATION" : "ADMIN_DASHBOARD",
-      p_details: `Imported ${imported.roundCount} round(s) with ${matches.length} player participation(s) from ${fileCount} file(s), updated ${imported.players.length} players.`,
+      p_details: `Imported ${imported.roundCount} round(s) with ${imported.matches.length} player participation(s) from ${fileCount} file(s), updated ${imported.players.length} players. Skipped ${imported.skippedBanned} banned participation(s).`,
     });
     if (importErr) {
       if (importErr.code === "40001") {
@@ -130,7 +130,7 @@ serve(async (req) => {
     return new Response(
       JSON.stringify({
         success: true,
-        message: `Successfully imported ${imported.roundCount} round(s) with ${matches.length} player participation(s) from ${fileCount} file(s).`,
+        message: `Successfully imported ${imported.roundCount} round(s) with ${imported.matches.length} player participation(s) from ${fileCount} file(s).${imported.skippedBanned ? ` Skipped ${imported.skippedBanned} banned participation(s).` : ""}`,
       }),
       {
         status: 200,

@@ -593,7 +593,9 @@ function Dashboard() {
     if (actionInFlight.current) return;
     const message = action === "delete"
       ? `Permanently delete '${name}', their match history, ELO history and profile data? This cannot be undone. This does not ban their Discord login; future login or log imports may create a new profile.`
-      : `Are you sure you want to ${action} player '${name}'?`;
+      : action === "ban"
+        ? `Ban '${name}'? Future uploads will ignore this profile and all currently linked account names. Existing statistics and matches stay stored.`
+        : `Unban '${name}' and resume tracking future uploads? Matches skipped during the ban will not be restored automatically.`;
     if (!window.confirm(message)) return;
     actionInFlight.current = true;
     setPendingAction(true);
@@ -701,7 +703,7 @@ function Dashboard() {
               {bannedPlayers ?? "—"}
             </div>
             <div className="font-mono text-[13px] text-zinc-500 mt-2">
-              Players restricted from ranking
+              Profiles excluded from tracking and ranking
             </div>
           </div>
         </div>
