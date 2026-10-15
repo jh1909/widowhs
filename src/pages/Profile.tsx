@@ -132,7 +132,7 @@ export default function Profile() {
               const rankings: (StatMedalPlayer & { personal_best_time?: number | string | null })[] = [];
               for (let offset = 0; ; offset += 1000) {
                 const { data: page, error: rankingError } = await supabase.from("players")
-                  .select("name, elo, matches, personal_best_time, placement_matches, kdr, accuracy, kpm, crouches, time_in_lobby")
+                  .select("name, elo, matches, personal_best_time, placement_matches, kdr, accuracy, kpm, crouches, time_in_lobby, is_banned")
                   .gte("placement_matches", 10).order("name").range(offset, offset + 999);
                 if (!active) return;
                 if (rankingError) throw rankingError;
@@ -324,8 +324,8 @@ export default function Profile() {
     );
   }
 
-  const inPlacements = !isQualified(player);
-  const podiumRank = inPlacements ? null : getPodiumRank(qualifiedRank);
+  const inPlacements = placementMatches(player) < 10;
+  const podiumRank = inPlacements || player.is_banned ? null : getPodiumRank(qualifiedRank);
   const averageCrouches = crouchesPerMatch(player);
   const medalFor = (category: MedalCategory) => profileMedals[category]
     ? <StatMedal tier={profileMedals[category]} category={category} value={formatMedalValue(player, category)} /> : null;
@@ -408,13 +408,14 @@ export default function Profile() {
             </div>
             <div className="flex flex-wrap items-center gap-3">
               <VerifiedBadge verified={player.is_verified} />
+              {player.is_banned && <span className="text-xs font-bold text-red-400 border border-red-400/30 rounded px-3 py-1">Banned</span>}
               {podiumRank && <ProfileRankBadge rank={podiumRank} />}
               <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-surface-container/50 border border-[#4d4353] rounded">
                 <span className="font-mono text-[12px] font-bold text-on-surface-variant uppercase tracking-widest">
                   Total Matches Played: {player.matches || 0}
                 </span>
               </div>
-              {!inPlacements && !podiumRank && <span className="font-mono text-[14px] text-on-surface-variant border-l border-[#4d4353] pl-3">
+              {!player.is_banned && !inPlacements && !podiumRank && <span className="font-mono text-[14px] text-on-surface-variant border-l border-[#4d4353] pl-3">
                 Rank #{qualifiedRank ?? "—"}{" "}
                 Global
               </span>}

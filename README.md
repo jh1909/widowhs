@@ -197,6 +197,13 @@ The reset tests execute the actual migration in a local PostgreSQL engine
 (PGlite), including permissions, preservation of accounts, rollback, repeat resets
 and rejection of stale imports. They never connect to a live Supabase database.
 
+## Admin player moderation
+
+For admin ban/unban and profile deletion, apply
+`20261015120000_admin_player_moderation.sql` and deploy the frontend. Actions are
+verified server-side and audited transactionally; banned players cannot appear
+in rankings, records or profile medals. See [player moderation](docs/player-moderation.md).
+
 ## Admin database status
 
 Server Status reports measured database connectivity, request duration, HTTP

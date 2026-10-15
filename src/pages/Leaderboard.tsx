@@ -16,6 +16,7 @@ type Player = {
   matches: number | string; avatar_url?: string; score?: number;
   kdr?: string | number; kpm?: string | number; accuracy?: string | number;
   is_verified?: boolean;
+  is_banned?: boolean | null;
   bnet_accounts?: string[] | null;
   personal_best_time?: number | string | null;
   placement_matches?: number | string | null;

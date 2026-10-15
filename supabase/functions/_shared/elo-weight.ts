@@ -8,11 +8,11 @@ export function scoreWeight(match: Participation): number {
   return Math.min(1, Math.max(match.score / 35, match.time_in_lobby / 180));
 }
 
-export type PlacementPlayer = { matches?: number | string; placement_matches?: number | string | null };
+export type PlacementPlayer = { matches?: number | string; placement_matches?: number | string | null; is_banned?: boolean | null };
 export function placementMatches(player: PlacementPlayer): number {
   return Math.max(0, Math.trunc(Number(player.placement_matches ?? player.matches) || 0));
 }
 
 export function isQualified(player: PlacementPlayer): boolean {
-  return placementMatches(player) >= 10;
+  return player.is_banned !== true && placementMatches(player) >= 10;
 }

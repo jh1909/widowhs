@@ -11,6 +11,7 @@ export type ImportPlayer = {
   time_in_lobby?: number; kdr?: string | number; accuracy?: string | number;
   kpm?: string | number; elo: string | number | null; rank?: number | string;
   personal_best_time?: number | string | null;
+  is_banned?: boolean | null;
   placement_matches?: number | string | null;
   elo_weight_sum?: number | string | null;
   elo_kpm_sum?: number | string | null; elo_accuracy_sum?: number | string | null; elo_kdr_sum?: number | string | null;
@@ -77,7 +78,9 @@ export function buildMatchImport(dbPlayers: ImportPlayer[], matches: ImportedMat
       elo: elo?.toLocaleString("en-US") ?? "-", tag: elo != null && elo >= 1200 ? "PRO" : "", rank: 999999 };
   });
   const updatedNames = new Set(players.map(player => player.name));
-  const rankings = rankPlayers([...dbPlayers.filter(player => !updatedNames.has(player.name)), ...players]);
+  const bannedNames = new Set(dbPlayers.filter(player => player.is_banned === true).map(player => player.name));
+  const rankings = rankPlayers([...dbPlayers.filter(player => !updatedNames.has(player.name)),
+    ...players.filter(player => !bannedNames.has(player.name))]);
   const ranks = new Map(rankings.map(player => [player.name, player.rank]));
   const rankedPlayers = players.map(player => ({ ...player, rank: ranks.get(player.name) ?? 999999 }));
   return {

@@ -30,6 +30,7 @@ import { cn } from "../lib/utils";
 import { validateMatchFile } from "../../supabase/functions/_shared/match-upload";
 import LeaderboardReset from "../components/LeaderboardReset";
 import ServerStatus from "../components/ServerStatus";
+import { confirmPlayerModeration, type ModerationAction } from "../lib/player-moderation";
 
 export default function Admin() {
   const { user } = useAuth();
@@ -494,13 +495,18 @@ function SidebarItem({
 function Dashboard() {
   const { user } = useAuth();
   const [totalPlayers, setTotalPlayers] = useState<number | null>(null);
-  const [bannedPlayers, setBannedPlayers] = useState<number>(0);
+  const [bannedPlayers, setBannedPlayers] = useState<number | null>(null);
 
   const [players, setPlayers] = useState<any[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const [totalFiltered, setTotalFiltered] = useState(0);
+  const [refreshVersion, setRefreshVersion] = useState(0);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [listError, setListError] = useState<string | null>(null);
+  const [pendingAction, setPendingAction] = useState(false);
+  const actionInFlight = useRef(false);
   const PAGE_SIZE = 10;
 
   const logAudit = async (action: string, details: string) => {
@@ -521,36 +527,44 @@ function Dashboard() {
     return () => clearTimeout(timer);
   }, [searchTerm]);
 
-  const loadPlayers = async () => {
-    try {
-      let query = supabase.from("players").select("*", { count: "exact" });
-      if (debouncedSearch) {
-        query = query.ilike("name", `%${debouncedSearch}%`);
+  const loadPlayers = () => setRefreshVersion(version => version + 1);
+  useEffect(() => {
+    let active = true;
+    const fetchPlayers = async () => {
+      try {
+        let query = supabase.from("players").select("*", { count: "exact" });
+        if (debouncedSearch) {
+          query = query.ilike("name", `%${debouncedSearch}%`);
+        }
+
+        const from = (currentPage - 1) * PAGE_SIZE;
+        const to = from + PAGE_SIZE - 1;
+
+        query = query.order("rank", { ascending: true }).order("name").range(from, to);
+
+        const { data, count, error } = await query;
+        if (error) throw error;
+        if (active) {
+          const lastPage = Math.max(1, Math.ceil((count ?? 0) / PAGE_SIZE));
+          if (currentPage > lastPage) { setCurrentPage(lastPage); return; }
+          setPlayers(data || []);
+          if (count !== null) setTotalFiltered(count);
+          setListError(null);
+        }
+      } catch (err) {
+        console.error(err);
+        if (active) setListError("Could not refresh the player list. Please try again.");
       }
-
-      const from = (currentPage - 1) * PAGE_SIZE;
-      const to = from + PAGE_SIZE - 1;
-
-      query = query.order("rank", { ascending: true }).range(from, to);
-
-      const { data, count, error } = await query;
-      if (!error) {
-        setPlayers(data || []);
-        if (count !== null) setTotalFiltered(count);
-      }
-    } catch (err) {
-      console.error(err);
-    }
-  };
+    };
+    void fetchPlayers();
+    return () => { active = false; };
+  }, [debouncedSearch, currentPage, refreshVersion]);
 
   useEffect(() => {
-    loadPlayers();
-  }, [debouncedSearch, currentPage]);
-
-  useEffect(() => {
+    let active = true;
     async function fetchDashboardData() {
       try {
-        const [{ count: playersCount }, { count: bannedCount }] =
+        const [playersResult, bannedResult] =
           await Promise.all([
             supabase
               .from("players")
@@ -561,64 +575,44 @@ function Dashboard() {
               .eq("is_banned", true),
           ]);
 
-        setTotalPlayers(playersCount || 0);
-        setBannedPlayers(bannedCount || 0);
+        if (playersResult.error) throw playersResult.error;
+        if (bannedResult.error) throw bannedResult.error;
+        if (!active) return;
+        setTotalPlayers(playersResult.count);
+        setBannedPlayers(bannedResult.count);
       } catch (err) {
         console.error("Error fetching dashboard data:", err);
+        if (active) { setTotalPlayers(null); setBannedPlayers(null); }
       }
     }
     fetchDashboardData();
-  }, []);
+    return () => { active = false; };
+  }, [refreshVersion]);
 
-  const handleDelete = async (playerName: string) => {
-    if (
-      window.confirm(
-        `Are you sure you want to completely delete player '${playerName}'?`,
-      )
-    ) {
-      const { error } = await supabase
-        .from("players")
-        .delete()
-        .eq("name", playerName);
-      if (!error) {
-        if (totalPlayers) setTotalPlayers((prev) => prev! - 1);
-        logAudit(
-          "DELETE_PLAYER",
-          `Deleted player ${playerName} from the database.`,
-        );
-        loadPlayers();
-      } else {
-        alert("Failed to delete user: " + error.message);
-      }
+  const moderate = async (name: string, action: ModerationAction) => {
+    if (actionInFlight.current) return;
+    const message = action === "delete"
+      ? `Permanently delete '${name}', their match history, ELO history and profile data? This cannot be undone. This does not ban their Discord login; future login or log imports may create a new profile.`
+      : `Are you sure you want to ${action} player '${name}'?`;
+    if (!window.confirm(message)) return;
+    actionInFlight.current = true;
+    setPendingAction(true);
+    setActionError(null);
+    try {
+      const { data, error } = await supabase.rpc("admin_moderate_player", { p_player_name: name, p_action: action });
+      confirmPlayerModeration(data, error, name, action);
+      if (action === "delete") setPlayers(previous => previous.filter(player => player.name !== name));
+      else setPlayers(previous => previous.map(player => player.name === name ? { ...player, is_banned: action === "ban" } : player));
+      loadPlayers();
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "The action failed. Reload and try again.");
+    } finally {
+      actionInFlight.current = false;
+      setPendingAction(false);
     }
   };
-
-  const handleBan = async (player: any) => {
-    const isCurrentlyBanned = player.is_banned;
-    const newStatus = !isCurrentlyBanned;
-    const actionLabel = newStatus ? "Ban" : "Unban";
-
-    if (
-      window.confirm(
-        `Are you sure you want to ${actionLabel} player '${player.name}'?`,
-      )
-    ) {
-      const { error } = await supabase
-        .from("players")
-        .update({ is_banned: newStatus })
-        .eq("name", player.name);
-      if (!error) {
-        setBannedPlayers((prev) => (newStatus ? prev + 1 : prev - 1));
-        logAudit(
-          `${newStatus ? "BAN" : "UNBAN"}_PLAYER`,
-          `${newStatus ? "Banned" : "Unbanned"} player ${player.name}.`,
-        );
-        loadPlayers();
-      } else {
-        alert(`Failed to ${actionLabel} user: ` + error.message);
-      }
-    }
-  };
+  const handleDelete = (name: string) => moderate(name, "delete");
+  const handleBan = (player: any) => moderate(player.name, player.is_banned ? "unban" : "ban");
 
   const [editingPlayer, setEditingPlayer] = useState<any>(null);
   const [editForm, setEditForm] = useState({ name: "", is_admin: false });
@@ -639,7 +633,7 @@ function Dashboard() {
     const { error } = await supabase
       .from("players")
       .update({ name: editForm.name, is_admin: editForm.is_admin })
-      .eq("name", editingPlayer.name);
+      .eq("name", editingPlayer.name).select("name").single();
 
     if (!error) {
       logAudit(
@@ -666,6 +660,8 @@ function Dashboard() {
         </p>
       </div>
 
+      {actionError && <p role="alert" className="text-sm text-red-300">{actionError}</p>}
+      {listError && <p role="alert" className="text-sm text-amber-300">{listError} <button type="button" onClick={loadPlayers} className="underline">Retry</button></p>}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div className="bg-[#111114] border border-surface-container-highest rounded-md p-6 toxic-border-top toxic-bloom flex flex-col justify-between">
           <div className="flex items-start justify-between mb-4">
@@ -702,7 +698,7 @@ function Dashboard() {
           </div>
           <div>
             <div className="font-sans text-4xl font-extrabold text-white tracking-tight">
-              {bannedPlayers}
+              {bannedPlayers ?? "—"}
             </div>
             <div className="font-mono text-[13px] text-zinc-500 mt-2">
               Players restricted from ranking
@@ -763,7 +759,7 @@ function Dashboard() {
                           : "Unranked"
                     }
                     rank={
-                      Number(player.rank) >= 999999 ? "-" : `#${player.rank}`
+                      player.is_banned || Number(player.rank) >= 999999 ? "-" : `#${player.rank}`
                     }
                     matches={player.matches?.toString() || "0"}
                     type={
@@ -776,6 +772,7 @@ function Dashboard() {
                     onEdit={() => handleEdit(player)}
                     onBan={() => handleBan(player)}
                     onDelete={() => handleDelete(player.name)}
+                    disabled={pendingAction}
                   />
                 ))
               ) : (
@@ -898,6 +895,7 @@ function ActivityRow({
   onEdit,
   onBan,
   onDelete,
+  disabled,
 }: any) {
   return (
     <tr className="hover:bg-toxic-purple/5 transition-colors group">
@@ -932,6 +930,7 @@ function ActivityRow({
         <div className="flex items-center justify-end space-x-2 opacity-0 group-hover:opacity-100 transition-opacity">
           <button
             onClick={onEdit}
+            disabled={disabled}
             className="p-1 text-zinc-500 hover:text-white transition-colors cursor-pointer"
             title="Edit"
           >
@@ -939,13 +938,15 @@ function ActivityRow({
           </button>
           <button
             onClick={onBan}
+            disabled={disabled}
             className="p-1 text-zinc-500 hover:text-red-400 transition-colors cursor-pointer"
-            title="Ban"
+            title={status === "Banned" ? "Unban" : "Ban"}
           >
             <Ban className="w-4 h-4" />
           </button>
           <button
             onClick={onDelete}
+            disabled={disabled}
             className="p-1 text-zinc-500 hover:text-red-600 transition-colors cursor-pointer"
             title="Delete"
           >

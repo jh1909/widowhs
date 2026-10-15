@@ -85,3 +85,12 @@ test("the record holder includes players still in placements and ignores invalid
   assert.equal(recordHolder([]), null);
   assert.equal(recordHolder([{ name: "Unknown", elo: "-", personal_best_time: null }]), null);
 });
+
+test("banned players cannot lead rankings or the PB record; unbanning restores their position", () => {
+  const banned = { name: "Banned", elo: 2000, personal_best_time: 60, is_banned: true };
+  const active = { name: "Active", elo: 1000, personal_best_time: 120, is_banned: null };
+  assert.deepEqual(rankPlayers([banned, active]).map(p => [p.name, p.rank]), [["Active", 1]]);
+  assert.equal(recordHolder([banned, active])?.name, "Active");
+  assert.equal(recordHolder([banned]), null);
+  assert.equal(rankPlayers([{ ...banned, is_banned: false }, active])[0].name, "Banned");
+});
