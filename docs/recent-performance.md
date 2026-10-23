@@ -21,6 +21,8 @@ ein älterer Importer noch lebenslange Durchschnittswerte sendet.
 - Nicht rekonstruierbare Legacy-Summen ohne Rundenlogs beeinflussen ELO und
   aktuelle Stats nicht mehr. Sie bleiben für die lebenslangen Placements erhalten.
 - Sharpshooter zeigt die höchste aktuelle Stufe: I ab 40%, II ab 50%, III ab 60%.
+- Veteran zeigt die höchste Lifetime-Stufe: I ab 500, II ab 1.000 und III ab
+  2.000 gespielten Matches. Unter 500 Matches wird kein Veteran-Badge angezeigt.
 - Speedrunner zeigt `speedrunner_count`: alle gespeicherten Siege mit mindestens
   50 Kills und `0 < total_match_time < 180` Sekunden, unabhängig vom Fenster und
   vom Match-History-Abfragelimit. Der Zähler steht als „×N“ am Achievement.
@@ -35,3 +37,23 @@ Die Integrationsprüfungen in `tests/recent-performance.test.ts` verwenden lokal
 PostgreSQL (PGlite) mit beiden Account-Spaltentypen und einschließlich der
 Moderationsmigration. Die Migration wird dadurch lokal ausgeführt und geprüft;
 dies installiert sie nicht in der produktiven Supabase-Datenbank.
+
+## Live installiert am 23. Oktober 2026
+
+Die Migration wurde über den Supabase SQL Editor im Produktionsprojekt
+`kzymescftenxuspjsssh` installiert. Alle sieben neuen Felder sind vorhanden.
+Der Abgleich aller 4.681 Profile mit ihren letzten 100 eligible Teilnahmen ergibt
+keine Abweichungen bei ELO, den Statistik-Caches oder dem Lifetime-Speedrunner-Zähler.
+Die Gegenrechnung verwendet wie der Trigger `numeric` vor der ELO-Rundung.
+
+Unverändert vor/nach der Migration: 16.066 gespeicherte Teilnahmen und
+lebenslange persönliche Matches, 325 PBs mit einer Zeitsumme von 136.896 Sekunden,
+343.348 Kills und 313.500 Deaths in den Einzellogs. Das Fenster enthält maximal
+100 Runden. Die öffentliche Rangliste enthält 188 qualifizierte Profile.
+
+Das öffentliche Profil `prx` auf `https://widowhs.com/#/profile/prx` zeigt nach
+der Installation wieder „Rank #14 Global“, passend zur Rangliste. Die vorherige
+HTTP-400-Ursache war die noch nicht installierte Spalte `players.recent_matches`.
+Die lokale Profilabfrage wurde zusätzlich für Datenbanken vor dieser Migration
+kompatibel gemacht. Die separat ergänzte Match-History-Navigation benötigt
+weiterhin ein Frontend-Deployment.

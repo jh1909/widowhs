@@ -45,8 +45,12 @@ export function getAchievements(player: PlayerAchievementStats, speedrunnerMatch
     const numeral = ["I", "II", "III"][tier - 1];
     badges.push({ id: "sharpshooter", tier, name: `Sharpshooter ${numeral}`, desc: `Accuracy of ${30 + tier * 10}% or higher` });
   }
-  if (numberOrZero(player.matches) >= 100) {
-    badges.push({ id: "veteran", name: "Veteran", desc: "Played 100+ matches" });
+  const lifetimeMatches = numberOrZero(player.matches);
+  if (lifetimeMatches >= 500) {
+    const tier = lifetimeMatches >= 2000 ? 3 : lifetimeMatches >= 1000 ? 2 : 1;
+    const numeral = ["I", "II", "III"][tier - 1];
+    const threshold = [500, 1000, 2000][tier - 1];
+    badges.push({ id: "veteran", tier, name: `Veteran ${numeral}`, desc: `Played ${threshold.toLocaleString("en-US")}+ matches · Lifetime` });
   }
   if ((crouchesPerMatch(player) ?? 0) >= 100) {
     badges.push({ id: "fitness", name: "Squat Master", desc: "Average of 100+ crouches per match" });

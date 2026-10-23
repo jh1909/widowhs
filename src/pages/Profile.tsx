@@ -18,6 +18,7 @@ import { supabase } from "../lib/supabase";
 import { rankPlayers } from "../../supabase/functions/_shared/leaderboard";
 import { isQualified, placementMatches } from "../../supabase/functions/_shared/elo-weight";
 import RatingWeight from "../components/RatingWeight";
+import MatchHistoryPagination from "../components/MatchHistoryPagination";
 import StatMedal from "../components/StatMedal";
 import { statMedals, formatMedalValue, type MedalCategory, type MedalTier, type StatMedalPlayer } from "../lib/stat-medals";
 import { useAuth } from "../lib/AuthContext";
@@ -68,6 +69,8 @@ export default function Profile() {
   const [matchHistoryPage, setMatchHistoryPage] = useState(1);
   const [selectedMatch, setSelectedMatch] = useState<MatchSummary | null>(null);
   const matchesPerPage = 10;
+  const matchHistoryPages = Math.ceil(matchHistory.length / matchesPerPage);
+  const visibleMatches = matchHistory.slice((matchHistoryPage - 1) * matchesPerPage, matchHistoryPage * matchesPerPage);
 
   const openMatch = (match: any) => {
     if (!match.match_id) return;
@@ -126,10 +129,15 @@ export default function Profile() {
               // Fetch the full placed population: medals are global even when
               // a stat leader would be on another leaderboard page.
               const rankings: (StatMedalPlayer & { personal_best_time?: number | string | null })[] = [];
+              // Optional performance columns only exist after the recent-stats
+              // migration. Keep rank loading compatible with the current schema.
+              const recentColumns = mainPlayer.recent_matches == null ? ""
+                : ", recent_matches, recent_kdr, recent_accuracy, recent_kpm, recent_crouches, recent_time_in_lobby";
               for (let offset = 0; ; offset += 1000) {
                 const { data: page, error: rankingError } = await supabase.from("players")
-                  .select("name, elo, matches, personal_best_time, placement_matches, recent_matches, recent_kdr, recent_accuracy, recent_kpm, recent_crouches, recent_time_in_lobby, is_banned")
-                  .gte("placement_matches", 10).order("name").range(offset, offset + 999);
+                  .select(`name, elo, matches, personal_best_time, placement_matches, kdr, accuracy, kpm, crouches, time_in_lobby, is_banned${recentColumns}`)
+                  .gte("placement_matches", 10).order("name").range(offset, offset + 999)
+                  .returns<typeof rankings>();
                 if (!active) return;
                 if (rankingError) throw rankingError;
                 rankings.push(...(page ?? []));
@@ -169,9 +177,19 @@ export default function Profile() {
           // Fetch Match History
           try {
             const [matchResult, bestWinResult] = await Promise.all([
-              supabase.from("player_matches").select("*")
-                .eq("player_name", mainPlayer.name)
-                .order("played_at", { ascending: false }).order("created_at", { ascending: false }),
+              (async () => {
+                // Include history beyond the API row limit so Last reaches the oldest round.
+                const matches: any[] = [];
+                for (let offset = 0; ; offset += 1000) {
+                  const result = await supabase.from("player_matches").select("*")
+                    .eq("player_name", mainPlayer.name)
+                    .order("played_at", { ascending: false }).order("created_at", { ascending: false })
+                    .order("id", { ascending: false }).range(offset, offset + 999);
+                  if (!active || result.error) return { data: null, error: result.error };
+                  matches.push(...(result.data ?? []));
+                  if (!result.data || result.data.length < 1000) return { data: matches, error: null };
+                }
+              })(),
               // Query lifetime PB independently of the history row limit.
               supabase.from("player_matches").select("time_in_lobby")
                 .eq("player_name", mainPlayer.name).gte("score", 50)
@@ -618,8 +636,14 @@ export default function Profile() {
         </h3>
         <div className="bg-surface-container border border-surface-container-high rounded-lg p-6">
           {matchHistory.length > 0 ? (
+            <>
             <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse min-w-[1000px]">
+              <table className="w-full table-fixed text-left border-collapse min-w-[1140px] whitespace-nowrap">
+                <colgroup>
+                  <col className="w-[210px]" />
+                  <col /><col /><col /><col /><col />
+                  <col className="w-[135px]" /><col className="w-[140px]" /><col className="w-[210px]" />
+                </colgroup>
                 <thead>
                   <tr className="border-b border-white/5 text-[10px] uppercase tracking-widest text-zinc-500 font-sans">
                     <th className="py-3 px-4">Date & Time</th>
@@ -634,16 +658,11 @@ export default function Profile() {
                   </tr>
                 </thead>
                 <tbody className="font-mono text-[13px] text-zinc-300">
-                  {matchHistory
-                    .slice(
-                      (matchHistoryPage - 1) * matchesPerPage,
-                      matchHistoryPage * matchesPerPage
-                    )
-                    .map((m, idx) => (
+                  {visibleMatches.map((m, idx) => (
                       <tr
                         key={m.id || idx}
                         onClick={() => openMatch(m)}
-                        className={`border-b border-white/5 transition-colors hover:bg-white/[0.02] ${m.match_id ? "cursor-pointer" : ""}`}
+                        className={`h-[72px] border-b border-white/5 transition-colors hover:bg-white/[0.02] ${m.match_id ? "cursor-pointer" : ""}`}
                       >
                          <td className="py-3 px-4 text-zinc-400 whitespace-nowrap">
                            <button type="button" disabled={!m.match_id}
@@ -663,37 +682,23 @@ export default function Profile() {
                          <td className="py-3 px-4 whitespace-nowrap">{formatLobbyTime(m.total_match_time)}</td>
                          <td className="py-3 px-4 text-toxic-purple font-bold">
                             {m.performance_score != null ? Math.round(m.performance_score) : "-"}
-                            <RatingWeight match={m} />
+                            <div className="h-5"><RatingWeight match={m} /></div>
                          </td>
                       </tr>
                     ))}
+                  {matchHistoryPages > 1 && Array.from({ length: matchesPerPage - visibleMatches.length }, (_, index) => (
+                    <tr key={`empty-${index}`} aria-hidden="true" className="h-[72px]">
+                      <td colSpan={9} />
+                    </tr>
+                  ))}
                 </tbody>
               </table>
-
-              {matchHistory.length > matchesPerPage && (
-                <div className="flex justify-between items-center mt-4">
-                  <div className="text-zinc-500 font-mono text-xs">
-                    Page {matchHistoryPage} of {Math.ceil(matchHistory.length / matchesPerPage)}
-                  </div>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => setMatchHistoryPage(p => Math.max(1, p - 1))}
-                      disabled={matchHistoryPage === 1}
-                      className="px-3 py-1 bg-surface-container-high hover:bg-surface-container-highest disabled:opacity-50 disabled:cursor-not-allowed rounded font-mono text-xs transition-colors"
-                    >
-                      Prev
-                    </button>
-                    <button
-                      onClick={() => setMatchHistoryPage(p => Math.min(Math.ceil(matchHistory.length / matchesPerPage), p + 1))}
-                      disabled={matchHistoryPage === Math.ceil(matchHistory.length / matchesPerPage)}
-                      className="px-3 py-1 bg-surface-container-high hover:bg-surface-container-highest disabled:opacity-50 disabled:cursor-not-allowed rounded font-mono text-xs transition-colors"
-                    >
-                      Next
-                    </button>
-                  </div>
-                </div>
-              )}
             </div>
+            {matchHistoryPages > 1 && <>
+              <p aria-live="polite" className="mt-4 text-zinc-500 font-mono text-xs tabular-nums">Page {matchHistoryPage} of {matchHistoryPages}</p>
+              <MatchHistoryPagination page={matchHistoryPage} totalPages={matchHistoryPages} onPageChange={setMatchHistoryPage} />
+            </>}
+            </>
           ) : (
             <div className="flex items-center justify-center w-full py-8 text-zinc-500 font-mono text-sm">
               NO MATCH HISTORY AVAILABLE
