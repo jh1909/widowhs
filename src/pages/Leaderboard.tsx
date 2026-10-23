@@ -8,10 +8,10 @@ import { isQualified } from "../../supabase/functions/_shared/elo-weight";
 import PlayerAvatar from "../components/PlayerAvatar";
 import VerifiedBadge from "../components/VerifiedBadge";
 import { formatPlayerKdr } from "../lib/player-kdr";
-import { formatLobbyTime } from "../lib/profile-stats";
+import { formatLobbyTime, formatPlayerAccuracy, formatPlayerPace, type PerformanceStats } from "../lib/profile-stats";
 import { getPodiumRank, podiumThemes } from "../components/ProfileRankDecoration";
 
-type Player = {
+type Player = PerformanceStats & {
   rank: number | string; name: string; elo: string; tag?: string;
   matches: number | string; avatar_url?: string; score?: number;
   kdr?: string | number; kpm?: string | number; accuracy?: string | number;
@@ -130,7 +130,7 @@ export default function Leaderboard() {
             <div>
               <h1 id="rankings-title" className="section-heading">Global rankings<span className="text-toxic-purple">.</span></h1>
               <p className="text-[12px] text-zinc-500 mt-1">
-                Sorted by ELO, then fastest PB. Play 10 fully eligible matches to qualify.
+                ELO and performance: last 100 eligible rounds. Play 10 fully eligible matches to qualify.
               </p>
             </div>
             <div className="relative">
@@ -146,15 +146,15 @@ export default function Leaderboard() {
                 <caption className="sr-only">Players ranked by descending ELO. Your profile is highlighted.</caption>
                 <thead><tr>
                   <th scope="col" className="w-16 text-center">Rank</th><th scope="col">Player</th>
-                  <th scope="col" className="text-right">Kills</th><th scope="col" className="text-right hidden sm:table-cell">KDR</th>
+                  <th scope="col" className="text-right hidden sm:table-cell">KDR</th>
                   <th scope="col" className="text-right hidden sm:table-cell">Accuracy</th><th scope="col" className="text-right hidden sm:table-cell">KPM</th>
                   <th scope="col" className="text-right text-toxic-purple!" aria-sort="descending">ELO ↓</th>
                 </tr></thead>
                 <tbody>
                   {loading ? (
-                    <tr><td colSpan={7} className="text-center text-zinc-500 py-14!" role="status">Loading rankings...</td></tr>
+                    <tr><td colSpan={6} className="text-center text-zinc-500 py-14!" role="status">Loading rankings...</td></tr>
                   ) : error ? (
-                    <tr><td colSpan={7} className="text-center py-14!"><p className="text-zinc-400">{error}</p>
+                    <tr><td colSpan={6} className="text-center py-14!"><p className="text-zinc-400">{error}</p>
                       <button onClick={() => setReload((value) => value + 1)} className="button-secondary mt-4">Try again</button>
                     </td></tr>
                   ) : paginatedData.length ? paginatedData.map((player) => {
@@ -177,15 +177,14 @@ export default function Leaderboard() {
                             {player.tag === "PRO" && <span className="hidden sm:inline text-[8px] font-bold px-1.5 py-0.5 rounded border border-toxic-purple/20 text-toxic-purple">PRO</span>}
                           </div>
                         </td>
-                        <td className="text-right text-zinc-300">{(Number(player.score) || 0).toLocaleString("en-US")}</td>
                         <td className="text-right text-zinc-400 hidden sm:table-cell">{formatPlayerKdr(player)}</td>
-                        <td className="text-right text-zinc-400 hidden sm:table-cell">{player.accuracy ?? "—"}</td>
-                        <td className="text-right text-zinc-400 hidden sm:table-cell">{player.kpm ?? "—"}</td>
+                        <td className="text-right text-zinc-400 hidden sm:table-cell">{formatPlayerAccuracy(player)}</td>
+                        <td className="text-right text-zinc-400 hidden sm:table-cell">{formatPlayerPace(player)}</td>
                         <td className="text-right font-bold text-toxic-purple">{player.elo}</td>
                       </tr>
                     );
                   }) : (
-                    <tr><td colSpan={7} className="text-center text-zinc-500 py-14!">{searchTerm ? `No players found for “${searchTerm}”.` : "No ranked players yet. Be the first to play."}</td></tr>
+                    <tr><td colSpan={6} className="text-center text-zinc-500 py-14!">{searchTerm ? `No players found for “${searchTerm}”.` : "No ranked players yet. Be the first to play."}</td></tr>
                   )}
                 </tbody>
               </table>
@@ -206,7 +205,7 @@ export default function Leaderboard() {
           <p className="sm:hidden text-[10px] text-zinc-500 mt-3">Tap a player for accuracy, KDR and KPM.</p>
           <details className="mt-4 text-xs text-zinc-500">
             <summary className="inline-flex items-center gap-2 py-2"><Info size={13} /> How ELO works</summary>
-            <p className="max-w-xl leading-7 mt-2">ELO is a performance score based on your participation-weighted average kills per minute (65%), accuracy (25%) and kill/death ratio (10%). Join within the first 10 seconds, reach 35 kills, or play at least 3 minutes for full weight. Later joins with fewer than 15 kills and less than 1 minute are ineligible. Other late joins receive the higher of kills / 35 or seconds / 180 as their weight. Logs without a total duration receive full weight. Round ratings and general stats stay unchanged. Equal ELO uses the fastest PB, then player name.</p>
+            <p className="max-w-xl leading-7 mt-2">ELO uses your last 100 eligible rounds, ordered by match date: participation-weighted kills per minute (65%), accuracy (25%) and kill/death ratio (10%). With fewer than 100 eligible rounds, all available eligible rounds count. Join within the first 10 seconds, reach 35 kills, or play at least 3 minutes for full weight. Later joins with fewer than 15 kills and less than 1 minute are ineligible and do not use a slot. Other late joins use one slot with the higher of kills / 35 or seconds / 180 as their weight. Logs without a total duration receive full weight. Displayed performance and medals use the same window. PB, matches played and Speedrunner wins remain lifetime. Equal ELO uses the fastest PB, then player name.</p>
           </details>
         </section>
 

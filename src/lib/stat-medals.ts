@@ -1,13 +1,13 @@
 import { isQualified, type PlacementPlayer } from '../../supabase/functions/_shared/elo-weight';
 import { numericElo } from '../../supabase/functions/_shared/leaderboard';
 import { playerKdr } from './player-kdr';
-import { crouchesPerMinute } from './profile-stats';
+import { crouchesPerMinute, performanceStats, type PerformanceStats } from './profile-stats';
 
 type NumericValue = number | string | null;
 export const medalCategories = ['kdr', 'accuracy', 'crouches', 'pace'] as const;
 export type MedalCategory = typeof medalCategories[number];
 export type MedalTier = 'gold' | 'silver' | 'bronze';
-export type StatMedalPlayer = PlacementPlayer & {
+export type StatMedalPlayer = PlacementPlayer & PerformanceStats & {
   name: string; elo: NumericValue; kdr?: NumericValue; accuracy?: NumericValue;
   kpm?: NumericValue; crouches?: NumericValue; time_in_lobby?: NumericValue;
 };
@@ -26,9 +26,10 @@ function numericStat(value: NumericValue | undefined, percentage = false): numbe
 
 // Compare displayed precision so identical visible values share a medal.
 export function medalValue(player: StatMedalPlayer, category: MedalCategory): number | null {
+  const stats = performanceStats(player);
   const value = category === 'kdr' ? playerKdr(player)
-    : category === 'accuracy' ? numericStat(player.accuracy, true)
-    : category === 'pace' ? numericStat(player.kpm)
+    : category === 'accuracy' ? numericStat(stats.accuracy, true)
+    : category === 'pace' ? numericStat(stats.kpm)
     : crouchesPerMinute(player);
   return value === null ? null : Number(value.toFixed(category === 'crouches' ? 1 : 2));
 }

@@ -1,5 +1,9 @@
 # Gewichtete Teilnahme für ELO
 
+Aktueller Stand: [Letzte 100 eligible Runden](recent-performance.md).
+Die neue Migration begrenzt ELO und angezeigte Leistungswerte auf dieses Fenster.
+Die folgende Dokumentation beschreibt die ursprüngliche Lifetime-Gewichtung.
+
 Migration `20261013233000_weighted_elo_participation.sql` nach PB-Rankings und
 täglichem ELO-Verlauf installieren, bevor das neue Frontend veröffentlicht wird.
 Ein Update der Edge Functions ist dafür nicht erforderlich. Die aktualisierte

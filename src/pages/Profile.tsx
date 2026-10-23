@@ -1,10 +1,8 @@
 import {
   ArrowLeft,
   Target,
-  Flame,
   Zap,
   Swords,
-  Skull,
   Trophy,
   Timer,
   AlertTriangle,
@@ -30,9 +28,9 @@ import MatchDialog from "../components/MatchDialog";
 import ProfileDetails from "../components/ProfileDetails";
 import { formatMatchDate, type MatchSummary } from "../lib/match-history";
 import ProfileRankBadge, { ProfileRankFrame, getPodiumRank, podiumThemes } from "../components/ProfileRankDecoration";
-import { getAchievements, type SpeedrunnerMatch, type AchievementId } from "../lib/achievements";
+import { getAchievements, type AchievementId } from "../lib/achievements";
 import { formatPlayerKdr } from "../lib/player-kdr";
-import { crouchesPerMatch, crouchesPerMinute, formatLobbyTime, escapeLikePattern } from "../lib/profile-stats";
+import { crouchesPerMatch, crouchesPerMinute, formatLobbyTime, escapeLikePattern, formatPlayerAccuracy, formatPlayerPace } from "../lib/profile-stats";
 import {
   AreaChart,
   Area,
@@ -67,7 +65,6 @@ export default function Profile() {
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [matchHistory, setMatchHistory] = useState<any[]>([]);
   const [personalBestTime, setPersonalBestTime] = useState<number | null>(null);
-  const [speedrunnerMatch, setSpeedrunnerMatch] = useState<SpeedrunnerMatch | null>(null);
   const [matchHistoryPage, setMatchHistoryPage] = useState(1);
   const [selectedMatch, setSelectedMatch] = useState<MatchSummary | null>(null);
   const matchesPerPage = 10;
@@ -92,7 +89,6 @@ export default function Profile() {
       setHistoryError(null);
       setMatchHistory([]);
       setPersonalBestTime(null);
-      setSpeedrunnerMatch(null);
       setMatchHistoryPage(1);
       setSelectedMatch(null);
       setQualifiedRank(null);
@@ -132,7 +128,7 @@ export default function Profile() {
               const rankings: (StatMedalPlayer & { personal_best_time?: number | string | null })[] = [];
               for (let offset = 0; ; offset += 1000) {
                 const { data: page, error: rankingError } = await supabase.from("players")
-                  .select("name, elo, matches, personal_best_time, placement_matches, kdr, accuracy, kpm, crouches, time_in_lobby, is_banned")
+                  .select("name, elo, matches, personal_best_time, placement_matches, recent_matches, recent_kdr, recent_accuracy, recent_kpm, recent_crouches, recent_time_in_lobby, is_banned")
                   .gte("placement_matches", 10).order("name").range(offset, offset + 999);
                 if (!active) return;
                 if (rankingError) throw rankingError;
@@ -172,26 +168,21 @@ export default function Profile() {
 
           // Fetch Match History
           try {
-            const [matchResult, bestWinResult, speedrunnerResult] = await Promise.all([
+            const [matchResult, bestWinResult] = await Promise.all([
               supabase.from("player_matches").select("*")
                 .eq("player_name", mainPlayer.name)
                 .order("played_at", { ascending: false }).order("created_at", { ascending: false }),
-              // Query PB and Speedrunner independently of the history row limit.
+              // Query lifetime PB independently of the history row limit.
               supabase.from("player_matches").select("time_in_lobby")
                 .eq("player_name", mainPlayer.name).gte("score", 50)
                 .gt("time_in_lobby", 0)
                 .order("time_in_lobby", { ascending: true }).limit(1),
-              supabase.from("player_matches").select("score, total_match_time")
-                .eq("player_name", mainPlayer.name).gte("score", 50)
-                .gt("total_match_time", 0).lt("total_match_time", 180).limit(1),
             ]);
             if (!active) return;
             const { data: matches } = matchResult;
             if (matchResult.error) console.warn("Could not load match history", matchResult.error);
             if (bestWinResult.error) console.warn("Could not load personal best", bestWinResult.error);
-            if (speedrunnerResult.error) console.warn("Could not check Speedrunner", speedrunnerResult.error);
             setPersonalBestTime(bestWinResult.data?.[0]?.time_in_lobby ?? null);
-            setSpeedrunnerMatch(speedrunnerResult.data?.[0] ?? null);
 
             if (matches) {
               setMatchHistory(matches);
@@ -243,8 +234,8 @@ export default function Profile() {
       elite: <Trophy className="w-5 h-5 text-toxic-purple" />,
       speedrunner: <Timer className="w-5 h-5 text-emerald-400" />,
     };
-    return getAchievements(player, speedrunnerMatch).map((badge) => ({ ...badge, icon: icons[badge.id] }));
-  }, [player, speedrunnerMatch]);
+    return getAchievements(player).map((badge) => ({ ...badge, icon: icons[badge.id] }));
+  }, [player]);
 
   const handleUpdateName = async () => {
     if (!editNameValue.trim() || editNameValue.trim() === player.name) {
@@ -453,17 +444,17 @@ export default function Profile() {
 
       <ProfileDetails key={`${player.name}-${user?.id ?? 'guest'}`} playerName={player.name} isOwner={!!user && user.id === player.user_id} isAdmin={!!user?.isAdmin && !!player.user_id} />
 
-      {/* Stats Grid (Bento/Glassmorphism style) */}
-      <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
+      <p className="text-xs text-zinc-500">Performance · Last {player.recent_matches ?? 0} eligible rounds (up to 100). PB and matches played are lifetime.</p>
+      <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
         <StatCard
           title="Avg Accuracy"
-          value={player.accuracy || "0%"}
+          value={formatPlayerAccuracy(player)}
           icon={<Target />}
           medal={medalFor("accuracy")}
         />
         <StatCard
           title="Avg Pace"
-          value={player.kpm?.toString() || "0"}
+          value={formatPlayerPace(player)}
           icon={<Timer />}
           medal={medalFor("pace")}
         />
@@ -473,16 +464,6 @@ export default function Profile() {
           icon={<CrouchIcon />}
           detail={averageCrouches === null ? undefined : `${averageCrouches.toFixed(1)} per match on average`}
           medal={medalFor("crouches")}
-        />
-        <StatCard
-          title="Total Kills"
-          value={player.score?.toString() || "0"}
-          icon={<Flame />}
-        />
-        <StatCard
-          title="Total Deaths"
-          value={player.deaths?.toString() || "0"}
-          icon={<Skull />}
         />
         <StatCard
           title="Avg K/D"
@@ -510,6 +491,7 @@ export default function Profile() {
                 <h4 className="font-sans font-bold text-sm text-white uppercase tracking-widest leading-none">
                   {badge.name}
                 </h4>
+                {badge.count !== undefined && <span className="text-emerald-400 font-mono text-lg font-bold" aria-label={`${badge.count} lifetime sub-3-minute wins`}>×{badge.count.toLocaleString("en-US")}</span>}
                 <p className="font-mono text-[10px] text-zinc-500">
                   {badge.desc}
                 </p>

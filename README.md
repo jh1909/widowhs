@@ -18,6 +18,11 @@ Join our official Discord community for events, feature updates, and to talk wit
 This front-end is built using React, Vite, and Tailwind CSS. The backend connects to Supabase for an integrated database solution and Discord OAuth for authentication.
 
 ## Match imports
+Current ELO and displayed performance use the last 100 eligible rounds. PB,
+matches played and the Speedrunner win count remain lifetime. Before deploying
+the frontend, apply `supabase/migrations/20261023120000_recent_100_performance.sql`.
+See [recent performance and deployment details](docs/recent-performance.md).
+
 The leaderboard sorts by numeric ELO descending and assigns unique global
 positions before search or pagination. Equal scores are ordered by player name.
 The signed-in player is highlighted at their actual position. Imports recalculate

@@ -1,9 +1,9 @@
 import { playerKdr } from "./player-kdr.ts";
-import { crouchesPerMatch, crouchesPerMinute } from "./profile-stats.ts";
+import { crouchesPerMatch, crouchesPerMinute, performanceStats, type PerformanceStats } from "./profile-stats.ts";
 
 type NumericValue = number | string | null | undefined;
 
-export type PlayerAchievementStats = {
+export type PlayerAchievementStats = PerformanceStats & {
   score?: NumericValue;
   deaths?: NumericValue;
   kdr?: NumericValue;
@@ -12,6 +12,7 @@ export type PlayerAchievementStats = {
   crouches?: NumericValue;
   time_in_lobby?: NumericValue;
   rank?: NumericValue;
+  speedrunner_count?: NumericValue;
 };
 
 export type SpeedrunnerMatch = {
@@ -20,7 +21,7 @@ export type SpeedrunnerMatch = {
 };
 
 export type AchievementId = "slayer" | "sharpshooter" | "veteran" | "fitness" | "no-croucher" | "elite" | "speedrunner";
-export type Achievement = { id: AchievementId; name: string; desc: string };
+export type Achievement = { id: AchievementId; name: string; desc: string; tier?: 1 | 2 | 3; count?: number };
 
 function numberOrZero(value: NumericValue): number {
   const number = Number(value);
@@ -38,9 +39,11 @@ export function getAchievements(player: PlayerAchievementStats, speedrunnerMatch
   if ((playerKdr(player) ?? 0) > 2) {
     badges.push({ id: "slayer", name: "Slayer", desc: "Current K/D above 2.0" });
   }
-  const accuracy = Number(String(player.accuracy ?? "").replace(/%$/, ""));
-  if (Number.isFinite(accuracy) && accuracy > 40) {
-    badges.push({ id: "sharpshooter", name: "Sharpshooter", desc: "Accuracy over 40%" });
+  const accuracy = Number(String(performanceStats(player).accuracy ?? "").replace(/%$/, ""));
+  if (Number.isFinite(accuracy) && accuracy >= 40) {
+    const tier = accuracy >= 60 ? 3 : accuracy >= 50 ? 2 : 1;
+    const numeral = ["I", "II", "III"][tier - 1];
+    badges.push({ id: "sharpshooter", tier, name: `Sharpshooter ${numeral}`, desc: `Accuracy of ${30 + tier * 10}% or higher` });
   }
   if (numberOrZero(player.matches) >= 100) {
     badges.push({ id: "veteran", name: "Veteran", desc: "Played 100+ matches" });
@@ -49,15 +52,17 @@ export function getAchievements(player: PlayerAchievementStats, speedrunnerMatch
     badges.push({ id: "fitness", name: "Squat Master", desc: "Average of 100+ crouches per match" });
   }
   const crouchRate = crouchesPerMinute(player);
-  if (numberOrZero(player.matches) >= 1 && crouchRate !== null && crouchRate <= 0.1) {
+  if (numberOrZero(performanceStats(player).matches) >= 1 && crouchRate !== null && crouchRate <= 0.1) {
     badges.push({ id: "no-croucher", name: "No Croucher", desc: "Average of 0.1 crouches/min or less" });
   }
   const rank = numberOrZero(player.rank);
   if (rank >= 1 && rank <= 10) {
     badges.push({ id: "elite", name: "Top 10", desc: "Currently in the global top 10" });
   }
-  if (isSpeedrunnerMatch(speedrunnerMatch)) {
-    badges.push({ id: "speedrunner", name: "Speedrunner", desc: "Won a round with 50 kills in under 3 minutes" });
+  const count = player.speedrunner_count == null
+    ? (isSpeedrunnerMatch(speedrunnerMatch) ? 1 : 0) : Math.floor(numberOrZero(player.speedrunner_count));
+  if (count > 0) {
+    badges.push({ id: "speedrunner", name: "Speedrunner", count, desc: "50-kill wins in under 3 minutes · Lifetime" });
   }
   return badges;
 }

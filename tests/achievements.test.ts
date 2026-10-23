@@ -6,6 +6,24 @@ import { playerKdr, formatPlayerKdr } from "../src/lib/player-kdr.ts";
 const hasSlayer = (player: Parameters<typeof getAchievements>[0]) =>
   getAchievements(player).some((badge) => badge.id === "slayer");
 
+test("Sharpshooter awards only the highest tier with inclusive 40/50/60% boundaries", () => {
+  for (const [accuracy, tier] of [[39.99, 0], [40, 1], [49.99, 1], [50, 2], [59.99, 2], [60, 3], [100, 3]]) {
+    const badges = getAchievements({ accuracy: `${accuracy}%` }).filter(b => b.id === 'sharpshooter');
+    assert.equal(badges.length, tier ? 1 : 0);
+    assert.equal(badges[0]?.tier ?? 0, tier);
+    if (tier) assert.equal(badges[0].name, `Sharpshooter ${['I','II','III'][tier - 1]}`);
+  }
+  for (const accuracy of [null, undefined, '', '-', NaN, Infinity, -1])
+    assert.ok(!getAchievements({ accuracy }).some(b => b.id === 'sharpshooter'));
+});
+
+test("Speedrunner uses the lifetime count independent of current performance", () => {
+  assert.equal(getAchievements({ speedrunner_count: '1234', recent_matches: 0 })
+    .find(b => b.id === 'speedrunner')?.count, 1234);
+  for (const speedrunner_count of [0, -1, NaN, Infinity, '-'])
+    assert.ok(!getAchievements({ speedrunner_count }).some(b => b.id === 'speedrunner'));
+});
+
 test("profile and Slayer use the leaderboard K/D even when total kills/deaths differs", () => {
   const player = { score: 190, deaths: 100, kdr: "2.85" };
   assert.equal(playerKdr(player), 2.85);
