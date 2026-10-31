@@ -32,7 +32,7 @@ test("upload endpoint requires an automation key or a validated admin session", 
     serve: (callback: typeof handler) => { handler = callback; }, createClient: () => client,
     Deno: { env: { get: (name: string) => name === "ADMIN_API_KEY" ? key : "test-env" } },
     normalizeMatchLog, parseMatchRows, readMatchSources, assignMatchId, buildMatchImport, Papa,
-    Response, console,
+    Response, console, setTimeout: (fn: () => void) => fn(),
   });
   const request = (headers: Record<string, string> = {}) => new Request("https://example.test/upload", {
     method: "POST", headers, body: "NewPlayer,50,10,60,20,5,120,149,160",
@@ -65,5 +65,23 @@ test("upload endpoint requires an automation key or a validated admin session", 
   });
   await t.test("CORS preflight stays available without authentication", async () => {
     assert.equal((await handler(new Request("https://example.test/upload", { method: "OPTIONS" }))).status, 200);
+  });
+  await t.test("concurrent revision conflicts (40001) are retried automatically before succeeding", async () => {
+    key = "test-key"; written = null;
+    let attempts = 0;
+    const origRpc = client.rpc;
+    client.rpc = async (name: string, payload: unknown) => {
+      attempts++;
+      if (attempts < 3) return { error: { code: "40001", message: "Leaderboard changed during upload. Please import the files again." } };
+      return origRpc(name, payload);
+    };
+    try {
+      const response = await handler(request({ "x-api-key": key }));
+      assert.equal(response.status, 200);
+      assert.equal(attempts, 3);
+      assert.equal(written.p_matches.length, 1);
+    } finally {
+      client.rpc = origRpc;
+    }
   });
 });

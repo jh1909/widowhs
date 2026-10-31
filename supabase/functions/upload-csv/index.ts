@@ -90,36 +90,47 @@ serve(async (req) => {
       });
     }
 
-    // Capture the revision before reading players. A reset or another import
-    // invalidates this snapshot; the transactional write will reject it.
-    const { data: state, error: stateErr } = await supabaseClient
-      .from("leaderboard_state").select("revision").eq("singleton", true).single();
-    if (stateErr) throw stateErr;
-
-    // Read every profile, beyond PostgREST's default page size.
-    const dbPlayers: ImportPlayer[] = [];
-    for (let offset = 0; ; offset += 1000) {
-      const { data, error } = await supabaseClient.from("players").select("*")
-        .order("name").range(offset, offset + 999);
-      if (error) throw error;
-      dbPlayers.push(...(data ?? []));
-      if (!data || data.length < 1000) break;
-    }
     const { error: schemaErr } = await supabaseClient.from("player_matches")
       .select("total_match_time, played_at, match_id, logged_player_name").limit(0);
     if (schemaErr) throw schemaErr;
-    const imported = buildMatchImport(dbPlayers, matches);
-    const { error: importErr } = await supabaseClient.rpc("apply_match_import", {
-      p_expected_revision: state.revision,
-      p_players: imported.players,
-      p_ranks: imported.ranks,
-      p_history: imported.history,
-      p_matches: imported.matches,
-      p_admin_user: apiKey ? "API_AUTOMATION" : "ADMIN_DASHBOARD",
-      p_details: `Imported ${imported.roundCount} round(s) with ${imported.matches.length} player participation(s) from ${fileCount} file(s), updated ${imported.players.length} players. Skipped ${imported.skippedBanned} banned participation(s).`,
-    });
-    if (importErr) {
+
+    // Retry optimistic concurrency conflicts (SQLSTATE 40001) when another
+    // upload, profile claim, or moderation action changed the leaderboard
+    // while players were being read and calculated.
+    const maxAttempts = 5;
+    let imported!: ReturnType<typeof buildMatchImport>;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      // Capture the revision before reading players. A reset or another import
+      // invalidates this snapshot; the transactional write will reject it.
+      const { data: state, error: stateErr } = await supabaseClient
+        .from("leaderboard_state").select("revision").eq("singleton", true).single();
+      if (stateErr) throw stateErr;
+
+      // Read every profile, beyond PostgREST's default page size.
+      const dbPlayers: ImportPlayer[] = [];
+      for (let offset = 0; ; offset += 1000) {
+        const { data, error } = await supabaseClient.from("players").select("*")
+          .order("name").range(offset, offset + 999);
+        if (error) throw error;
+        dbPlayers.push(...(data ?? []));
+        if (!data || data.length < 1000) break;
+      }
+      imported = buildMatchImport(dbPlayers, matches);
+      const { error: importErr } = await supabaseClient.rpc("apply_match_import", {
+        p_expected_revision: state.revision,
+        p_players: imported.players,
+        p_ranks: imported.ranks,
+        p_history: imported.history,
+        p_matches: imported.matches,
+        p_admin_user: apiKey ? "API_AUTOMATION" : "ADMIN_DASHBOARD",
+        p_details: `Imported ${imported.roundCount} round(s) with ${imported.matches.length} player participation(s) from ${fileCount} file(s), updated ${imported.players.length} players. Skipped ${imported.skippedBanned} banned participation(s).`,
+      });
+      if (!importErr) break;
       if (importErr.code === "40001") {
+        if (attempt < maxAttempts) {
+          await new Promise((resolve) => setTimeout(resolve, 100 * attempt));
+          continue;
+        }
         return new Response(JSON.stringify({ error: importErr.message }), {
           status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
