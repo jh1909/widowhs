@@ -65,12 +65,13 @@ export default function Profile() {
   const [historyData, setHistoryData] = useState<{ elo: number; created_at: string }[]>([]);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [matchHistory, setMatchHistory] = useState<any[]>([]);
+  const [matchHistoryTotal, setMatchHistoryTotal] = useState(0);
   const [personalBestTime, setPersonalBestTime] = useState<number | null>(null);
   const [matchHistoryPage, setMatchHistoryPage] = useState(1);
   const [selectedMatch, setSelectedMatch] = useState<MatchSummary | null>(null);
   const matchesPerPage = 10;
-  const matchHistoryPages = Math.ceil(matchHistory.length / matchesPerPage);
-  const visibleMatches = matchHistory.slice((matchHistoryPage - 1) * matchesPerPage, matchHistoryPage * matchesPerPage);
+  const matchHistoryPages = Math.ceil(matchHistoryTotal / matchesPerPage);
+  const visibleMatches = matchHistory;
 
   const openMatch = (match: any) => {
     if (!match.match_id) return;
@@ -91,6 +92,7 @@ export default function Profile() {
       setHistoryData([]);
       setHistoryError(null);
       setMatchHistory([]);
+      setMatchHistoryTotal(0);
       setPersonalBestTime(null);
       setMatchHistoryPage(1);
       setSelectedMatch(null);
@@ -126,28 +128,38 @@ export default function Profile() {
           // Only fully eligible matches qualify, exactly as on the leaderboard.
           if (isQualified(mainPlayer)) {
             try {
-              // Fetch the full placed population: medals are global even when
-              // a stat leader would be on another leaderboard page.
-              const rankings: (StatMedalPlayer & { personal_best_time?: number | string | null })[] = [];
-              // Optional performance columns only exist after the recent-stats
-              // migration. Keep rank loading compatible with the current schema.
-              const recentColumns = mainPlayer.recent_matches == null ? ""
-                : ", recent_matches, recent_kdr, recent_accuracy, recent_kpm, recent_crouches, recent_time_in_lobby";
-              for (let offset = 0; ; offset += 1000) {
-                const { data: page, error: rankingError } = await supabase.from("players")
-                  .select(`name, elo, matches, personal_best_time, placement_matches, kdr, accuracy, kpm, crouches, time_in_lobby, is_banned${recentColumns}`)
-                  .gte("placement_matches", 10).order("name").range(offset, offset + 999)
-                  .returns<typeof rankings>();
-                if (!active) return;
-                if (rankingError) throw rankingError;
-                rankings.push(...(page ?? []));
-                if (!page || page.length < 1000) break;
+              const standingsResult = await supabase.rpc("get_player_qualified_standings", {
+                p_player_name: mainPlayer.name,
+              });
+              if (!active) return;
+              if (!standingsResult.error && standingsResult.data && typeof standingsResult.data === "object") {
+                const standings = standingsResult.data as {
+                  rank?: number | null;
+                  medals?: Partial<Record<MedalCategory, MedalTier>>;
+                };
+                setQualifiedRank(standings.rank ?? null);
+                setProfileMedals(standings.medals ?? {});
+              } else {
+                // Fallback for schemas without get_player_qualified_standings.
+                const rankings: (StatMedalPlayer & { personal_best_time?: number | string | null })[] = [];
+                const recentColumns = mainPlayer.recent_matches == null ? ""
+                  : ", recent_matches, recent_kdr, recent_accuracy, recent_kpm, recent_crouches, recent_time_in_lobby";
+                for (let offset = 0; ; offset += 1000) {
+                  const { data: page, error: rankingError } = await supabase.from("players")
+                    .select(`name, elo, matches, personal_best_time, placement_matches, kdr, accuracy, kpm, crouches, time_in_lobby, is_banned${recentColumns}`)
+                    .gte("placement_matches", 10).order("name").range(offset, offset + 999)
+                    .returns<typeof rankings>();
+                  if (!active) return;
+                  if (rankingError) throw rankingError;
+                  rankings.push(...(page ?? []));
+                  if (!page || page.length < 1000) break;
+                }
+                const ranked = rankPlayers(rankings.filter(isQualified));
+                setQualifiedRank(
+                  ranked.find((p) => p.name === mainPlayer.name)?.rank ?? null
+                );
+                setProfileMedals(statMedals(rankings).get(mainPlayer.name) ?? {});
               }
-              const ranked = rankPlayers(rankings.filter(isQualified));
-              setQualifiedRank(
-                ranked.find((p) => p.name === mainPlayer.name)?.rank ?? null
-              );
-              setProfileMedals(statMedals(rankings).get(mainPlayer.name) ?? {});
             } catch (rankingError) {
               if (!active) return;
               console.warn("Could not load qualified ranking and stat medals", rankingError);
@@ -174,40 +186,17 @@ export default function Profile() {
             setHistoryError("Could not load ELO history. Please try again.");
           } else setHistoryData(history ?? []);
 
-          // Fetch Match History
-          try {
-            const [matchResult, bestWinResult] = await Promise.all([
-              (async () => {
-                // Include history beyond the API row limit so Last reaches the oldest round.
-                const matches: any[] = [];
-                for (let offset = 0; ; offset += 1000) {
-                  const result = await supabase.from("player_matches").select("*")
-                    .eq("player_name", mainPlayer.name)
-                    .order("played_at", { ascending: false }).order("created_at", { ascending: false })
-                    .order("id", { ascending: false }).range(offset, offset + 999);
-                  if (!active || result.error) return { data: null, error: result.error };
-                  matches.push(...(result.data ?? []));
-                  if (!result.data || result.data.length < 1000) return { data: matches, error: null };
-                }
-              })(),
-              // Query lifetime PB independently of the history row limit.
-              supabase.from("player_matches").select("time_in_lobby")
-                .eq("player_name", mainPlayer.name).gte("score", 50)
-                .gt("time_in_lobby", 0)
-                .order("time_in_lobby", { ascending: true }).limit(1),
-            ]);
+          // Fetch personal best (use stored PB column if present, otherwise query player_matches)
+          if (mainPlayer.personal_best_time != null && Number(mainPlayer.personal_best_time) > 0) {
+            setPersonalBestTime(Number(mainPlayer.personal_best_time));
+          } else {
+            const bestWinResult = await supabase.from("player_matches").select("time_in_lobby")
+              .eq("player_name", mainPlayer.name).gte("score", 50)
+              .gt("time_in_lobby", 0)
+              .order("time_in_lobby", { ascending: true }).limit(1);
             if (!active) return;
-            const { data: matches } = matchResult;
-            if (matchResult.error) console.warn("Could not load match history", matchResult.error);
             if (bestWinResult.error) console.warn("Could not load personal best", bestWinResult.error);
             setPersonalBestTime(bestWinResult.data?.[0]?.time_in_lobby ?? null);
-
-            if (matches) {
-              setMatchHistory(matches);
-            }
-          } catch (e) {
-            if (!active) return;
-            console.warn("Could not load match history", e);
           }
         } else if (
           user &&
@@ -240,6 +229,38 @@ export default function Profile() {
     fetchPlayerData();
     return () => { active = false; };
   }, [id, user, profileReload]);
+
+  useEffect(() => {
+    let active = true;
+    async function fetchMatchesPage() {
+      if (!player?.name) return;
+      try {
+        const from = (matchHistoryPage - 1) * matchesPerPage;
+        const to = from + matchesPerPage - 1;
+        const result = await supabase.from("player_matches")
+          .select("*", { count: "exact" })
+          .eq("player_name", player.name)
+          .order("played_at", { ascending: false })
+          .order("created_at", { ascending: false })
+          .order("id", { ascending: false })
+          .range(from, to);
+        if (!active) return;
+        if (result.error) {
+          console.warn("Could not load match history", result.error);
+          return;
+        }
+        setMatchHistory(result.data ?? []);
+        if (typeof result.count === "number") {
+          setMatchHistoryTotal(result.count);
+        }
+      } catch (e) {
+        if (!active) return;
+        console.warn("Could not load match history", e);
+      }
+    }
+    fetchMatchesPage();
+    return () => { active = false; };
+  }, [player?.name, matchHistoryPage, profileReload]);
 
   const badges = useMemo(() => {
     if (!player) return [];
@@ -635,7 +656,7 @@ export default function Profile() {
           Match History
         </h3>
         <div className="bg-surface-container border border-surface-container-high rounded-lg p-6">
-          {matchHistory.length > 0 ? (
+          {matchHistoryTotal > 0 || visibleMatches.length > 0 ? (
             <>
             <div className="overflow-x-auto">
               <table className="w-full table-fixed text-left border-collapse min-w-[1140px] whitespace-nowrap">

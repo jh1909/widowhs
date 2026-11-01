@@ -22,11 +22,22 @@ type Player = PerformanceStats & {
   placement_matches?: number | string | null;
 };
 
+type ServerLeaderboardSummary = {
+  rankedPlayers: number;
+  filteredCount: number;
+  totalKills: number;
+  totalMatches: number | null;
+  recordPlayer: Player | null;
+  players: Player[];
+};
+
 export default function Leaderboard() {
   const { user } = useAuth();
   const [searchTerm, setSearchTerm] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const [leaderboardData, setLeaderboardData] = useState<Player[]>([]);
+  const [serverSummary, setServerSummary] = useState<ServerLeaderboardSummary | null>(null);
   const [recordPlayer, setRecordPlayer] = useState<Player | null>(null);
   const [totalMatches, setTotalMatches] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
@@ -36,12 +47,40 @@ export default function Leaderboard() {
   const itemsPerPage = 10;
 
   useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(searchTerm.trim()), 200);
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
+
+  useEffect(() => {
     let active = true;
     setLoading(true);
     setError(null);
-    setTotalMatches(null);
     async function fetchLeaderboard() {
       try {
+        const rpcResult = await supabase.rpc("get_leaderboard_page", {
+          p_search: debouncedSearch,
+          p_limit: itemsPerPage,
+          p_offset: (currentPage - 1) * itemsPerPage,
+        });
+        if (!rpcResult.error && rpcResult.data && typeof rpcResult.data === "object") {
+          if (!active) return;
+          const payload = rpcResult.data as any;
+          const matchesCount = Number(payload.total_matches);
+          const summary: ServerLeaderboardSummary = {
+            rankedPlayers: Number(payload.ranked_players) || 0,
+            filteredCount: Number(payload.filtered_count) || 0,
+            totalKills: Number(payload.total_kills) || 0,
+            totalMatches: payload.total_matches != null && Number.isSafeInteger(matchesCount) && matchesCount >= 0 ? matchesCount : null,
+            recordPlayer: payload.record_holder ?? null,
+            players: Array.isArray(payload.players) ? payload.players : [],
+          };
+          setServerSummary(summary);
+          setRecordPlayer(summary.recordPlayer);
+          setTotalMatches(summary.totalMatches);
+          return;
+        }
+
+        // Fallback if the RPC is not yet installed on an older database schema.
         const [data, matchCountResult] = await Promise.all([
           (async () => {
             const players: Player[] = [];
@@ -57,6 +96,7 @@ export default function Leaderboard() {
         ]);
         if (matchCountResult.error) console.warn("Could not load round count", matchCountResult.error);
         if (active) {
+          setServerSummary(null);
           setRecordPlayer(recordHolder(data));
           setLeaderboardData(rankPlayers(
             ((data || []) as Player[]).filter(isQualified)
@@ -74,7 +114,7 @@ export default function Leaderboard() {
     }
     fetchLeaderboard();
     return () => { active = false; };
-  }, [reload]);
+  }, [debouncedSearch, currentPage, reload]);
 
   useEffect(() => {
     if (copyState === "idle") return;
@@ -83,14 +123,21 @@ export default function Leaderboard() {
   }, [copyState]);
 
   const filteredData = useMemo(() => {
+    if (serverSummary) return serverSummary.players;
     const query = searchTerm.trim().toLowerCase();
     return leaderboardData.filter(player =>
       [player.name, ...(player.bnet_accounts ?? [])].some(name => name.toLowerCase().includes(query))
     );
-  }, [leaderboardData, searchTerm]);
-  const totalPages = Math.ceil(filteredData.length / itemsPerPage);
-  const paginatedData = filteredData.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
-  const totalKills = leaderboardData.reduce((sum, player) => sum + (Number(player.score) || 0), 0);
+  }, [leaderboardData, searchTerm, serverSummary]);
+  const totalFilteredCount = serverSummary ? serverSummary.filteredCount : filteredData.length;
+  const rankedPlayersCount = serverSummary ? serverSummary.rankedPlayers : leaderboardData.length;
+  const totalPages = Math.ceil(totalFilteredCount / itemsPerPage);
+  const paginatedData = serverSummary
+    ? serverSummary.players
+    : filteredData.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+  const totalKills = serverSummary
+    ? serverSummary.totalKills
+    : leaderboardData.reduce((sum, player) => sum + (Number(player.score) || 0), 0);
   const copyCode = async () => {
     try { await navigator.clipboard.writeText("TCG2W"); setCopyState("copied"); }
     catch { setCopyState("failed"); }
@@ -101,22 +148,22 @@ export default function Leaderboard() {
       <section className="hero" aria-label="Community statistics">
         <div className="hero-overview">
           <div className="hero-metrics">
-            <Metric label="Ranked players" value={loading || error ? "—" : leaderboardData.length.toLocaleString("en-US")} />
-            <Metric label="Matches played" value={loading || error || totalMatches === null ? "—" : totalMatches.toLocaleString("en-US")} />
-            <Metric label="Kills recorded" value={loading || error ? "—" : totalKills.toLocaleString("en-US")} />
+            <Metric label="Ranked players" value={loading && !serverSummary && !leaderboardData.length || error ? "—" : rankedPlayersCount.toLocaleString("en-US")} />
+            <Metric label="Matches played" value={loading && !serverSummary && totalMatches === null || error || totalMatches === null ? "—" : totalMatches.toLocaleString("en-US")} />
+            <Metric label="Kills recorded" value={loading && !serverSummary && !leaderboardData.length || error ? "—" : totalKills.toLocaleString("en-US")} />
           </div>
           <section className="record-holder" aria-label="Fastest personal best" aria-busy={loading}>
             <div className="record-holder-mark" aria-hidden="true"><Trophy size={18} strokeWidth={1.5} /></div>
             <div className="min-w-0 flex-1">
               <p className="record-holder-label">Record Holder</p>
-              {loading ? <p className="text-sm text-zinc-500" role="status">Loading record…</p>
+              {loading && !recordPlayer ? <p className="text-sm text-zinc-500" role="status">Loading record…</p>
                 : error ? <p className="text-sm text-zinc-500">Record unavailable</p>
                 : recordPlayer ? <div className="flex flex-wrap items-center gap-2 mt-1">
                   <Link to={`/profile/${encodeURIComponent(recordPlayer.name)}`} className="record-holder-name hover:underline break-all">{recordPlayer.name}</Link>
                   <VerifiedBadge verified={recordPlayer.is_verified} compact />
                 </div> : <p className="text-sm text-zinc-500 mt-1">No winning time recorded yet.</p>}
             </div>
-            {recordPlayer && !loading && !error && <div className="text-right shrink-0">
+            {recordPlayer && !error && <div className="text-right shrink-0">
               <p className="record-holder-time">{formatLobbyTime(recordPlayer.personal_best_time)}</p>
               <p className="text-[10px] text-zinc-500 mt-1">Fastest PB</p>
             </div>}
@@ -189,9 +236,9 @@ export default function Leaderboard() {
                 </tbody>
               </table>
             </div>
-            {!loading && !error && filteredData.length > 0 && (
+            {!loading && !error && totalFilteredCount > 0 && (
               <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4 border-t border-white/5">
-                <span className="text-[10px] text-zinc-500">Showing {(currentPage - 1) * itemsPerPage + 1}–{Math.min(currentPage * itemsPerPage, filteredData.length)} of {filteredData.length} players</span>
+                <span className="text-[10px] text-zinc-500">Showing {(currentPage - 1) * itemsPerPage + 1}–{Math.min(currentPage * itemsPerPage, totalFilteredCount)} of {totalFilteredCount} players</span>
                 {totalPages > 1 && <div className="flex items-center gap-3">
                   <button className="icon-button p-1.5!" aria-label="Previous page" disabled={currentPage <= 1}
                     onClick={() => setCurrentPage((value) => value - 1)}><ChevronLeft size={15} /></button>
