@@ -1,5 +1,7 @@
 import {
   ArrowLeft,
+  ChevronLeft,
+  ChevronRight,
   Target,
   Zap,
   Swords,
@@ -62,8 +64,13 @@ export default function Profile() {
   const [editNameValue, setEditNameValue] = useState("");
   const [editLoading, setEditLoading] = useState(false);
 
-  const [historyData, setHistoryData] = useState<{ elo: number; created_at: string }[]>([]);
+  const [historyData, setHistoryData] = useState<{ elo: number; created_at: string; matches?: number }[]>([]);
+  const [historyTotalDays, setHistoryTotalDays] = useState(0);
+  const [historyPage, setHistoryPage] = useState(1);
   const [historyError, setHistoryError] = useState<string | null>(null);
+  const historyDaysPerPage = 30;
+  const historyPages = Math.max(1, Math.ceil(historyTotalDays / historyDaysPerPage));
+
   const [matchHistory, setMatchHistory] = useState<any[]>([]);
   const [matchHistoryTotal, setMatchHistoryTotal] = useState(0);
   const [personalBestTime, setPersonalBestTime] = useState<number | null>(null);
@@ -90,6 +97,8 @@ export default function Profile() {
     async function fetchPlayerData() {
       if (!id) return;
       setHistoryData([]);
+      setHistoryTotalDays(0);
+      setHistoryPage(1);
       setHistoryError(null);
       setMatchHistory([]);
       setMatchHistoryTotal(0);
@@ -175,17 +184,6 @@ export default function Profile() {
             setBnetAccounts([]);
           }
 
-          // The RPC returns the latest 30 active days with their average ELO.
-          const { data: history, error: historyFetchError } = await supabase
-            .rpc("get_player_elo_history", { p_player_name: mainPlayer.name });
-
-          if (!active) return;
-
-          if (historyFetchError) {
-            console.warn("Could not load ELO history", historyFetchError);
-            setHistoryError("Could not load ELO history. Please try again.");
-          } else setHistoryData(history ?? []);
-
           // Fetch personal best (use stored PB column if present, otherwise query player_matches)
           if (mainPlayer.personal_best_time != null && Number(mainPlayer.personal_best_time) > 0) {
             setPersonalBestTime(Number(mainPlayer.personal_best_time));
@@ -229,6 +227,53 @@ export default function Profile() {
     fetchPlayerData();
     return () => { active = false; };
   }, [id, user, profileReload]);
+
+  useEffect(() => {
+    let active = true;
+    async function fetchHistoryPage() {
+      if (!player?.name) return;
+      try {
+        setHistoryError(null);
+        const offset = (historyPage - 1) * historyDaysPerPage;
+        const pageResult = await supabase.rpc("get_player_elo_history_page", {
+          p_player_name: player.name,
+          p_limit: historyDaysPerPage,
+          p_offset: offset,
+        });
+        if (!active) return;
+        if (!pageResult.error && pageResult.data && typeof pageResult.data === "object") {
+          const payload = pageResult.data as {
+            days?: { elo: number; created_at: string; matches?: number }[];
+            total_days?: number;
+          };
+          setHistoryData(Array.isArray(payload.days) ? payload.days : []);
+          setHistoryTotalDays(Number(payload.total_days) || 0);
+          return;
+        }
+
+        // Fallback for older schemas without get_player_elo_history_page.
+        const { data: history, error: historyFetchError } = await supabase
+          .rpc("get_player_elo_history", { p_player_name: player.name });
+
+        if (!active) return;
+
+        if (historyFetchError) {
+          console.warn("Could not load ELO history", historyFetchError);
+          setHistoryError("Could not load ELO history. Please try again.");
+        } else {
+          const rows = history ?? [];
+          setHistoryData(rows);
+          setHistoryTotalDays(rows.length);
+        }
+      } catch (err) {
+        if (!active) return;
+        console.warn("Could not load ELO history", err);
+        setHistoryError("Could not load ELO history. Please try again.");
+      }
+    }
+    fetchHistoryPage();
+    return () => { active = false; };
+  }, [player?.name, historyPage, profileReload]);
 
   useEffect(() => {
     let active = true;
@@ -540,21 +585,53 @@ export default function Profile() {
         </section>
       )}
 
-      {/* Performance Graph Section - Fetches from player_history */}
+      {/* Performance Graph Section - Fetches paginated 30-day windows from player_history */}
       <section className="flex flex-col gap-3 mt-4">
         <h3 className="font-sans text-[24px] font-semibold text-on-surface uppercase tracking-tight">
           Performance History
         </h3>
         <div className="w-full bg-surface-container/30 backdrop-blur-[12px] border border-[#4d4353] rounded-xl p-6 h-[300px] flex flex-col relative overflow-hidden">
-          <div className="flex justify-between items-center mb-6">
+          <div className="flex flex-wrap justify-between items-center gap-3 mb-6">
             <span className="font-mono text-[12px] font-bold text-on-surface-variant uppercase tracking-widest">
-              Daily average ELO · Last 30 active days
+              Daily average ELO ·{" "}
+              {historyData.length > 0
+                ? `${eloDate.format(new Date(historyData[0].created_at))} – ${eloDate.format(new Date(historyData[historyData.length - 1].created_at))} (${historyData.length} ${historyData.length === 1 ? "day" : "days"})`
+                : `Up to ${historyDaysPerPage} active days`}
             </span>
-            <div className="flex gap-2 items-center">
-              <span className="w-2 h-2 rounded-full bg-[#9d4edd]"></span>
-              <span className="font-mono text-[14px] text-on-surface">
-                Daily average
-              </span>
+            <div className="flex items-center gap-4">
+              <div className="flex gap-2 items-center">
+                <span className="w-2 h-2 rounded-full bg-[#9d4edd]"></span>
+                <span className="font-mono text-[14px] text-on-surface">
+                  Daily average
+                </span>
+              </div>
+              {historyPages > 1 && (
+                <div className="flex items-center gap-2 font-mono text-xs text-zinc-400">
+                  <span className="tabular-nums">
+                    Window {historyPage} / {historyPages}
+                  </span>
+                  <button
+                    type="button"
+                    className="icon-button"
+                    aria-label="Older ELO history window"
+                    title="Older 30 active days"
+                    disabled={historyPage >= historyPages}
+                    onClick={() => setHistoryPage((p) => Math.min(historyPages, p + 1))}
+                  >
+                    <ChevronLeft size={15} />
+                  </button>
+                  <button
+                    type="button"
+                    className="icon-button"
+                    aria-label="Newer ELO history window"
+                    title="Newer 30 active days"
+                    disabled={historyPage <= 1}
+                    onClick={() => setHistoryPage((p) => Math.max(1, p - 1))}
+                  >
+                    <ChevronRight size={15} />
+                  </button>
+                </div>
+              )}
             </div>
           </div>
 
@@ -614,7 +691,12 @@ export default function Profile() {
                   />
                   <Tooltip
                     labelFormatter={value => eloDate.format(new Date(String(value)))}
-                    formatter={value => [value, "Average ELO"]}
+                    formatter={(value, _name, item) => [
+                      item?.payload?.matches
+                        ? `${value} (${item.payload.matches} ${item.payload.matches === 1 ? "match" : "matches"})`
+                        : value,
+                      "Average ELO",
+                    ]}
                     contentStyle={{
                       backgroundColor: "rgba(17, 17, 20, 0.9)",
                       border: "1px solid #4d4353",

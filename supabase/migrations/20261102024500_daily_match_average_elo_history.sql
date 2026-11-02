@@ -1,27 +1,80 @@
 -- Compute daily average ELO from the performance_score of all eligible matches
--- played on each Berlin calendar day (sum of match performance_score / match count).
+-- played on each Berlin calendar day (sum of match performance_score / match count),
+-- and expose paginated 30-day history windows from pre-aggregated player_history rows.
 begin;
 select pg_catalog.pg_advisory_xact_lock(1909, 1);
 lock table public.players, public.player_matches, public.player_history in share row exclusive mode;
 
--- Backfill existing daily rows in player_history with the exact per-day match average.
-update public.player_history h
-set elo = m.avg_elo,
-    elo_sum = m.total_score,
-    elo_samples = m.match_count
-from (
+create or replace function public._refresh_player_daily_history(p_names text[] default null)
+returns void language plpgsql security definer set search_path = '' as $$
+begin
+  perform pg_catalog.pg_advisory_xact_lock(1909, 1);
+
+  -- Insert missing (player_name, history_day) rows for eligible matches.
+  insert into public.player_history(player_name, elo, rank, created_at)
   select
-    player_name,
-    ((coalesce(played_at, created_at) at time zone 'Europe/Berlin')::date) as match_day,
-    round(avg(performance_score))::integer as avg_elo,
-    sum(performance_score)::numeric as total_score,
-    count(*)::bigint as match_count
-  from public.player_matches
-  where elo_weight > 0 and performance_score is not null
-  group by player_name, ((coalesce(played_at, created_at) at time zone 'Europe/Berlin')::date)
-) m
-where h.player_name = m.player_name
-  and h.history_day = m.match_day;
+    m.player_name,
+    m.performance_score,
+    coalesce(p.rank, 999999),
+    coalesce(m.played_at, m.created_at)
+  from public.player_matches m
+  join public.players p on p.name = m.player_name
+  where m.elo_weight > 0
+    and m.performance_score is not null
+    and (p_names is null or m.player_name = any(p_names))
+    and not exists (
+      select 1 from public.player_history h
+      where h.player_name = m.player_name
+        and h.history_day = ((coalesce(m.played_at, m.created_at) at time zone 'Europe/Berlin')::date)
+    );
+
+  -- Update all daily aggregates from player_matches (sum of performance_score / match count).
+  update public.player_history h
+  set elo = m.avg_elo,
+      elo_sum = m.total_score,
+      elo_samples = m.match_count
+  from (
+    select
+      player_name,
+      ((coalesce(played_at, created_at) at time zone 'Europe/Berlin')::date) as match_day,
+      round(avg(performance_score))::integer as avg_elo,
+      sum(performance_score)::numeric as total_score,
+      count(*)::bigint as match_count
+    from public.player_matches
+    where elo_weight > 0
+      and performance_score is not null
+      and (p_names is null or player_name = any(p_names))
+    group by player_name, ((coalesce(played_at, created_at) at time zone 'Europe/Berlin')::date)
+  ) m
+  where h.player_name = m.player_name
+    and h.history_day = m.match_day
+    and (h.elo is distinct from m.avg_elo or h.elo_sum is distinct from m.total_score or h.elo_samples is distinct from m.match_count);
+
+  -- Mark stale non-match history days with 0 samples for players whose history is backed by player_matches.
+  update public.player_history h
+  set elo_sum = 0,
+      elo_samples = 0
+  where (p_names is null or h.player_name = any(p_names))
+    and coalesce(h.elo_samples, 1) > 0
+    and exists (
+      select 1 from public.player_matches m2
+      where m2.player_name = h.player_name
+        and m2.elo_weight > 0
+        and m2.performance_score is not null
+    )
+    and not exists (
+      select 1 from public.player_matches m
+      where m.player_name = h.player_name
+        and m.elo_weight > 0
+        and m.performance_score is not null
+        and ((coalesce(m.played_at, m.created_at) at time zone 'Europe/Berlin')::date) = h.history_day
+    );
+end;
+$$;
+revoke all on function public._refresh_player_daily_history(text[]) from public, anon, authenticated, service_role;
+
+-- Backfill all existing players' daily history rows from player_matches.
+select public._refresh_player_daily_history();
 
 -- Record each imported eligible match's performance_score on its played_at day
 -- so player_history accumulates (sum of match scores) / (match count) per day.
@@ -106,44 +159,88 @@ $$;
 revoke all on function public.apply_match_import(bigint, jsonb, jsonb, jsonb, jsonb, text, text) from public, anon, authenticated;
 grant execute on function public.apply_match_import(bigint, jsonb, jsonb, jsonb, jsonb, text, text) to service_role;
 
--- Compute the latest 30 active days' average match ELO (sum of match performance_score / count)
--- directly from player_matches, with fallback to player_history when no match rows exist.
+-- Read the latest 30 active days from pre-aggregated player_history rows.
 create or replace function public.get_player_elo_history(p_player_name text)
 returns table(elo integer, created_at timestamptz)
 language sql stable security definer set search_path = '' as $$
-  with match_days as (
-    select
-      round(avg(m.performance_score))::integer as elo,
-      ((coalesce(m.played_at, m.created_at) at time zone 'Europe/Berlin')::date) as history_day
-    from public.player_matches m
-    where m.player_name = p_player_name
-      and m.elo_weight > 0
-      and m.performance_score is not null
-      and exists (select 1 from public.players p where p.name = m.player_name)
-    group by ((coalesce(m.played_at, m.created_at) at time zone 'Europe/Berlin')::date)
-  ),
-  fallback_days as (
+  select recent.elo, recent.history_day::timestamp at time zone 'Europe/Berlin'
+  from (
     select h.elo, h.history_day
     from public.player_history h
-    where not exists (select 1 from match_days)
-      and h.player_name = p_player_name
+    where h.player_name = p_player_name
       and h.elo is not null
       and h.history_day is not null
+      and coalesce(h.elo_samples, 1) > 0
       and exists (select 1 from public.players p where p.name = h.player_name)
-  ),
-  recent as (
-    select elo, history_day from match_days
-    union all
-    select elo, history_day from fallback_days
-    order by history_day desc
+    order by h.history_day desc
     limit 30
-  )
-  select recent.elo, recent.history_day::timestamp at time zone 'Europe/Berlin' as created_at
-  from recent
+  ) recent
   order by recent.history_day asc;
 $$;
 revoke all on function public.get_player_elo_history(text) from public;
 grant execute on function public.get_player_elo_history(text) to anon, authenticated;
+
+-- Paginated daily ELO history (30 active days per page by default) with match count per day.
+create or replace function public.get_player_elo_history_page(
+  p_player_name text,
+  p_limit integer default 30,
+  p_offset integer default 0
+)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = ''
+as $$
+declare
+  v_limit integer := greatest(1, least(coalesce(p_limit, 30), 90));
+  v_offset integer := greatest(0, coalesce(p_offset, 0));
+  v_total integer := 0;
+  v_days jsonb := '[]'::jsonb;
+begin
+  if not exists (select 1 from public.players p where p.name = p_player_name) then
+    return pg_catalog.jsonb_build_object('days', '[]'::jsonb, 'total_days', 0);
+  end if;
+
+  select count(*)::integer
+    into v_total
+  from public.player_history h
+  where h.player_name = p_player_name
+    and h.elo is not null
+    and h.history_day is not null
+    and coalesce(h.elo_samples, 1) > 0;
+
+  select coalesce(
+    pg_catalog.jsonb_agg(
+      pg_catalog.jsonb_build_object(
+        'elo', recent.elo,
+        'matches', coalesce(recent.elo_samples, 1),
+        'created_at', (recent.history_day::timestamp at time zone 'Europe/Berlin')
+      )
+      order by recent.history_day asc
+    ),
+    '[]'::jsonb
+  )
+  into v_days
+  from (
+    select h.elo, h.elo_samples, h.history_day
+    from public.player_history h
+    where h.player_name = p_player_name
+      and h.elo is not null
+      and h.history_day is not null
+      and coalesce(h.elo_samples, 1) > 0
+    order by h.history_day desc
+    limit v_limit offset v_offset
+  ) recent;
+
+  return pg_catalog.jsonb_build_object(
+    'days', v_days,
+    'total_days', v_total
+  );
+end;
+$$;
+revoke all on function public.get_player_elo_history_page(text, integer, integer) from public;
+grant execute on function public.get_player_elo_history_page(text, integer, integer) to anon, authenticated;
 
 notify pgrst, 'reload schema';
 commit;
