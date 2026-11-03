@@ -14,6 +14,16 @@ WIDOW HS is an Overwatch custom game, designed to measure your Widowmaker accura
 Join our official Discord community for events, feature updates, and to talk with other players!
 - [WIDOW HS Discord](https://discord.gg/pTHzBNSyEy)
 
+## Workshop mode
+The in-game mode is published on Workshop.codes as
+[Widow HS 2.0](https://workshop.codes/widowhs) (share code `TCG2W`). Its
+**Ranked mode** setting writes the match logs that the admin upload imports:
+one record per player still in the lobby when someone reaches the kill target.
+Changes to the logged columns must be made together with `upload-csv/parser.ts`.
+See [data flow](docs/architecture.md) for how logs reach the site.
+
+Planned work is tracked in [docs/briefs](docs/briefs/README.md).
+
 ## Technology
 This front-end is built using React, Vite, and Tailwind CSS. The backend connects to Supabase for an integrated database solution and Discord OAuth for authentication.
 
