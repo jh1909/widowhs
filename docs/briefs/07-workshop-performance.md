@@ -41,14 +41,28 @@ Workshop editor and publishes. 00's Workshop changes build on this branch.
 
 ## Testing
 
-- **Load:** a full lobby (dummy bots fill empty slots) for one complete
-  round on v3.4.1 and on v3.4.2, recording Average and Peak. The readings are
-  added to this brief.
+The script has two Testing settings, both off by default: **Show server
+load** and **Fill empty slots with bots**. Bots move, aim at a random living
+player, fire about once every three seconds and use the big HUD, the worst
+case for per-player texts. They are never added in Ranked mode.
+
+- **Load:** with both settings on, one complete round on the baseline
+  (commit "host server load display and test bots", v3.4.1 behaviour) and
+  one on v3.4.2, on the same map, recording Average and Peak. Note the lobby
+  size: the script does not set Max FFA Players, so the lobby's own limit
+  applies.
 - **Log format:** one ranked round on v3.4.2, uploaded through the existing
   importer. It must import exactly like a v3.4.1 log. A copy becomes a parser
   test fixture.
 - **Behaviour:** the HUD toggles, the #1 panel, AFK handling and the end
   scene work as before.
+
+## Readings
+
+| Version | Map | Players (bots) | Average | Peak |
+|---|---|---|---|---|
+| Baseline | | | | |
+| v3.4.2 | | | | |
 
 ## Out of scope
 
