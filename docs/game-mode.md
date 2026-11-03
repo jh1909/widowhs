@@ -11,9 +11,12 @@ removed after a further 60 seconds.
 The script is published on Workshop.codes as
 [Widow HS 2.0](https://workshop.codes/widowhs), share code `TCG2W`.
 Workshop.codes is its canonical home; changes are published there by its
-author. Lobby settings include HP, custom spawns, disabling crouching, the
-kill target, endless mode and **Ranked mode**, which forces 175 HP and writes
-the match log.
+author. A copy lives in `workshop/widowhs.ows` so changes are reviewed as
+diffs; the author pastes it into the Workshop editor to publish. Lobby
+settings include HP, custom spawns, disabling crouching, the kill target,
+endless mode and **Ranked mode**, which forces 175 HP and writes the match
+log. Two **Testing** settings, both off by default, show the host the server
+load and fill empty slots with bots (never in Ranked mode).
 
 ## The match log
 
