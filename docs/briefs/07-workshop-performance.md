@@ -3,7 +3,7 @@
 ## Goal
 
 Measure the Workshop script's server load and take the easy savings before
-[00](00-logging-and-ingest.md) and [03](03-conduct.md) add tracking. Nothing
+[00](00-logging-and-ingest.md) adds tracking. Nothing
 changes for players, and the match log format stays exactly as it is, so the
 site needs no change.
 
@@ -86,7 +86,7 @@ Ranked adds logging at the win.
 ## Out of scope
 
 - Anything visible to players beyond the host's optional load display.
-- Changes to logging (00) or the conduct rules (03).
+- Changes to logging (00).
 
 ## Done when
 

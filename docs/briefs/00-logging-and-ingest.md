@@ -47,18 +47,16 @@ which no player name can.
 | `#R` | round length, winner name | One per round |
 | `#P` | session, name, slot, start, end, status, kills, deaths, shots, hits, crouches, AFK seconds | One per session. Status: `0` present at end, `1` left, `2` kicked |
 | `#K` | kill codes, several per line | One code per kill: killer session × 100 + victim session. Ingest counts the pairs |
-| `#C` | name, rule, action, time | Conduct events from [03](03-conduct.md). Action: `afk`, `warn`, `kick`, `rekick` |
 
-Scope time and low-charge shots are not logged per player: [03](03-conduct.md)
-tracks them live for its rules and logs only its `#C` events. Lines longer than the Workshop string limit
-are split across several log calls. The script must stay within the
-Workshop element limit (commonly cited as 20,000); the editor shows the
-count.
+Scope time and low-charge shots are not logged. Lines longer than the
+Workshop string limit are split across several log calls. The script must
+stay within the Workshop element limit (commonly cited as 20,000); the
+editor shows the count.
 
 ## Workshop changes
 
-All stats are measured live from game events (shots, hits, kills, crouches,
-scope in and out), to the server tick. Nothing is sampled. The round is
+All stats are measured live from game events (shots, hits, kills,
+crouches), to the server tick. Nothing is sampled. The round is
 written to the log once, at match end; nothing is sent during the round.
 
 - **Sessions, not slots or names.** On `Player Joined Match`, append a new
@@ -92,7 +90,7 @@ written to the log once, at match end; nothing is sent during the round.
   "#1 Accuracy / Kills per min" HUD text instead of one per player, and
   recomputing the top-accuracy player once a second instead of on every
   shot.
-- At match end, write `#V`, `#R`, all `#P`, `#K` and `#C` lines.
+- At match end, write `#V`, `#R`, all `#P` and `#K` lines.
 
 ## Site changes
 
@@ -100,7 +98,7 @@ written to the log once, at match end; nothing is sent during the round.
   (`time_in_lobby = end − start`, accuracy from hits/shots, K/D and kills/min
   derived), so existing stats keep working.
 - **Storage:** new tables for raw logs (text, hash, filename, host,
-  uploaded at), player sessions, kill pairs and conduct events.
+  uploaded at), player sessions and kill pairs.
 - **Merging:** sessions with the same name and non-overlapping times in one
   round become one participation: kills, deaths, shots and time summed.
   Overlapping sessions with the same name are a name collision, handled by
@@ -125,7 +123,7 @@ written to the log once, at match end; nothing is sent during the round.
 
 ## Done when
 
-- A v2 round with a leaver, a rejoin, kill pairs and a conduct event imports
+- A v2 round with a leaver, a rejoin and kill pairs imports
   into the right tables, with the rejoin merged.
 - v1 files still import exactly as before; existing tests pass.
 - Uploading the same file twice changes nothing.

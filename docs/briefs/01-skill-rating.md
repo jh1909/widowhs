@@ -45,7 +45,7 @@ It served as the seed round and ends when SR launches.
     player's kills are pro-rated to the overlap. From v2 rounds the overlap is
     exact (session start and end, [00](00-logging-and-ingest.md)).
   - Leavers from v2 rounds count like anyone else, by their time present.
-  - Kicked sessions ([03](03-conduct.md)) are excluded.
+  - Kicked sessions (the existing ranked AFK kick) are excluded.
 - **Noise rounds.** AFK and messing-about rounds are excused in three layers,
   for everyone alike:
   1. Each pair's surprise (actual minus expected share) is capped, about
@@ -54,7 +54,7 @@ It served as the seed round and ends when SR launches.
   2. From v2 logs: AFK time is subtracted from time present, and sessions with
      almost no shots per minute count as not playing and are excluded,
      both ways. These judge effort, not score.
-  3. Kicked sessions are excluded ([03](03-conduct.md)).
+  3. Kicked sessions are excluded (the existing ranked AFK kick).
   Excusing each player's worst rounds by score is ruled out: it would hide
   real slumps, and unless opponents' wins were dropped too it would inflate
   every rating.

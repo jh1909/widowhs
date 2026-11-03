@@ -1,5 +1,10 @@
 # 03 · Conduct rules
 
+> **Status: rejected.** After discussion we decided that this is not
+> necessary at this point and that trolls can remain a revolving part of
+> player lobbies. The option is available in our back pocket for
+> establishing minimal standards if the need ever arises.
+
 ## Goal
 
 Remove players who are only there to obstruct others. Dodging, pressure and

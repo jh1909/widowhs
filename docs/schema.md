@@ -8,8 +8,7 @@ Players are keyed by `name`, as today; renames cascade.
 
 ## Ingest and rounds
 
-From [00](briefs/00-logging-and-ingest.md), [03](briefs/03-conduct.md) and
-[06](briefs/06-identity.md).
+From [00](briefs/00-logging-and-ingest.md) and [06](briefs/06-identity.md).
 
 ```mermaid
 erDiagram
@@ -20,7 +19,6 @@ erDiagram
   player_matches |o--|{ player_sessions : "merged from"
   player_sessions ||--o{ round_kill_pairs : "killer"
   player_sessions ||--o{ round_kill_pairs : "victim"
-  player_sessions ||--o{ conduct_events : "subject of"
   players ||--o{ player_matches : "plays"
 
   raw_logs {
@@ -81,14 +79,6 @@ erDiagram
     uuid killer_session_id FK
     uuid victim_session_id FK
     int kills
-  }
-  conduct_events {
-    uuid id PK
-    uuid round_id FK
-    uuid session_id FK
-    text rule "opportunistic_walkers / walkers / spammers"
-    text action "afk / warn / kick / rekick"
-    numeric at_s
   }
   players {
     text name PK
@@ -219,7 +209,6 @@ alone and is not drawn. `audit_logs`, `leaderboard_state` and
 | `rounds` | New, backfilled from existing `match_id` values | 00, 01, 06 |
 | `player_sessions` | New, backfilled from existing rows | 00, 06 |
 | `round_kill_pairs` | New, v2 rounds only | 00 |
-| `conduct_events` | New, v2 rounds only | 03 |
 | `player_matches` | `match_id` references `rounds`; new shot, scope, session and status columns; ELO weight kept for the seed round | 00 |
 | `player_ratings` | New; takes over `rank` | 01, 02 |
 | `rating_events` | New, one row per player per rated round | 01 |

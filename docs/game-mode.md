@@ -57,5 +57,5 @@ script:
 - Keep Inspector recording off during the round; turn it on only to write
   the log at match end.
 
-Planned script work: [07](briefs/07-workshop-performance.md),
-[00](briefs/00-logging-and-ingest.md) and [03](briefs/03-conduct.md).
+Planned script work: [07](briefs/07-workshop-performance.md) and
+[00](briefs/00-logging-and-ingest.md).
