@@ -2,7 +2,7 @@ settings
 {
 	main
 	{
-		Description: "WIDOWHS.COM\n\r\n\rChange HP in Workshop Settings.\n\rCustom spawns and no damage falloff.\n\rCompatible with every map.\n\rEnd scene on Castillo, Château Guillard, and Necropolis.\n\r\n\rv3.4.1 - more info on workshop.codes/widowhs\n\rCode: TCG2W"
+		Description: "WIDOWHS.COM\n\r\n\rChange HP in Workshop Settings.\n\rCustom spawns and no damage falloff.\n\rCompatible with every map.\n\rEnd scene on Castillo, Château Guillard, and Necropolis.\n\r\n\rv3.4.2 - more info on workshop.codes/widowhs\n\rCode: TCG2W"
 		Mode Name: "Widow HS 2.0"
 	}
 
@@ -96,6 +96,10 @@ variables
 		21: ranked
 		22: endTime
 		23: respawnQueue
+		24: testBots
+		25: bots
+		26: bot
+		27: botIndex
 
 	player:
 		0: startTime
@@ -126,6 +130,7 @@ variables
 		25: afkDeadline
 		26: afkHUD
 		27: afkReturn
+		28: botTarget
 }
 
 subroutines
@@ -163,6 +168,13 @@ rule("Global init")
 			Disable Built-In Game Mode Music;
 		End;
 		Global.targetHP = Global.ranked ? 175 : Array(Null, 175, 200, 225)[Global.healthSetting];
+		"testing only: bots are never added to a ranked match"
+		Global.testBots = !Global.ranked && Workshop Setting Toggle(Custom String("Testing"), Custom String(
+			"Fill empty slots with bots"), False, 1);
+		If(Workshop Setting Toggle(Custom String("Testing"), Custom String("Show server load"), False, 0));
+			Create HUD Text(Host Player, Null, Null, Custom String("Server load: {0}\nAverage (2s): {1}\nPeak (2s): {2}", Server Load,
+				Server Load Average, Server Load Peak), Right, 10, Null, Null, Color(Yellow), Visible To and String, Default Visibility);
+		End;
 		Wait Until(Is Game In Progress, 10);
 		Pause Match Time;
 		Set Match Time(False);
@@ -241,6 +253,16 @@ rule("Player init")
 		End;
 		If(Global.targetHP);
 			Big Message(Event Player, Custom String("{0} HP!", Round To Integer(Max Health(Event Player), To Nearest)));
+		End;
+		If(Is Dummy Bot(Event Player));
+			"test bots use the big HUD, the worst case for per-player texts"
+			Event Player.hudIndex = 1;
+			Call Subroutine(_destroyHUD);
+			Call Subroutine(_createBigHUD);
+			Start Holding Button(Event Player, Button(Secondary Fire));
+			Start Facing(Event Player, Direction Towards(Eye Position(Event Player), Eye Position(Event Player.botTarget)), 720, To World,
+				Direction and Turn Rate);
+			Start Throttle In Direction(Event Player, Forward, 1, To Player, Replace existing throttle, Direction and Magnitude);
 	}
 }
 
@@ -698,6 +720,41 @@ rule("Restart timer")
 			Wait(22, Ignore Condition);
 		End;
 		Restart Match;
+	}
+}
+
+rule("Test bots")
+{
+	event
+	{
+		Ongoing - Global;
+	}
+
+	conditions
+	{
+		Global.testBots == True;
+		Is Game In Progress == True;
+	}
+
+	actions
+	{
+		"fill empty slots, creation fails silently once the lobby is full"
+		For Global Variable(botIndex, 0, 12, 1);
+			Create Dummy Bot(Hero(Widowmaker), All Teams, -1, Position Of(Random Value In Array(Global.spawnPoints)), Vector(0, 0, 1));
+			Wait(0.250, Ignore Condition);
+		End;
+		"once a second each bot picks a target and fires about one time in three"
+		While(!Global.gameComplete);
+			Global.bots = Filtered Array(All Living Players(All Teams), Is Dummy Bot(Current Array Element));
+			For Global Variable(botIndex, 0, Count Of(Global.bots), 1);
+				Global.bot = Global.bots[Global.botIndex];
+				Global.bot.botTarget = Random Value In Array(Remove From Array(All Living Players(All Teams), Global.bot));
+				If(Random Integer(0, 2) == 0);
+					Press Button(Global.bot, Button(Primary Fire));
+				End;
+			End;
+			Wait(1, Ignore Condition);
+		End;
 	}
 }
 
