@@ -100,6 +100,9 @@ variables
 		25: bots
 		26: bot
 		27: botIndex
+		28: topKPM
+		29: topAccName
+		30: topKPMName
 
 	player:
 		0: startTime
@@ -177,8 +180,8 @@ rule("Global init")
 		End;
 		"one shared #1 panel for every player on the big HUD"
 		Create HUD Text(Filtered Array(All Players(All Teams), Current Array Element.hudIndex == 1), Null, Null, Custom String(
-			"#1 Accuracy:　{0}% by {1}\n#1 Kills / min:   {2}", Global.topAcc, Global.topAccPlayer, Custom String("{0} by {1}\n",
-			Global.topKPMPlayer.KPM, Global.topKPMPlayer)), Right, False, Null, Null, Color(Orange), Visible To and String,
+			"#1 Accuracy:　{0}% by {1}\n#1 Kills / min:   {2}", Global.topAcc, Global.topAccName, Custom String("{0} by {1}\n",
+			Global.topKPM, Global.topKPMName)), Right, False, Null, Null, Color(Orange), Visible To and String,
 			Default Visibility);
 		Wait Until(Is Game In Progress, 10);
 		Pause Match Time;
@@ -294,9 +297,6 @@ rule("Per player timer")
 		Event Player.playerTimeSecondsFormatted = Event Player.playerTimeSeconds >= 10 ? Event Player.playerTimeSeconds : Custom String(
 			"0{0}", Event Player.playerTimeSeconds);
 		Event Player.KPM = Score Of(Event Player) / (Event Player.playerTime / 60);
-		If(Event Player.KPM > Global.topKPMPlayer.KPM);
-			Global.topKPMPlayer = Event Player;
-		End;
 		If(!Global.gameComplete);
 			Wait(1 - Event Player.playerTime % 1, Ignore Condition);
 			Loop;
@@ -348,14 +348,65 @@ rule("Accuracy tracking")
 		Event Player.shots += 1;
 		Wait(False, Ignore Condition);
 		Event Player.acc = Event Player.hits / Event Player.shots * 100;
-		If(Event Player.acc > Global.topAcc);
-			Global.topAcc = Event Player.acc;
-			Global.topAccPlayer = Event Player;
-		Else If(Event Player == Global.topAccPlayer);
-			If(Is True For Any(All Players(All Teams), Current Array Element.acc > Event Player.acc));
-				Global.topAccPlayer = Last Of(Sorted Array(All Players(All Teams), Current Array Element.acc));
-			End;
-			Global.topAcc = Global.topAccPlayer.acc;
+	}
+}
+
+rule("Top stats")
+{
+	event
+	{
+		Ongoing - Global;
+	}
+
+	conditions
+	{
+		Is Game In Progress == True;
+		Global.gameComplete == False;
+	}
+
+	actions
+	{
+		"once a second during the match, Final top stats takes over at the win"
+		Wait(1, Abort When False);
+		"only players above zero, so the panel stays empty until someone hits or kills"
+		Global.topAccPlayer = Last Of(Sorted Array(Filtered Array(All Players(All Teams), Current Array Element.acc > 0),
+			Current Array Element.acc));
+		Global.topAcc = Global.topAccPlayer.acc;
+		Global.topKPMPlayer = Last Of(Sorted Array(Filtered Array(All Players(All Teams), Current Array Element.KPM > 0),
+			Current Array Element.KPM));
+		Global.topKPM = Global.topKPMPlayer.KPM;
+		"names are kept as text so a leader who leaves after the win stays on the panel"
+		Global.topAccName = Custom String("{0}", Global.topAccPlayer);
+		Global.topKPMName = Custom String("{0}", Global.topKPMPlayer);
+		Loop If Condition Is True;
+	}
+}
+
+rule("Final top stats")
+{
+	event
+	{
+		Ongoing - Global;
+	}
+
+	conditions
+	{
+		Global.gameComplete == True;
+	}
+
+	actions
+	{
+		"fix the result at the win, after the winning shot's accuracy update"
+		Wait(0.048, Ignore Condition);
+		Global.topAccPlayer = Last Of(Sorted Array(Filtered Array(All Players(All Teams), Current Array Element.acc > 0),
+			Current Array Element.acc));
+		Global.topAcc = Global.topAccPlayer.acc;
+		"kills per minute from the end time, the same value each player's timer logs"
+		Global.topKPMPlayer = Last Of(Sorted Array(Filtered Array(All Players(All Teams), Score Of(Current Array Element) > 0), Score Of(
+			Current Array Element) / ((Global.endTime - Current Array Element.startTime) / 60)));
+		Global.topKPM = Score Of(Global.topKPMPlayer) / ((Global.endTime - Global.topKPMPlayer.startTime) / 60);
+		Global.topAccName = Custom String("{0}", Global.topAccPlayer);
+		Global.topKPMName = Custom String("{0}", Global.topKPMPlayer);
 	}
 }
 
@@ -604,13 +655,6 @@ rule("Player leaves")
 		"remove leaver from respawn queue"
 		If(Global.spawnToggle);
 			Modify Global Variable(respawnQueue, Remove From Array By Value, Event Player);
-		End;
-		If(Event Player == Global.topAccPlayer);
-			Global.topAccPlayer = Last Of(Sorted Array(All Players(All Teams), Current Array Element.acc));
-			Global.topAcc = Global.topAccPlayer.acc;
-		End;
-		If(Event Player == Global.topKPMPlayer);
-			Global.topKPMPlayer = Last Of(Sorted Array(All Players(All Teams), Current Array Element.KPM));
 		End;
 		If(Event Player == Global.winner);
 			Declare Player Victory(Last Of(Sorted Array(All Players(All Teams), Score Of(Current Array Element))));
