@@ -2,7 +2,7 @@ settings
 {
 	main
 	{
-		Description: "WIDOWHS.COM\n\r\n\rChange HP in Workshop Settings.\n\rCustom spawns and no damage falloff.\n\rCompatible with every map.\n\rEnd scene on Castillo, Château Guillard, and Necropolis.\n\r\n\rv3.4.2 - more info on workshop.codes/widowhs\n\rCode: TCG2W"
+		Description: "WIDOWHS.COM\n\r\n\rChange HP in Workshop Settings.\n\rCustom spawns and no damage falloff.\n\rCompatible with every map.\n\rEnd scene on Castillo, Château Guillard, and Necropolis.\n\r\n\rv3.5.0 - more info on workshop.codes/widowhs\n\rCode: TCG2W"
 		Mode Name: "Widow HS 2.0"
 	}
 
@@ -104,6 +104,26 @@ variables
 		29: topAccName
 		30: topKPMName
 		31: bigHUDPlayers
+		32: roundStart
+		33: sessionCount
+		34: sessionPlayer
+		35: sessionName
+		36: sessionSlot
+		37: sessionStart
+		38: sessionEnd
+		39: sessionStatus
+		40: sessionKills
+		41: sessionDeaths
+		42: sessionShots
+		43: sessionHits
+		44: sessionCrouches
+		45: sessionAfk
+		46: sessionAfkStart
+		47: killCodes
+		48: winnerSession
+		49: leftSessions
+		50: logSession
+		51: logIndex
 
 	player:
 		0: startTime
@@ -135,6 +155,7 @@ variables
 		26: afkHUD
 		27: afkReturn
 		28: botTarget
+		29: session
 }
 
 subroutines
@@ -172,6 +193,8 @@ rule("Global init")
 			Disable Built-In Game Mode Music;
 		End;
 		Global.targetHP = Global.ranked ? 175 : Array(Null, 175, 200, 225)[Global.healthSetting];
+		"match time zero for the log, the offset the v1 log used for the round length"
+		Global.roundStart = 7.020;
 		"testing only: bots are never added to a ranked match"
 		Global.testBots = !Global.ranked && Workshop Setting Toggle(Custom String("Testing"), Custom String(
 			"Fill empty slots with bots"), False, 1);
@@ -252,6 +275,13 @@ rule("Player init")
 		End;
 		"1s offset to match built in timer"
 		Event Player.startTime = Total Time Elapsed - 1;
+		"each join opens a new session that is never reused; stats are written to it as they change, so a leaver keeps them"
+		Global.sessionCount += 1;
+		Event Player.session = Global.sessionCount;
+		Global.sessionPlayer[Event Player.session] = Event Player;
+		Global.sessionName[Event Player.session] = Custom String("{0}", Event Player);
+		Global.sessionSlot[Event Player.session] = Slot Of(Event Player);
+		Global.sessionStart[Event Player.session] = Max(0, Event Player.startTime - Global.roundStart);
 		If(Event Player.hudIndex != 2);
 			Call Subroutine(_createSmallHUD);
 		End;
@@ -302,12 +332,6 @@ rule("Per player timer")
 		If(!Global.gameComplete);
 			Wait(1 - Event Player.playerTime % 1, Ignore Condition);
 			Loop;
-		End;
-		If(Global.ranked && Event Player.playerTime >= 0);
-			Log To Inspector(Custom String("{0},{1},{2}", Custom String("{0},{1},{2}", Event Player, Score Of(Event Player), Player Stat(
-				Event Player, Deaths)), Custom String("{0},{1},{2}", Event Player.acc, Event Player.KPM, Event Player.KD), Custom String(
-				"{0},{1},{2}", Event Player.crouched, Round To Integer(Global.endTime - Event Player.startTime, Down), Round To Integer(
-				Global.endTime - 7.020, Down))));
 	}
 }
 
@@ -328,6 +352,7 @@ rule("Crouch counter")
 	actions
 	{
 		Event Player.crouched += 1;
+		Global.sessionCrouches[Event Player.session] = Event Player.crouched;
 	}
 }
 
@@ -348,6 +373,7 @@ rule("Accuracy tracking")
 	actions
 	{
 		Event Player.shots += 1;
+		Global.sessionShots[Event Player.session] = Event Player.shots;
 		Wait(False, Ignore Condition);
 		Event Player.acc = Event Player.hits / Event Player.shots * 100;
 	}
@@ -424,6 +450,7 @@ rule("On hit")
 	actions
 	{
 		Event Player.hits += 1;
+		Global.sessionHits[Event Player.session] = Event Player.hits;
 		If(Is Alive(Victim));
 			Event Player.dist = Distance Between(Position Of(Event Player), Position Of(Victim));
 			If(Event Player.dist > 50);
@@ -450,6 +477,11 @@ rule("On kill")
 	{
 		Set Player Health(Event Player, Max Health(Event Player));
 		Modify Player Score(Event Player, 1);
+		Global.sessionKills[Event Player.session] = Score Of(Event Player);
+		"one code per kill, killer session x 100 + victim session; codes need both sessions between 1 and 99"
+		If(Event Player.session && Victim.session && Event Player.session < 100 && Victim.session < 100);
+			Modify Global Variable(killCodes, Append To Array, Event Player.session * 100 + Victim.session);
+		End;
 		Event Player.currentKS += 1;
 		Event Player.KD = Score Of(Event Player) / Max(Player Hero Stat(Event Player, Hero(Widowmaker), Deaths), 1);
 		If(Event Player.currentKS % 10 == 0);
@@ -502,7 +534,9 @@ rule("On death")
 		End;
 		If(Event Was Environment && Attacker == Event Player && Score Of(Event Player) > 0);
 			Modify Player Score(Event Player, -1);
+			Global.sessionKills[Event Player.session] = Score Of(Event Player);
 		End;
+		Global.sessionDeaths[Event Player.session] += 1;
 		Event Player.currentKS = 0;
 		Event Player.KD = Score Of(Event Player) / Max(Player Hero Stat(Event Player, Hero(Widowmaker), Deaths), 1);
 		If(Global.spawnToggle);
@@ -540,6 +574,7 @@ rule("AFK enter")
 		Wait(15, Abort When False);
 		Wait Until(Has Spawned(Event Player) && Is Alive(Event Player), 5);
 		Event Player.afk = True;
+		Global.sessionAfkStart[Event Player.session] = Total Time Elapsed;
 		Set Status(Event Player, Null, Phased Out, 9999);
 		Set Invisible(Event Player, All);
 		Set Gravity(Event Player, 0);
@@ -558,6 +593,8 @@ rule("AFK enter")
 			Event Player.afkHUD[1] = Last Text ID;
 			Wait Until(!Event Player.afk, 60);
 			If(Event Player.afk && !Global.gameComplete);
+				"2: kicked, kept when Player leaves closes the session"
+				Global.sessionStatus[Event Player.session] = 2;
 				Remove Player(Event Player);
 	}
 }
@@ -583,6 +620,8 @@ rule("AFK return")
 		Destroy HUD Text(First Of(Event Player.afkHUD));
 		Destroy HUD Text(Event Player.afkHUD[1]);
 		Event Player.afk = False;
+		Global.sessionAfk[Event Player.session] += Total Time Elapsed - Global.sessionAfkStart[Event Player.session];
+		Global.sessionAfkStart[Event Player.session] = 0;
 		Event Player.afkReturn = True;
 		If(Global.spawnToggle);
 			Global.respawnQueue = Append To Array(Global.respawnQueue, Event Player);
@@ -659,6 +698,22 @@ rule("Player leaves")
 			Modify Global Variable(respawnQueue, Remove From Array By Value, Event Player);
 		End;
 		Modify Global Variable(bigHUDPlayers, Remove From Array By Value, Event Player);
+		"close the open sessions whose player is gone; after the win, Match log closes them as present"
+		If(!Global.gameComplete);
+			Global.leftSessions = Filtered Array(Mapped Array(Global.sessionPlayer, Current Array Index),
+				Global.sessionPlayer[Current Array Element] != Null && (Global.sessionPlayer[Current Array Element] == Event Player || !Array Contains(
+				All Players(All Teams), Global.sessionPlayer[Current Array Element])));
+			For Global Variable(logIndex, 0, Count Of(Global.leftSessions), 1);
+				Global.logSession = Global.leftSessions[Global.logIndex];
+				Global.sessionEnd[Global.logSession] = Total Time Elapsed - Global.roundStart;
+				"1: left, unless the AFK kick marked it 2: kicked"
+				Global.sessionStatus[Global.logSession] = Max(Global.sessionStatus[Global.logSession], 1);
+				If(Global.sessionAfkStart[Global.logSession]);
+					Global.sessionAfk[Global.logSession] += Total Time Elapsed - Global.sessionAfkStart[Global.logSession];
+				End;
+				Global.sessionPlayer[Global.logSession] = Null;
+			End;
+		End;
 		If(Event Player == Global.winner);
 			Declare Player Victory(Last Of(Sorted Array(All Players(All Teams), Score Of(Current Array Element))));
 	}
@@ -683,6 +738,7 @@ rule("Match completion")
 	actions
 	{
 		Global.endTime = Total Time Elapsed;
+		Global.winnerSession = Event Player.session;
 		If(Global.ranked);
 			Enable Inspector Recording;
 		End;
@@ -712,6 +768,54 @@ rule("Match completion")
 			Wait(6, Ignore Condition);
 		End;
 		Declare Player Victory(Event Player);
+	}
+}
+
+rule("Match log")
+{
+	event
+	{
+		Ongoing - Global;
+	}
+
+	conditions
+	{
+		Global.ranked == True;
+		Global.gameComplete == True;
+	}
+
+	actions
+	{
+		"v2 log, docs/workshop-log-format.md: written once, after the winning kill's stats as in Final top stats"
+		Wait(0.048, Ignore Condition);
+		Log To Inspector(Custom String("#V,2,3.5.0"));
+		Log To Inspector(Custom String("#R,{0},{1}", Global.endTime - Global.roundStart, Global.sessionName[Global.winnerSession]));
+		For Global Variable(logIndex, 1, Global.sessionCount + 1, 1);
+			"sessions still open were present at the end"
+			If(Global.sessionPlayer[Global.logIndex] != Null);
+				Global.sessionEnd[Global.logIndex] = Global.endTime - Global.roundStart;
+				If(Global.sessionAfkStart[Global.logIndex]);
+					Global.sessionAfk[Global.logIndex] += Global.endTime - Global.sessionAfkStart[Global.logIndex];
+				End;
+			End;
+			Log To Inspector(Custom String("#P,{0},{1},{2}", Custom String("{0},{1},{2}", Global.logIndex, Global.sessionName[Global.logIndex],
+				Global.sessionSlot[Global.logIndex]), Custom String("{0},{1},{2}", Global.sessionStart[Global.logIndex],
+				Global.sessionEnd[Global.logIndex], Global.sessionStatus[Global.logIndex]), Custom String("{0},{1}", Custom String(
+				"{0},{1},{2}", Global.sessionKills[Global.logIndex], Global.sessionDeaths[Global.logIndex], Global.sessionShots[Global.logIndex]),
+				Custom String("{0},{1},{2}", Global.sessionHits[Global.logIndex], Global.sessionCrouches[Global.logIndex],
+				Global.sessionAfk[Global.logIndex]))));
+		End;
+		"ten codes per line; pad with 0, which is never a real code"
+		While(Count Of(Global.killCodes) % 10);
+			Modify Global Variable(killCodes, Append To Array, 0);
+		End;
+		For Global Variable(logIndex, 0, Count Of(Global.killCodes), 10);
+			Log To Inspector(Custom String("#K,{0},{1}", Custom String("{0},{1},{2}", Custom String("{0},{1},{2}", Global.killCodes[Global.logIndex],
+				Global.killCodes[Global.logIndex + 1], Global.killCodes[Global.logIndex + 2]), Custom String("{0},{1},{2}",
+				Global.killCodes[Global.logIndex + 3], Global.killCodes[Global.logIndex + 4], Global.killCodes[Global.logIndex + 5]),
+				Custom String("{0},{1},{2}", Global.killCodes[Global.logIndex + 6], Global.killCodes[Global.logIndex + 7],
+				Global.killCodes[Global.logIndex + 8])), Global.killCodes[Global.logIndex + 9]));
+		End;
 	}
 }
 
