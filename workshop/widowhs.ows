@@ -103,6 +103,7 @@ variables
 		28: topKPM
 		29: topAccName
 		30: topKPMName
+		31: bigHUDPlayers
 
 	player:
 		0: startTime
@@ -178,8 +179,8 @@ rule("Global init")
 			Create HUD Text(Host Player, Null, Null, Custom String("Server load: {0}\nAverage (2s): {1}\nPeak (2s): {2}", Server Load,
 				Server Load Average, Server Load Peak), Right, 10, Null, Null, Color(Yellow), Visible To and String, Default Visibility);
 		End;
-		"one shared #1 panel for every player on the big HUD"
-		Create HUD Text(Filtered Array(All Players(All Teams), Current Array Element.hudIndex == 1), Null, Null, Custom String(
+		"one shared #1 panel for every player on the big HUD, kept in bigHUDPlayers"
+		Create HUD Text(Global.bigHUDPlayers, Null, Null, Custom String(
 			"#1 Accuracy:　{0}% by {1}\n#1 Kills / min:   {2}", Global.topAcc, Global.topAccName, Custom String("{0} by {1}\n",
 			Global.topKPM, Global.topKPMName)), Right, False, Null, Null, Color(Orange), Visible To and String,
 			Default Visibility);
@@ -265,6 +266,7 @@ rule("Player init")
 		If(Is Dummy Bot(Event Player));
 			"test bots use the big HUD, the worst case for per-player texts"
 			Event Player.hudIndex = 1;
+			Modify Global Variable(bigHUDPlayers, Append To Array, Event Player);
 			Call Subroutine(_destroyHUD);
 			Call Subroutine(_createBigHUD);
 			Start Holding Button(Event Player, Button(Secondary Fire));
@@ -656,6 +658,7 @@ rule("Player leaves")
 		If(Global.spawnToggle);
 			Modify Global Variable(respawnQueue, Remove From Array By Value, Event Player);
 		End;
+		Modify Global Variable(bigHUDPlayers, Remove From Array By Value, Event Player);
 		If(Event Player == Global.winner);
 			Declare Player Victory(Last Of(Sorted Array(All Players(All Teams), Score Of(Current Array Element))));
 	}
@@ -833,8 +836,10 @@ rule("HUD toggles")
 			Else If(Event Player.hudIndex == 1);
 				Small Message(Event Player, Custom String("Big stats"));
 				Call Subroutine(_createBigHUD);
+				Modify Global Variable(bigHUDPlayers, Append To Array, Event Player);
 			Else If(Event Player.hudIndex == 2);
 				Small Message(Event Player, Custom String("Stats off"));
+				Modify Global Variable(bigHUDPlayers, Remove From Array By Value, Event Player);
 			End;
 		Else If(Is Button Held(Event Player, Button(Ability 2)));
 			If(!Event Player.killfeedToggle);
