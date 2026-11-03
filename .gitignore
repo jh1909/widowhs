@@ -6,3 +6,8 @@ coverage/
 *.log
 .env*
 !.env.example
+
+# Host PC uploader config and state
+tools/uploader/uploader.json
+tools/uploader/uploader-state.json
+tools/uploader/uploader-state.tmp
