@@ -175,6 +175,11 @@ rule("Global init")
 			Create HUD Text(Host Player, Null, Null, Custom String("Server load: {0}\nAverage (2s): {1}\nPeak (2s): {2}", Server Load,
 				Server Load Average, Server Load Peak), Right, 10, Null, Null, Color(Yellow), Visible To and String, Default Visibility);
 		End;
+		"one shared #1 panel for every player on the big HUD"
+		Create HUD Text(Filtered Array(All Players(All Teams), Current Array Element.hudIndex == 1), Null, Null, Custom String(
+			"#1 Accuracy:　{0}% by {1}\n#1 Kills / min:   {2}", Global.topAcc, Global.topAccPlayer, Custom String("{0} by {1}\n",
+			Global.topKPMPlayer.KPM, Global.topKPMPlayer)), Right, False, Null, Null, Color(Orange), Visible To and String,
+			Default Visibility);
 		Wait Until(Is Game In Progress, 10);
 		Pause Match Time;
 		Set Match Time(False);
@@ -893,10 +898,6 @@ rule("Big HUD")
 			Event Player.currentKS, Event Player.KD, !Global.crouchToggle ? Custom String("\nCrouched:    {0}", Event Player.crouched)
 			: Custom String("")))), Left, False, Null, Null, Color(Green), String, Default Visibility);
 		Event Player.hudID[1] = Last Text ID;
-		Create HUD Text(Event Player, Null, Null, Custom String("#1 Accuracy:　{0}% by {1}\n#1 Kills / min:   {2}", Global.topAcc,
-			Global.topAccPlayer, Custom String("{0} by {1}\n", Global.topKPMPlayer.KPM, Global.topKPMPlayer)), Right, False, Null, Null,
-			Color(Orange), String, Default Visibility);
-		Event Player.hudID[2] = Last Text ID;
 	}
 }
 
