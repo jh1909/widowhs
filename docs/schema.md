@@ -49,6 +49,7 @@ erDiagram
     uuid id PK
     uuid round_id FK
     uuid participation_id FK "null while quarantined"
+    int session_no "v2: unique per round, never reused"
     text logged_name
     int slot "v2 only"
     numeric start_s
@@ -59,9 +60,8 @@ erDiagram
     int deaths
     int shots
     int hits
-    numeric scoped_seconds
-    int low_charge_shots
     int crouches
+    numeric afk_seconds
   }
   player_matches {
     bigint id PK
@@ -72,8 +72,7 @@ erDiagram
     text status "NEW: present / left / kicked"
     int shots "NEW"
     int hits "NEW"
-    numeric scoped_seconds "NEW"
-    int low_charge_shots "NEW"
+    numeric afk_seconds "NEW"
     numeric elo_weight "seed round"
     numeric performance_score "seed round"
   }
