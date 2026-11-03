@@ -258,6 +258,13 @@ rule("Player init")
 
 	actions
 	{
+		"each join opens a new session at once, never reused; stats are written to it as they change, so a leaver keeps them"
+		Global.sessionCount += 1;
+		Event Player.session = Global.sessionCount;
+		Global.sessionPlayer[Event Player.session] = Event Player;
+		Global.sessionName[Event Player.session] = Custom String("{0}", Event Player);
+		Global.sessionSlot[Event Player.session] = Slot Of(Event Player);
+		Global.sessionStart[Event Player.session] = Max(0, Total Time Elapsed - 1 - Global.roundStart);
 		Wait Until(Has Spawned(Event Player), 10);
 		If(Global.spawnToggle);
 			Event Player.lastSpawn = Position Of(Event Player);
@@ -275,12 +282,7 @@ rule("Player init")
 		End;
 		"1s offset to match built in timer"
 		Event Player.startTime = Total Time Elapsed - 1;
-		"each join opens a new session that is never reused; stats are written to it as they change, so a leaver keeps them"
-		Global.sessionCount += 1;
-		Event Player.session = Global.sessionCount;
-		Global.sessionPlayer[Event Player.session] = Event Player;
-		Global.sessionName[Event Player.session] = Custom String("{0}", Event Player);
-		Global.sessionSlot[Event Player.session] = Slot Of(Event Player);
+		"the session's time starts with the player's timer, as time in lobby did in v1"
 		Global.sessionStart[Event Player.session] = Max(0, Event Player.startTime - Global.roundStart);
 		If(Event Player.hudIndex != 2);
 			Call Subroutine(_createSmallHUD);
