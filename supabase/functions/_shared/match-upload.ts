@@ -1,3 +1,5 @@
+import type { MatchSource } from "./log-ingest.ts";
+
 export function validateMatchFile(file: Pick<File, "name" | "size">): void {
   if (!/\.(csv|txt)$/i.test(file.name)) {
     throw new Error(`${file.name}: please select a CSV or TXT file.`);
@@ -30,9 +32,10 @@ export function matchDateFromFilename(name: string): string | null {
   return `${match[1]}-${match[2]}-${match[3]}T${match[4]}:${match[5]}:${match[6]}`;
 }
 
-export async function readMatchSources(request: Request): Promise<{ name: string; text: string; played_at: string | null }[]> {
+// The uploader names its host PC in a `host` form field; browser uploads have none.
+export async function readMatchSources(request: Request): Promise<MatchSource[]> {
   if (!(request.headers.get("content-type") || "").includes("multipart/form-data")) {
-    return [{ name: "Request body", text: await request.text(), played_at: null }];
+    return [{ name: "Request body", text: await request.text(), played_at: null, host_name: null }];
   }
   const form = await request.formData();
   const files = form.getAll("file");
@@ -42,9 +45,11 @@ export async function readMatchSources(request: Request): Promise<{ name: string
   // Validate every file before reading or processing any match statistics.
   const uploads = files as File[];
   uploads.forEach(validateMatchFile);
-  const sources = [];
+  const host = form.get("host");
+  const host_name = typeof host === "string" && host.trim() ? host.trim().slice(0, 64) : null;
+  const sources: MatchSource[] = [];
   for (const file of uploads) {
-    sources.push({ name: file.name, text: await file.text(), played_at: matchDateFromFilename(file.name) });
+    sources.push({ name: file.name, text: await file.text(), played_at: matchDateFromFilename(file.name), host_name });
   }
   return sources;
 }

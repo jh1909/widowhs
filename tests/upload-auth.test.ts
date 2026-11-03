@@ -4,9 +4,10 @@ import { readFile } from "node:fs/promises";
 import { runInNewContext } from "node:vm";
 import { transform } from "esbuild";
 import Papa from "papaparse";
-import { normalizeMatchLog, parseMatchRows } from "../supabase/functions/upload-csv/parser.ts";
-import { readMatchSources, assignMatchId } from "../supabase/functions/_shared/match-upload.ts";
+import { normalizeMatchLog } from "../supabase/functions/upload-csv/parser.ts";
+import { readMatchSources } from "../supabase/functions/_shared/match-upload.ts";
 import { buildMatchImport } from "../supabase/functions/_shared/import-stats.ts";
+import { prepareRound, sha256Hex } from "../supabase/functions/_shared/log-ingest.ts";
 
 test("upload endpoint requires an automation key or a validated admin session", async t => {
   const source = await readFile(new URL("../supabase/functions/upload-csv/index.ts", import.meta.url), "utf8");
@@ -16,14 +17,17 @@ test("upload endpoint requires an automation key or a validated admin session", 
   let admin = false;
   let authenticated = false;
   let written: any = null;
+  let storedHashes: string[] = [];
   const client = {
     auth: { getUser: async (token: string) => ({ data: { user: authenticated && token === "valid-token" ? { id: "actor" } : null }, error: null }) },
     from: (table: string) => {
       let adminQuery = false;
       const result = () => ({ data: table === "leaderboard_state" ? { revision: 0 }
-        : table === "players" && adminQuery && admin ? [{ name: "Admin" }] : [], error: null });
+        : table === "players" && adminQuery && admin ? [{ name: "Admin" }]
+        : table === "raw_logs" ? storedHashes.map(sha256 => ({ sha256 })) : [], error: null });
       const query: any = { select: () => query, eq: (field: string) => { if (field === "is_admin") adminQuery = true; return query; },
-        order: () => query, range: async () => result(), limit: async () => result(), single: async () => result() };
+        order: () => query, range: async () => result(), limit: async () => result(), single: async () => result(),
+        in: async () => result() };
       return query;
     },
     rpc: async (_name: string, payload: unknown) => { written = payload; return { error: null }; },
@@ -31,7 +35,7 @@ test("upload endpoint requires an automation key or a validated admin session", 
   runInNewContext(code, {
     serve: (callback: typeof handler) => { handler = callback; }, createClient: () => client,
     Deno: { env: { get: (name: string) => name === "ADMIN_API_KEY" ? key : "test-env" } },
-    normalizeMatchLog, parseMatchRows, readMatchSources, assignMatchId, buildMatchImport, Papa,
+    normalizeMatchLog, readMatchSources, prepareRound, buildMatchImport, Papa,
     Response, console, setTimeout: (fn: () => void) => fn(),
   });
   const request = (headers: Record<string, string> = {}) => new Request("https://example.test/upload", {
@@ -62,6 +66,28 @@ test("upload endpoint requires an automation key or a validated admin session", 
     authenticated = false; admin = false; key = "test-key"; written = null;
     assert.equal((await handler(request({ "x-api-key": key }))).status, 200);
     assert.equal(written.p_matches.length, 1);
+  });
+  await t.test("the raw log is sent with the round, and a stored hash changes nothing", async () => {
+    written = null;
+    const body = "NewPlayer,50,10,60,20,5,120,149,160";
+    const response = await handler(request({ "x-api-key": "test-key" }));
+    assert.equal(written.p_raw_logs.length, 1);
+    assert.equal(written.p_raw_logs[0].text, body);
+    assert.equal(written.p_raw_logs[0].sha256, await sha256Hex(body));
+    assert.equal(written.p_raw_logs[0].match_id, written.p_matches[0].match_id);
+    assert.deepEqual((await response.json()).already_imported, []);
+    written = null;
+    storedHashes = [await sha256Hex(body)];
+    try {
+      const repeat = await handler(request({ "x-api-key": "test-key" }));
+      assert.equal(repeat.status, 200);
+      const result = await repeat.json();
+      assert.deepEqual(result.already_imported, ["Request body"]);
+      assert.match(result.message, /already imported/);
+      assert.equal(written, null);
+    } finally {
+      storedHashes = [];
+    }
   });
   await t.test("CORS preflight stays available without authentication", async () => {
     assert.equal((await handler(new Request("https://example.test/upload", { method: "OPTIONS" }))).status, 200);
