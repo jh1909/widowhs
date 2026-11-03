@@ -59,10 +59,21 @@ case for per-player texts. They are never added in Ranked mode.
 
 ## Readings
 
-| Version | Map | Players (bots) | Average | Peak |
-|---|---|---|---|---|
-| Baseline | | | | |
-| v3.4.2 | | | | |
+One round each on Necropolis, 12 players (11 bots and the host), Ranked
+off, readings by eye from the host's load display. Server ping is noted
+because the game server varies between lobbies.
+
+| Version | Server | Average | Peak |
+|---|---|---|---|
+| Baseline | 160 ms | 30–40 | Mostly 60–80; 108 mid-match, about 115 after the win |
+| v3.4.2 | 160 ms | 20–40 | Up to about 70, a few in the 90s; highest 99, mid-match |
+| v3.4.2 | 115 ms | 30–50 | Up to about 110 mid-match |
+| v3.4.2 | 60 ms | 50–70 | Often 120–150, once about 210 |
+
+On the same server, v3.4.2 is no worse on Average and lower on Peak, and
+stays under 100. Load varies more between servers than between versions, so
+only same-server readings are compared. Ranked mode was not measured: bots
+are off in Ranked, and Ranked adds logging at the win.
 
 ## Out of scope
 
