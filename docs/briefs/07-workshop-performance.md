@@ -69,11 +69,19 @@ because the game server varies between lobbies.
 | v3.4.2 | 160 ms | 20–40 | Up to about 70, a few in the 90s; highest 99, mid-match |
 | v3.4.2 | 115 ms | 30–50 | Up to about 110 mid-match |
 | v3.4.2 | 60 ms | 50–70 | Often 120–150, once about 210 |
+| v3.4.2, final | 160 ms | 20–40 | Rarely above 80, at times down to 30–40 |
+| v3.4.2, final | 60 ms | High | Never below 100 |
 
-On the same server, v3.4.2 is no worse on Average and lower on Peak, and
-stays under 100. Load varies more between servers than between versions, so
-only same-server readings are compared. Ranked mode was not measured: bots
-are off in Ranked, and Ranked adds logging at the win.
+"v3.4.2, final" adds a stored list of big-HUD players for the shared panel.
+
+On the 160 ms server, the only one measured on both versions, v3.4.2 is no
+worse on Average and its peaks were lower: usually at or below about 80 for
+the final version, against spikes of 108 and 115 on the baseline. No exact
+maximum was recorded for the final version. On the 60 ms server v3.4.2
+still peaked above 100 throughout; there is no baseline there, so it shows
+that load varies more between servers than between versions, not how the
+versions compare. Ranked mode was not measured: bots are off in Ranked, and
+Ranked adds logging at the win.
 
 ## Out of scope
 
