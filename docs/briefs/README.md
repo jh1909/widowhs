@@ -6,7 +6,7 @@ the scope and how we know it is done. Update the status here as work moves.
 | # | Brief | Size | Depends on | Status |
 |---|---|---|---|---|
 | 07 | [Workshop performance](07-workshop-performance.md) | Small | — | In testing |
-| 00 | [Logging and ingest pipeline](00-logging-and-ingest.md) | Medium | 07 | Drafted |
+| 00 | [Logging and ingest pipeline](00-logging-and-ingest.md) | Medium | 07 | In testing |
 | 01 | [Skill rating (SR)](01-skill-rating.md) | Large | 00 improves it, not required | Drafted |
 | 02 | [Rating decay](02-rating-decay.md) | Small | 01 | Drafted |
 | 03 | [Conduct rules](03-conduct.md) | Medium | 00 | Rejected |

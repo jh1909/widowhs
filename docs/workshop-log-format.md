@@ -1,0 +1,94 @@
+# Workshop log format
+
+The match log is the contract between the Workshop script and the site
+([AGENTS.md](../AGENTS.md#rules-that-hold-it-together), rule 3). One file is
+one round. The parser is `supabase/functions/upload-csv/parser.ts`; ingest
+(merging rejoins, hashing) is `supabase/functions/_shared/log-ingest.ts`.
+
+Overwatch writes each `Log To Inspector` call as one line, prefixed with the
+time of day (`[20:15:09] `), to `Log-YYYY-MM-DD-HH-MM-SS.txt` in the Workshop
+log folder. The site reads the round's date from the file name as Berlin time
+and strips the prefixes.
+
+**v2** was introduced by Workshop script **v3.5.0**. Files whose first line is
+`#V` are v2; any other file is read as v1. Both are supported indefinitely.
+
+## v2
+
+Written once, in Ranked mode, at match end. Every player session is logged,
+including players who left or were kicked.
+
+```text
+[20:15:09] #V,2,3.5.0
+[20:15:09] #R,301.53,Alice
+[20:15:09] #P,1,Alice,0,0,301.53,0,50,20,120,60,5,0
+[20:15:09] #P,2,Bob,1,0,100.2,1,10,15,80,20,2,12.5
+[20:15:09] #P,3,Bob,1,150.08,301.53,0,8,10,40,12,3,0
+[20:15:09] #K,102,102,201,301,103,0,0,0,0,0
+```
+
+| Line | Fields | Notes |
+|---|---|---|
+| `#V` | `2`, script version | The first line |
+| `#R` | round length, winner name | Exactly one |
+| `#P` | session, name, slot, start, end, status, kills, deaths, shots, hits, crouches, AFK seconds | One per session |
+| `#K` | ten kill codes | Each code is killer session × 100 + victim session; `0` pads the last line |
+
+- **Times** are seconds of match time, from round start, with decimals.
+  Session start and end come from the join and the leave (or the win for
+  players still present).
+- **Sessions** are numbered from 1 in join order and never reused within a
+  round, so a new player in a leaver's slot gets a new session and two
+  players with the same name stay apart. A rejoin is a new session.
+- **Status:** `0` present at the end, `1` left, `2` kicked by the AFK rule.
+- **Kills** are the player's score during the session (environment deaths
+  can take one away, as in v1). **Shots** and **hits** give accuracy.
+  **AFK seconds** is time spent in the AFK state.
+- **Kill codes** only cover sessions 1–99. A self-kill code is ignored.
+- Scope time and low-charge shots are not logged.
+- Names never contain commas or start with `#`: BattleTags are 3–12 letters
+  and digits and cannot start with a digit.
+
+A malformed line rejects the whole file and names the record: unknown line
+types, wrong column counts, negative or non-whole counts, a session that ends
+before it starts, a repeated session number, or a kill code naming a session
+with no `#P` line.
+
+### At ingest
+
+- Sessions with the same name (ignoring case) that do not overlap are one
+  player who left and rejoined. They become one participation in
+  `player_matches`: kills, deaths, shots, hits, crouches, AFK seconds and
+  time are summed. Overlapping sessions with the same name stay separate
+  participations until [06](briefs/06-identity.md) resolves them.
+- Each participation's existing fields are derived the way the Workshop
+  derived them for v1: time in lobby is the summed session time rounded
+  down, accuracy is hits ÷ shots, kills per minute uses the summed time,
+  K/D is kills ÷ max(deaths, 1). Total match time is the round length
+  rounded down. Existing stats and ELO work unchanged.
+- Sessions are stored in `player_sessions` and kill codes are counted into
+  `round_kill_pairs` per killer and victim session. Banned players'
+  sessions and their kill pairs are not stored.
+
+## v1
+
+Script versions before v3.5.0. One line per player still in the lobby when
+someone reaches the kill target; players who left earlier are missing.
+
+```text
+[00:04:38] Лев,5,15,10.20,1.77,0.33,9,169,271
+```
+
+Columns: player, kills, deaths, accuracy (%), kills per minute, K/D,
+crouches, time in lobby, total match time. Times are whole seconds. Older
+files have eight columns and no match time. A header line starting with
+`Player` is skipped.
+
+## Every file
+
+- The file is stored unchanged in `raw_logs` with its SHA-256, file name,
+  uploading host and format version. A file whose hash is already stored is
+  reported as already imported and changes nothing, including after a
+  leaderboard reset.
+- Change the script's output and the parser together, and deploy the parser
+  first.

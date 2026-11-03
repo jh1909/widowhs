@@ -24,9 +24,12 @@ Live at **[widowhs.com](https://widowhs.com)**.
 
 ## How it works
 
-The game mode writes a log at the end of each ranked round. An admin uploads
-it, the database works out every rating and rank, and the website shows the
-results. [Architecture](docs/architecture.md) has the diagram.
+The game mode writes a log at the end of each ranked round: every player
+session, including players who left, and every kill. Since script v3.5.0 this
+is the v2 [log format](docs/workshop-log-format.md). An uploader on the host
+PC (or an admin) sends it to the site, the database works out every rating and
+rank, and the website shows the results. [Architecture](docs/architecture.md)
+has the diagram.
 
 ## Get started
 

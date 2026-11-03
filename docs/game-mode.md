@@ -21,18 +21,16 @@ load and fill empty slots with bots (never in Ranked mode).
 ## The match log
 
 The log is the contract between the game and the site. It is written only in
-Ranked mode, once, when someone reaches the kill target: one line per player
-still in the lobby. Players who left earlier are not recorded
-([brief 00](briefs/00-logging-and-ingest.md) changes this).
+Ranked mode, once, when someone reaches the kill target. Since script v3.5.0
+it is the v2 format: the round's length and winner, every player session
+(including players who left or were kicked) and every kill as a killer and
+victim session. Older files (v1) have one line per player still in the
+lobby. [Workshop log format](workshop-log-format.md) describes both.
 
-```text
-[00:04:38] Лев,5,15,10.20,1.77,0.33,9,169,271
-```
-
-Columns: player, kills, deaths, accuracy (%), kills per minute, K/D,
-crouches, time in lobby, total match time. Times are whole seconds. Time in
-lobby runs from when the player joined; total match time is the round's
-length. Older files have eight columns and no match time.
+The script keeps each session's stats in global arrays, written in the
+existing kill, death, shot, hit, crouch and AFK rules as each counter
+changes, so a leaver's stats survive the player leaving. `Player leaves`
+closes the session; `Match log` writes the file.
 
 Overwatch names the file `Log-YYYY-MM-DD-HH-MM-SS.txt`; the site reads the
 match time from it as Berlin time. One file is one round.
@@ -57,5 +55,5 @@ script:
 - Keep Inspector recording off during the round; turn it on only to write
   the log at match end.
 
-Planned script work: [07](briefs/07-workshop-performance.md) and
+Script work in progress: [07](briefs/07-workshop-performance.md) and
 [00](briefs/00-logging-and-ingest.md).

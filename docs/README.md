@@ -5,6 +5,7 @@ Start with [AGENTS.md](../AGENTS.md) for how the project fits together.
 **How the site works**
 
 - [Game mode](game-mode.md): the Workshop mode, the match log, performance
+- [Workshop log format](workshop-log-format.md): v1 and v2 log lines and ingest
 - [Ranking](ranking.md): rounds, rating, leaderboard, badges
 - [Accounts](accounts.md): profiles, login, Battle.net, renames
 - [Admin](admin.md): imports, moderation, reset, server status

@@ -28,6 +28,9 @@ erDiagram
     text host_name "from the uploader"
     int format_version "1 or 2"
     text script_version
+    uuid match_id UK "the round it became"
+    numeric round_length "v2, until rounds exists"
+    text winner_name "v2, until rounds exists"
     timestamptz uploaded_at
     text text "unchanged file"
   }
@@ -76,8 +79,8 @@ erDiagram
   }
   round_kill_pairs {
     uuid round_id FK
-    uuid killer_session_id FK
-    uuid victim_session_id FK
+    int killer_session_no FK "with round_id"
+    int victim_session_no FK "with round_id"
     int kills
   }
   players {
@@ -205,11 +208,11 @@ alone and is not drawn. `audit_logs`, `leaderboard_state` and
 
 | Table | Change | Brief |
 |---|---|---|
-| `raw_logs` | New | 00 |
-| `rounds` | New, backfilled from existing `match_id` values | 00, 01, 06 |
-| `player_sessions` | New, backfilled from existing rows | 00, 06 |
-| `round_kill_pairs` | New, v2 rounds only | 00 |
-| `player_matches` | `match_id` references `rounds`; new shot, scope, session and status columns; ELO weight kept for the seed round | 00 |
+| `raw_logs` | Built; holds the v2 round length and winner until `rounds` exists | 00 |
+| `rounds` | New, backfilled from existing `match_id` values and raw logs | 01, 06 |
+| `player_sessions` | Built for v2 rounds; v1 rows backfilled later | 00, 06 |
+| `round_kill_pairs` | Built, v2 rounds only | 00 |
+| `player_matches` | Built: session, status, shot, hit and AFK columns. Later: `match_id` references `rounds`; ELO weight kept for the seed round | 00, 01 |
 | `player_ratings` | New; takes over `rank` | 01, 02 |
 | `rating_events` | New, one row per player per rated round | 01 |
 | `rating_params` | New, so every rating can be replayed exactly | 01 |

@@ -55,6 +55,11 @@ call the real functions; they never connect to Supabase.
   editor (`node scripts/build-battlenet-dashboard.mjs` builds a standalone
   `battlenet-oauth`). Both have JWT verification off in `supabase/config.toml`
   and check callers themselves.
+- **Workshop script** (`workshop/widowhs.ows`): published on Workshop.codes by
+  its author, after the parser it needs is live
+  ([game mode](game-mode.md#the-mode)).
+- **Uploader** (`tools/uploader/`): copied to the host PC by hand
+  ([admin](admin.md#uploader-on-the-host-pc)).
 - **Secrets** live in Supabase, never in Git: `ADMIN_API_KEY`, the service
   role key, and `BATTLENET_CLIENT_ID`, `BATTLENET_CLIENT_SECRET`,
   `BATTLENET_CALLBACK_URL` and `BATTLENET_REDIRECT_URLS`. The Blizzard client's

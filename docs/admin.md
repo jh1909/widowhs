@@ -15,8 +15,26 @@ header set to the `ADMIN_API_KEY` secret.
 
 An upload answered with HTTP 409 was prepared before another import, a reset,
 a rename or a moderation action; nothing was written, so upload it again.
-Uploading the same file twice imports it twice
-([brief 00](briefs/00-logging-and-ingest.md) fixes this).
+
+Every file is stored unchanged with its SHA-256. A file uploaded again,
+or twice in one batch, is reported as already imported and changes nothing.
+Files imported before raw logs were stored (November 2026) have no hash, so
+uploading one of those again still imports it twice.
+
+### Uploader on the host PC
+
+`tools/uploader/widowhs_uploader.py` (Python 3.9+, no packages) watches the
+Workshop log folder and uploads each new `Log-*.txt` once it has stopped
+changing. Copy the script to the host PC, put an `uploader.json` next to it
+with the function URL, the API key and a name for the PC (the script's
+docstring has the template), and run `python widowhs_uploader.py`. It retries
+with backoff while offline, never deletes logs and remembers what it sent in
+`uploader-state.json`. A file the server rejects is not retried; remove its
+entry from the state file to try again.
+
+On its first run the uploader records the logs already in the folder as seen
+and does not upload them, because they may have been uploaded by hand before
+hashes were kept. `--include-existing` uploads them too.
 
 ## Moderation
 
@@ -32,7 +50,8 @@ Uploading the same file twice imports it twice
 
 Admin → Reset leaderboard (type `RESET`) deletes all rounds and history and
 resets every player's stats, keeping accounts, names, links, roles, bans and
-the audit log. There is no undo.
+the audit log. Stored raw logs are kept, so a file imported before the reset
+is still reported as already imported. There is no undo.
 
 ## Server status
 

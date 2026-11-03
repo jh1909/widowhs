@@ -9,9 +9,10 @@ game: Widowmaker only, scoped headshots only, first to 50 kills. Live at
 ## How the parts fit
 
 The Workshop script runs in game and, in Ranked mode, writes a match log
-when a round ends. An admin uploads the log through the `upload-csv` Edge
-Function. Supabase Postgres stores the round and computes everything derived
-from it. The React site only displays. See
+when a round ends. The uploader on the host PC (`tools/uploader/`) or an admin
+sends it to the `upload-csv` Edge Function, which stores the file and skips
+files already imported. Supabase Postgres stores the round and computes
+everything derived from it. The React site only displays. See
 [docs/architecture.md](docs/architecture.md).
 
 ## Rules that hold it together
@@ -48,7 +49,7 @@ Setup, environments and deployment: [docs/development.md](docs/development.md).
 
 | Working on | Read |
 |---|---|
-| The match log, parser or Workshop script | [docs/game-mode.md](docs/game-mode.md), `supabase/functions/upload-csv/` |
+| The match log, parser or Workshop script | [docs/game-mode.md](docs/game-mode.md), [docs/workshop-log-format.md](docs/workshop-log-format.md), `supabase/functions/upload-csv/` |
 | Rating, leaderboard, match history, badges | [docs/ranking.md](docs/ranking.md) |
 | Login, profiles, Battle.net, renames | [docs/accounts.md](docs/accounts.md) |
 | Imports, moderation, reset, admin pages | [docs/admin.md](docs/admin.md) |
