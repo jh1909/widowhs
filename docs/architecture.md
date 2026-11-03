@@ -37,3 +37,12 @@ flowchart LR
   be able to re-run processing.
 - Raw logs are stored unchanged so any processing change can be replayed.
 - Badges and medals move server-side; the website only displays results.
+
+## Technology
+
+- **Website:** React 19, Vite, Tailwind CSS and React Router (hash routes),
+  hosted on GitHub Pages.
+- **Backend:** Supabase. Postgres holds all data and computes all derived
+  values; Auth handles Discord login; Edge Functions (Deno) handle log
+  uploads and Battle.net OAuth.
+- **Game:** an Overwatch Workshop script, published on Workshop.codes.

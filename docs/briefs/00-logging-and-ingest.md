@@ -23,7 +23,9 @@ displays results ([target data flow](../architecture.md#proposed)).
 - **Every player session is logged**, including leavers and kicked players,
   with kills gained during that session so rejoin sessions can be summed.
 - **Kill pairs** are logged per round from the first v2 round onwards. Older
-  rounds cannot be backfilled.
+  rounds cannot be backfilled. They feed only the head-to-head duel record
+  and nemesis lists ([04](04-head-to-head.md)); SR does not need them. They
+  can be added later at the cost of a later start for those features.
 - **Rejoins are merged at ingest**, not on the website and not in the
   Workshop.
 - **Raw logs are stored unchanged** and uploads are idempotent by file hash.
@@ -43,12 +45,12 @@ which no player name can.
 |---|---|---|
 | `#V` | `2`, script version | First line of the round |
 | `#R` | round length, winner name | One per round |
-| `#P` | name, slot, start, end, status, kills, deaths, shots, hits, scoped seconds, low-charge shots, crouches | One per session. Status: `0` present at end, `1` left, `2` kicked |
-| `#K` | killer, victim, count | Nonzero pairs only |
+| `#P` | session, name, slot, start, end, status, kills, deaths, shots, hits, crouches, AFK seconds | One per session. Status: `0` present at end, `1` left, `2` kicked |
+| `#K` | kill codes, several per line | One code per kill: killer session × 100 + victim session. Ingest counts the pairs |
 | `#C` | name, rule, action, time | Conduct events from [03](03-conduct.md). Action: `afk`, `warn`, `kick`, `rekick` |
 
-Low-charge shots are scoped shots fired under 20% charge (under ~0.18 s
-scoped; see [03](03-conduct.md)). Lines longer than the Workshop string limit
+Scope time and low-charge shots are not logged per player: [03](03-conduct.md)
+tracks them live for its rules and logs only its `#C` events. Lines longer than the Workshop string limit
 are split across several log calls. The script must stay within the
 Workshop element limit (commonly cited as 20,000); the editor shows the
 count.
@@ -59,14 +61,37 @@ All stats are measured live from game events (shots, hits, kills, crouches,
 scope in and out), to the server tick. Nothing is sampled. The round is
 written to the log once, at match end; nothing is sent during the round.
 
-- Copy each player's live counters every second into global arrays keyed by
-  name, so a leaver's stats survive `Player Left Match`. This is required:
-  when that event fires, the player's variables and name are no longer
-  available. A leaver loses at
-  most the last second; players present at the end are logged from the live
-  counters. The copy runs in the existing `Per player timer` loop.
-- Track kills per victim name in the `Player Dealt Final Blow` rule.
-- Track scoped time, shot count and low-charge shots (also used by 03).
+- **Sessions, not slots or names.** On `Player Joined Match`, append a new
+  entry to global session arrays (name, slot, start time) and store its
+  session number in a player variable. Entries are never reused, so a new
+  player in a leaver's slot cannot overwrite or inherit their data, and two
+  players with the same name stay separate. Arrays reset with the match.
+- **Keep session stats where a leaver can't lose them.** When
+  `Player Left Match` fires, the player's variables and name are no longer
+  available, so stats must already be in the session arrays. Preferred:
+  write to the session entry at the moment each counter changes (in the
+  existing kill, death, shot, hit and crouch rules), so there is no polling
+  and nothing is ever stale. Fallback: copy counters every 5–10 s in the
+  existing `Per player timer` loop; a leaver then loses up to that many
+  seconds of stats. Either way, the leave time is recorded in the
+  `Player Left Match` rule (by finding the session whose player is no longer
+  in the match), so session length stays exact.
+- **Kills:** in the existing `Player Dealt Final Blow` rule, append one
+  number per kill (killer session × 100 + victim session) to a global array.
+  That is one action per kill, written out at match end; ingest counts the
+  pairs. A round has a few hundred kills, well inside the 1,000-element
+  array limit.
+- **AFK time:** add the seconds spent in the existing AFK state to the
+  session (used by [01](01-skill-rating.md) to excuse rounds where a player
+  was not playing). Shots and hits are already counted for accuracy.
+- **Server load:** all of this is event-driven or rides the existing
+  `Per player timer` loop, which already runs every second for every
+  player. A host-only **Show server load** Workshop setting displays Server
+  Load, Average and Peak; compare them in a full lobby before and after the
+  change. Existing savings worth taking in the same update: one shared
+  "#1 Accuracy / Kills per min" HUD text instead of one per player, and
+  recomputing the top-accuracy player once a second instead of on every
+  shot.
 - At match end, write `#V`, `#R`, all `#P`, `#K` and `#C` lines.
 
 ## Site changes

@@ -72,6 +72,18 @@ walkers.
   set back to false), so the list ends with the round by itself; clearing it
   at match start is a safeguard.
 
+## Performance
+
+Follows the [Workshop performance principles](../game-mode.md#performance).
+Specifically:
+
+- Low-charge shot timestamps are recorded and pruned inside the existing shot
+  rule; Walkers and Opportunistic walkers are checked in the existing
+  once-a-second `Per player timer` loop. The only new continuous rule is a
+  scope in/out counter, shaped like the existing crouch counter.
+- Warnings use `Small Message` / `Big Message` or reuse the AFK text slot,
+  since a full lobby already uses roughly 50–80 of the 128 text elements.
+
 ## Visibility
 
 - Warnings and countdowns: shown to the player only, naming the rule and
