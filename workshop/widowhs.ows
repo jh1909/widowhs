@@ -707,7 +707,8 @@ rule("Player leaves")
 				All Players(All Teams), Global.sessionPlayer[Current Array Element])));
 			For Global Variable(logIndex, 0, Count Of(Global.leftSessions), 1);
 				Global.logSession = Global.leftSessions[Global.logIndex];
-				Global.sessionEnd[Global.logSession] = Total Time Elapsed - Global.roundStart;
+				"never before the start, for a leaver in the countdown"
+				Global.sessionEnd[Global.logSession] = Max(Global.sessionStart[Global.logSession], Total Time Elapsed - Global.roundStart);
 				"1: left, unless the AFK kick marked it 2: kicked"
 				Global.sessionStatus[Global.logSession] = Max(Global.sessionStatus[Global.logSession], 1);
 				If(Global.sessionAfkStart[Global.logSession]);
