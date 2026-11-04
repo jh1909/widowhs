@@ -22,10 +22,12 @@ load and fill empty slots with bots (never in Ranked mode).
 
 The log is the contract between the game and the site. It is written only in
 Ranked mode, once, when someone reaches the kill target. Since script v3.5.0
-it is the v2 format: the round's length and winner, every player session
+it records the round's length and winner, every player session
 (including players who left or were kicked) and every kill as a killer and
 victim session. Older files (v1) have one line per player still in the
-lobby. [Workshop log format](workshop-log-format.md) describes both.
+lobby. Script v3.6.0 adds exact times of score gains and losses (format v3),
+so rolling-lobby SR can follow actual competition rather than the lobby's age.
+[Workshop log format](workshop-log-format.md) describes all versions.
 
 The script keeps each session's stats in global arrays, written in the
 existing kill, death, shot, hit, crouch and AFK rules as each counter

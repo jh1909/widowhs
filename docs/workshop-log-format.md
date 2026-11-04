@@ -10,8 +10,36 @@ time of day (`[20:15:09] `), to `Log-YYYY-MM-DD-HH-MM-SS.txt` in the Workshop
 log folder. The site reads the round's date from the file name as Berlin time
 and strips the prefixes.
 
-**v2** was introduced by Workshop script **v3.5.0**. Files whose first line is
-`#V` are v2; any other file is read as v1. Both are supported indefinitely.
+**v3** (Workshop v3.6.0) adds timestamped score changes for rolling-lobby SR.
+**v2** was introduced by Workshop v3.5.0. Files whose first line is `#V`
+declare their format version; other files are read as v1. All are supported.
+
+## v3
+
+Uses the same `#R`, `#P` and `#K` records as v2, with `#V,3,3.6.0` and extra
+`#S` lines. Each `#S` line contains session/time/score triples, in event order:
+
+```text
+#S,1,20,1,2,25,1,1,30,2
+#S,1,40,1,0,0,0,0,0,0
+```
+
+These record session 1 scoring at 20 s, session 2 at 25 s, session 1 again at
+30 s, and session 1 losing a point to the environment at 40 s. The score is
+cumulative within the session, starting from zero. Gains and losses change
+it by one. Zero triples pad the last line. Session IDs here have no two-digit
+limit; the existing `#K` encoding still has its v2 limit.
+
+Every session has a complete history, including `[]` for a scoreless session.
+The parser validates event order, session bounds, unit score changes and the
+final score. Inconsistent or incomplete histories reject the whole file.
+Histories are stored as `player_sessions.score_events`; older sessions keep
+NULL, explicitly indicating unknown timing. Removing a banned victim does
+not remove a surviving killer's history.
+
+The Workshop captures score changes in its existing kill and environmental
+death rules. It batches them at round end, three triples per line; Inspector
+recording stays off during play. No new per-frame player rule is added.
 
 ## v2
 

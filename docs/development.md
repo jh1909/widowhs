@@ -60,6 +60,13 @@ call the real functions; they never connect to Supabase.
 
 ## Deployment
 
+For Workshop v3.6.0 / format v3, apply
+`20261104210000_timed_score_events.sql`, then deploy `upload-csv`, before
+publishing the Workshop script. The importer signature is unchanged and old
+logs remain supported. The separate rolling-SR migration belongs to PR #3.
+The added Workshop recording uses existing event rules and writes only at
+round end; validate syntax and server load in game before publishing v3.6.0.
+
 - **Website:** every push to `main` builds and deploys to GitHub Pages
   (`.github/workflows/deploy.yml`). Put `[skip ci]` in docs-only commit
   messages.

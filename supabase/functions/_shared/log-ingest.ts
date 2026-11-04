@@ -6,7 +6,7 @@ export type SessionMatch = MatchData & { session_rows?: LogSession[] };
 export type PreparedRound = {
   name: string;
   raw_log: {
-    sha256: string; filename: string | null; host_name: string | null; format_version: 1 | 2;
+    sha256: string; filename: string | null; host_name: string | null; format_version: 1 | 2 | 3;
     script_version: string | null; match_id: string; round_length: number | null; winner_name: string | null; text: string;
   };
   matches: (SessionMatch & { played_at: string | null; match_id: string })[];
@@ -73,7 +73,7 @@ export async function prepareRound(source: MatchSource, rows: string[][]): Promi
     name: source.name,
     raw_log: {
       sha256: await sha256Hex(source.text), filename: source.name, host_name: source.host_name,
-      format_version: v2 ? 2 : 1, script_version: v2?.script_version ?? null, match_id,
+      format_version: v2?.format_version ?? 1, script_version: v2?.script_version ?? null, match_id,
       round_length: v2?.round_length ?? null, winner_name: v2?.winner_name || null, text: source.text,
     },
     matches: matches.map((match) => ({ ...match, played_at: source.played_at, match_id })),

@@ -58,9 +58,11 @@ export interface LogSession {
   session_no: number; logged_name: string; slot: number; start_s: number; end_s: number;
   status: SessionStatus; kills: number; deaths: number; shots: number; hits: number;
   crouches: number; afk_seconds: number;
+  score_events?: { at_s: number; score: number }[]; // v3: cumulative score changes, including losses
 }
 export interface KillPair { killer_session_no: number; victim_session_no: number; kills: number }
 export interface LogRound {
+  format_version: 2 | 3;
   script_version: string; round_length: number; winner_name: string;
   sessions: LogSession[]; kill_pairs: KillPair[];
 }
@@ -75,6 +77,8 @@ export function parseV2Rows(rows: string[][]): LogRound {
   let round: Pick<LogRound, "round_length" | "winner_name"> | null = null;
   const sessions = new Map<number, LogSession>();
   const codes: { code: number; record: number }[] = [];
+  const changes: { session: number; at_s: number; score: number; record: number }[] = [];
+  const version = Number(rows[0]?.[1]);
   rows.forEach((raw, index) => {
     const record = index + 1;
     const row = raw.map((value) => value.trim());
@@ -93,7 +97,7 @@ export function parseV2Rows(rows: string[][]): LogRound {
       case "#V":
         if (index !== 0) fail("#V must be the first line.");
         fields(3);
-        if (row[1] !== "2") fail(`unsupported log version ${row[1]}.`);
+        if (row[1] !== "2" && row[1] !== "3") fail(`unsupported log version ${row[1]}.`);
         if (!row[2]) fail("missing script version.");
         break;
       case "#R":
@@ -124,12 +128,45 @@ export function parseV2Rows(rows: string[][]): LogRound {
           if (code) codes.push({ code, record });
         });
         break;
+      case "#S":
+        if (version !== 3) fail("#S requires log version 3.");
+        if (row.length < 4 || (row.length - 1) % 3) fail("#S needs session, time, score triples.");
+        for (let column = 1; column < row.length; column += 3) {
+          const session = number(column, true), at_s = number(column + 1), score = number(column + 2, true);
+          if (session === 0) {
+            if (at_s || score) fail("invalid #S padding.");
+          } else changes.push({ session, at_s, score, record });
+        }
+        break;
       default:
         fail(`unexpected line ${row[0] || "(empty)"} in a v2 log.`);
     }
   });
   if (!round) throw new Error("Missing #R line.");
   if (!sessions.size) throw new Error("No match records found.");
+  if (version === 3) {
+    for (const session of sessions.values()) {
+      session.score_events = [];
+      if (session.start_s < 0 || session.end_s > round.round_length) throw new Error(`Session ${session.session_no}: outside the round.`);
+    }
+    let previousTime = -1;
+    for (const change of changes) {
+      const session = sessions.get(change.session);
+      if (!session || change.at_s < session.start_s || change.at_s > session.end_s || change.at_s < previousTime) {
+        throw new Error(`Record ${change.record}: score change outside its session or out of time order.`);
+      }
+      const events = session.score_events!;
+      const previous = events.at(-1)?.score ?? 0;
+      if (Math.abs(change.score - previous) !== 1) throw new Error(`Record ${change.record}: score must change by one.`);
+      events.push({ at_s: change.at_s, score: change.score });
+      previousTime = change.at_s;
+    }
+    for (const session of sessions.values()) {
+      if ((session.score_events!.at(-1)?.score ?? 0) !== session.kills) {
+        throw new Error(`Session ${session.session_no}: score changes do not match final score.`);
+      }
+    }
+  }
   // Each code is killer session × 100 + victim session; count the pairs.
   const pairs = new Map<string, KillPair>();
   for (const { code, record } of codes) {
@@ -146,6 +183,7 @@ export function parseV2Rows(rows: string[][]): LogRound {
   }
   const { round_length, winner_name } = round as Pick<LogRound, "round_length" | "winner_name">;
   return {
+    format_version: version as 2 | 3,
     script_version: rows[0][2].trim(), round_length, winner_name,
     sessions: [...sessions.values()], kill_pairs: [...pairs.values()],
   };

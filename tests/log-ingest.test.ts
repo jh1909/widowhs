@@ -68,7 +68,7 @@ test('malformed v2 logs are rejected with the offending record', () => {
   const head = '#V,2,3.5.0\n#R,300,Alice\n';
   const alice = '#P,1,Alice,0,0,300,0,50,10,100,50,0,0\n';
   reject(`#R,300,Alice\n#V,2,3.5.0\n${alice}`, /Record 2: #V must be the first line/);
-  reject(`#V,3,4.0.0\n#R,300,Alice\n${alice}`, /unsupported log version 3/);
+  reject(`#V,4,4.0.0\n#R,300,Alice\n${alice}`, /unsupported log version 4/);
   reject(`#V,2,3.5.0\n${alice}`, /Missing #R line/);
   reject(head, /No match records found/);
   reject(`${head}${alice}${alice}`, /Record 4: session 1 appears twice/);
@@ -86,6 +86,54 @@ test('a malformed file is still rejected whole, naming the record', async () => 
 });
 
 const migration = (name: string) => readFile(new URL(`../supabase/migrations/${name}`, import.meta.url), 'utf8');
+
+const v3Log = `#V,3,3.6.0
+#R,300,Alice
+#P,1,Alice,0,0,300,0,1,2,30,10,0,0
+#P,2,Bob,1,0,300,0,1,2,30,10,0,0
+#K,102,201,102,0,0,0,0,0,0,0
+#S,1,20,1,2,25,1,1,30,2
+#S,1,40,1,0,0,0,0,0,0`;
+
+test('v3 retains timed score gains and losses without changing old logs', async () => {
+  const parsed = parseV2Rows(rows(v3Log));
+  assert.equal(parsed.format_version, 3);
+  assert.deepEqual(parsed.sessions[0].score_events, [{ at_s: 20, score: 1 }, { at_s: 30, score: 2 }, { at_s: 40, score: 1 }]);
+  assert.deepEqual(parsed.sessions[1].score_events, [{ at_s: 25, score: 1 }]);
+  assert.equal(parseV2Rows(rows(v2Log)).sessions[0].score_events, undefined);
+  const prepared = await prepareRound(source(v3Log), rows(v3Log));
+  assert.equal(prepared.raw_log.format_version, 3);
+  assert.deepEqual(prepared.matches[0].session_rows![0].score_events, parsed.sessions[0].score_events);
+  const zero = v3Log.replace('#P,2,Bob,1,0,300,0,1,', '#P,2,Bob,1,0,300,0,0,').replace('2,25,1', '0,0,0');
+  assert.deepEqual(parseV2Rows(rows(zero)).sessions[1].score_events, []);
+});
+
+test('v3 rejects incomplete, invalid or mistimed score histories', () => {
+  for (const [text, message] of [
+    [v3Log.replace('#S,1,40,1,0,0,0,0,0,0', ''), /do not match final score/],
+    [v3Log.replace('1,20,1', '1,20,2'), /score must change by one/],
+    [v3Log.replace('1,20,1', '1,301,1'), /outside its session or out of time order/],
+    [v3Log.replace('2,25,1', '2,19,1'), /outside its session or out of time order/],
+    [v3Log.replace('1,20,1', '99,20,1'), /outside its session/],
+    [v3Log.replace('#S,1,40,1,0,0,0', '#S,1,40,1,0,1,0'), /invalid #S padding/],
+    [v3Log + '\n#S,1,60', /triples/],
+    [v3Log.replace('#V,3,3.6.0', '#V,2,3.5.0'), /#S requires log version 3/],
+  ] as [string, RegExp][]) assert.throws(() => parseV2Rows(rows(text)), message);
+});
+
+test('v3 accepts the winning event at the cutoff and rejects post-cutoff scoring', async () => {
+  const text = `#V,3,3.6.0\n#R,50,Alice\n#P,1,Alice,0,0,50,0,50,0,60,50,0,0\n` +
+    Array.from({ length: 50 }, (_, i) => `#S,1,${i + 1},${i + 1}`).join('\n');
+  assert.equal(parseV2Rows(rows(text)).sessions[0].score_events!.at(-1)!.score, 50);
+  assert.throws(() => parseV2Rows(rows(text.replace(',0,50,0,60,', ',0,49,0,60,') + '\n#S,1,50.02,49')), /outside its session/);
+  const workshop = await readFile(new URL('../workshop/widowhs.ows', import.meta.url), 'utf8');
+  const rule = (name: string) => workshop.split(`rule("${name}")`)[1].split('\nrule(')[0];
+  // Static contract check; Workshop syntax and event ordering still need in-game validation.
+  assert.match(rule('On kill'), /conditions\s*\{\s*Global\.gameComplete == False;/);
+  assert.match(rule('On death'), /If\(!Global\.gameComplete && Event Was Environment/);
+  assert.match(rule('Player init'), /conditions\s*\{\s*Global\.gameComplete == False;/);
+  assert.match(rule('Player init'), /If\(!Global\.gameComplete\);\s*Global\.sessionStart/);
+});
 
 test('ingest stores raw logs once, v2 sessions and kill pairs', async t => {
   const db = new PGlite();
@@ -166,6 +214,22 @@ test('ingest stores raw logs once, v2 sessions and kill pairs', async t => {
       assert.deepEqual([raw[0].filename, raw[0].host_name, raw[0].format_version, raw[0].script_version,
         Number(raw[0].round_length), raw[0].winner_name], ['Log-2026-11-03-20-15-00.txt', 'HostPC', 2, '3.5.0', 301.5, 'Alice']);
       assert.equal((await db.query<any>('select count(distinct match_id)::int as n from public.player_matches')).rows[0].n, 1);
+    });
+
+    await t.test('v3 stores validated score histories, including losses and legacy NULLs', async () => {
+      const timed = await prepareRound(source(v3Log), rows(v3Log));
+      await upload([timed]);
+      const stored = (await db.query<any>('select session_no, score_events from public.player_sessions where match_id = $1 order by 1', [timed.raw_log.match_id])).rows;
+      assert.deepEqual(stored, [{ session_no: 1, score_events: [{ at_s: 20, score: 1 }, { at_s: 30, score: 2 }, { at_s: 40, score: 1 }] },
+        { session_no: 2, score_events: [{ at_s: 25, score: 1 }] }]);
+      assert.equal((await db.query<any>('select format_version from public.raw_logs where match_id = $1', [timed.raw_log.match_id])).rows[0].format_version, 3);
+      const before = await snapshot();
+      await assert.rejects(db.query("update public.player_sessions set score_events = '[{\"at_s\":301,\"score\":1}]' where match_id = $1", [timed.raw_log.match_id]), /valid_score_events/);
+      assert.deepEqual(await snapshot(), before);
+      assert.ok((await db.query<any>('select score_events from public.player_sessions where match_id = $1', [round.raw_log.match_id])).rows.every(s => s.score_events === null));
+      // Leave the existing fixture's aggregate counts untouched for its checks.
+      await db.query('delete from public.player_matches where match_id = $1', [timed.raw_log.match_id]);
+      await db.query('delete from public.raw_logs where match_id = $1', [timed.raw_log.match_id]);
     });
 
     await t.test('the same file uploaded twice changes nothing', async () => {

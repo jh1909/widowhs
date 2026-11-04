@@ -39,10 +39,11 @@ test('conflicts use PT409, which PostgREST does not retry', async t => {
     const before = await definitions();
     assert.equal(before.length, functions.length);
     await db.exec(await migration(target));
+    const afterTarget = await definitions();
     for (const name of names.filter(name => name > target)) await db.exec(await migration(name));
 
     await t.test('each function changes only its error code', async () => {
-      assert.deepEqual(await definitions(), before.map(f => ({
+      assert.deepEqual(afterTarget, before.map(f => ({
         ...f, def: f.def.replaceAll("errcode = '40001'", "errcode = 'PT409'") })));
     });
 

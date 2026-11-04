@@ -2,7 +2,7 @@ settings
 {
 	main
 	{
-		Description: "WIDOWHS.COM\n\r\n\rChange HP in Workshop Settings.\n\rCustom spawns and no damage falloff.\n\rCompatible with every map.\n\rEnd scene on Castillo, Château Guillard, and Necropolis.\n\r\n\rv3.5.0 - more info on workshop.codes/widowhs\n\rCode: TCG2W"
+		Description: "WIDOWHS.COM\n\r\n\rChange HP in Workshop Settings.\n\rCustom spawns and no damage falloff.\n\rCompatible with every map.\n\rEnd scene on Castillo, Château Guillard, and Necropolis.\n\r\n\rv3.6.0 - more info on workshop.codes/widowhs\n\rCode: TCG2W"
 		Mode Name: "Widow HS 2.0"
 	}
 
@@ -124,6 +124,9 @@ variables
 		49: leftSessions
 		50: logSession
 		51: logIndex
+		52: scoreSessions
+		53: scoreTimes
+		54: scoreValues
 
 	player:
 		0: startTime
@@ -197,6 +200,9 @@ rule("Global init")
 		Global.roundStart = 7.020;
 		"start empty: appending to an unset variable keeps its default 0 as a first element"
 		Global.killCodes = Empty Array;
+		Global.scoreSessions = Empty Array;
+		Global.scoreTimes = Empty Array;
+		Global.scoreValues = Empty Array;
 		"testing only: bots are never added to a ranked match"
 		Global.testBots = !Global.ranked && Workshop Setting Toggle(Custom String("Testing"), Custom String(
 			"Fill empty slots with bots"), False, 1);
@@ -258,6 +264,11 @@ rule("Player init")
 		All;
 	}
 
+	conditions
+	{
+		Global.gameComplete == False;
+	}
+
 	actions
 	{
 		"each join opens a new session at once, never reused; stats are written to it as they change, so a leaver keeps them"
@@ -285,7 +296,9 @@ rule("Player init")
 		"1s offset to match built in timer"
 		Event Player.startTime = Total Time Elapsed - 1;
 		"the session's time starts with the player's timer, as time in lobby did in v1"
-		Global.sessionStart[Event Player.session] = Max(0, Event Player.startTime - Global.roundStart);
+		If(!Global.gameComplete);
+			Global.sessionStart[Event Player.session] = Max(0, Event Player.startTime - Global.roundStart);
+		End;
 		If(Event Player.hudIndex != 2);
 			Call Subroutine(_createSmallHUD);
 		End;
@@ -477,11 +490,19 @@ rule("On kill")
 		All;
 	}
 
+	conditions
+	{
+		Global.gameComplete == False;
+	}
+
 	actions
 	{
 		Set Player Health(Event Player, Max Health(Event Player));
 		Modify Player Score(Event Player, 1);
 		Global.sessionKills[Event Player.session] = Score Of(Event Player);
+		Modify Global Variable(scoreSessions, Append To Array, Event Player.session);
+		Modify Global Variable(scoreTimes, Append To Array, Max(Global.sessionStart[Event Player.session], Total Time Elapsed - Global.roundStart));
+		Modify Global Variable(scoreValues, Append To Array, Score Of(Event Player));
 		"one code per kill, killer session x 100 + victim session; codes need both sessions between 1 and 99"
 		If(Event Player.session && Victim.session && Event Player.session < 100 && Victim.session < 100);
 			Modify Global Variable(killCodes, Append To Array, Event Player.session * 100 + Victim.session);
@@ -536,9 +557,12 @@ rule("On death")
 			Event Player.deathTime = Total Time Elapsed;
 			Global.respawnQueue = Append To Array(Global.respawnQueue, Event Player);
 		End;
-		If(Event Was Environment && Attacker == Event Player && Score Of(Event Player) > 0);
+		If(!Global.gameComplete && Event Was Environment && Attacker == Event Player && Score Of(Event Player) > 0);
 			Modify Player Score(Event Player, -1);
 			Global.sessionKills[Event Player.session] = Score Of(Event Player);
+			Modify Global Variable(scoreSessions, Append To Array, Event Player.session);
+			Modify Global Variable(scoreTimes, Append To Array, Max(Global.sessionStart[Event Player.session], Total Time Elapsed - Global.roundStart));
+			Modify Global Variable(scoreValues, Append To Array, Score Of(Event Player));
 		End;
 		Global.sessionDeaths[Event Player.session] += 1;
 		Event Player.currentKS = 0;
@@ -800,7 +824,7 @@ rule("Match log")
 	{
 		"v2 log, docs/workshop-log-format.md: written once, after the winning kill's stats as in Final top stats"
 		Wait(0.048, Ignore Condition);
-		Log To Inspector(Custom String("#V,2,3.5.0"));
+		Log To Inspector(Custom String("#V,3,3.6.0"));
 		Log To Inspector(Custom String("#R,{0},{1}", Global.endTime - Global.roundStart, Global.sessionName[Global.winnerSession]));
 		For Global Variable(logIndex, 1, Global.sessionCount + 1, 1);
 			"sessions still open were present at the end"
@@ -827,6 +851,19 @@ rule("Match log")
 				Global.killCodes[Global.logIndex + 3], Global.killCodes[Global.logIndex + 4], Global.killCodes[Global.logIndex + 5]),
 				Custom String("{0},{1},{2}", Global.killCodes[Global.logIndex + 6], Global.killCodes[Global.logIndex + 7],
 				Global.killCodes[Global.logIndex + 8])), Global.killCodes[Global.logIndex + 9]));
+		End;
+		"timestamped score changes: three session/time/score triples per line, padded with zero triples"
+		While(Count Of(Global.scoreSessions) % 3);
+			Modify Global Variable(scoreSessions, Append To Array, 0);
+			Modify Global Variable(scoreTimes, Append To Array, 0);
+			Modify Global Variable(scoreValues, Append To Array, 0);
+		End;
+		For Global Variable(logIndex, 0, Count Of(Global.scoreSessions), 3);
+			Log To Inspector(Custom String("#S,{0},{1},{2}", Custom String("{0},{1},{2}", Global.scoreSessions[Global.logIndex],
+				Global.scoreTimes[Global.logIndex], Global.scoreValues[Global.logIndex]), Custom String("{0},{1},{2}",
+				Global.scoreSessions[Global.logIndex + 1], Global.scoreTimes[Global.logIndex + 1], Global.scoreValues[Global.logIndex + 1]),
+				Custom String("{0},{1},{2}", Global.scoreSessions[Global.logIndex + 2], Global.scoreTimes[Global.logIndex + 2],
+				Global.scoreValues[Global.logIndex + 2])));
 		End;
 	}
 }

@@ -18,6 +18,13 @@ displays results ([target data flow](../architecture.md#proposed)).
 
 ## Decisions
 
+- **Timestamped scoring (v3).** Workshop v3.6.0 adds cumulative score changes
+  per session, including environmental losses. See [the v3 contract](../workshop-log-format.md#v3).
+  This lets SR compare actual shared scoring in a rolling lobby without
+  treating earlier waiting time as participation. v1/v2 stay supported, with
+  explicitly unknown score timing. Parser/database tests cover the contract;
+  v3.6.0 still needs in-game syntax, cutoff ordering and server-load validation
+  before publication. The earlier v3.5.0 in-game results do not validate v3.6.0.
 - **New log format (v2), marked by a version line.** Files without it are
   parsed as today (v1). Both are supported indefinitely.
 - **Every player session is logged**, including leavers and kicked players,
