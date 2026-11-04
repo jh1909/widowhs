@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  DEFAULT_SR_PARAMS as P, applyRound, cautiousSr, compareNames, derivePlacementUncertainty, isPlaced, rateRound, replay,
+  DEFAULT_SR_PARAMS as P, applyRound, cautiousSr, compareNames, compareRounds, derivePlacementUncertainty, isPlaced, rateRound, replay, timeKey,
   type SrParams, type SrParticipant, type SrPlayer, type SrRound, type SrState,
 } from "../supabase/functions/_shared/sr.ts";
 
@@ -263,4 +263,15 @@ test("replay from scratch equals incremental rateRound calls, in played_at then 
   for (const r of ordered.slice(30)) applyRound(half, r, rateRound(half, r, P));
   assert.deepEqual([...half.entries()].sort(), [...state.entries()].sort());
   assert.ok([...state.values()].some((p) => p.sr !== 1500));
+});
+
+test("round order keeps microseconds: rounds under a millisecond apart follow time, not id", () => {
+  const first = round([v1("A", 50), v1("B", 10)], "A", "zzz", "2026-10-01 12:00:00.000100+00");
+  const second = round([v1("A", 10), v1("B", 50)], "B", "aaa", "2026-10-01 12:00:00.000900+00");
+  assert.ok(compareRounds(first, second) < 0);
+  const state: SrState = new Map();
+  for (const r of [first, second]) applyRound(state, r, rateRound(state, r, P));
+  assert.deepEqual(replay([second, first], P).state, state);
+  assert.equal(timeKey("2026-10-01T14:00:00.5+02:00"), timeKey("2026-10-01 12:00:00.500000Z"));
+  assert.equal(compareRounds({ id: "b", playedAt: "2026-10-01T12:00:00Z" }, { id: "a", playedAt: "2026-10-01 12:00:00+00" }), 1);
 });

@@ -250,9 +250,23 @@ export function applyRound(state: SrState, round: SrRound, result: SrRoundResult
   }
 }
 
-// Round order: played_at, then id in code-point order.
-export function compareRounds(a: SrRound, b: SrRound): number {
-  return Date.parse(a.playedAt) - Date.parse(b.playedAt) || compareNames(a.id, b.id);
+// Microseconds since the epoch, as Postgres stores timestamptz (Date.parse
+// keeps only milliseconds). A time without an offset is UTC.
+export function timeKey(ts: string): number {
+  const m = /^(\d{4})-(\d\d)-(\d\d)[T ](\d\d):(\d\d):(\d\d)(?:\.(\d{1,6}))?\s*(Z|[+-]\d\d(?::?\d\d)?)?$/i.exec(ts.trim());
+  if (!m) throw new Error(`invalid_time:${ts}`);
+  let offset = 0;
+  if (m[8] && m[8].toUpperCase() !== "Z") {
+    const digits = m[8].replace(":", "");
+    offset = (digits[0] === "-" ? -1 : 1) * (Number(digits.slice(1, 3)) * 60 + Number(digits.slice(3, 5) || 0));
+  }
+  const ms = Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]) - offset * 60_000;
+  return ms * 1000 + Number((m[7] ?? "").padEnd(6, "0"));
+}
+
+// Round order: played_at to the microsecond, then id in code-point order.
+export function compareRounds(a: Pick<SrRound, "playedAt" | "id">, b: Pick<SrRound, "playedAt" | "id">): number {
+  return timeKey(a.playedAt) - timeKey(b.playedAt) || compareNames(a.id, b.id);
 }
 
 export function replay(rounds: SrRound[], params: SrParams, seed?: SrSeed): { state: SrState; results: SrRoundResult[] } {
