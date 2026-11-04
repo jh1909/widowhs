@@ -110,36 +110,63 @@ Stress tests, each a fixture in the test suite:
 - a late joiner at 45 s counts for little; at 20 s not at all
 - tied kills, 0–0 pairs, two-player lobbies, a round with a rejoin
 
-### First prototype run (3 November 2026)
+### Backtest (4 November 2026)
 
-`scripts/sr-prototype.py` replays the 30 October production backup
-(3,015 rounds) with untuned settings; usage is in its header. Starting
-reference for the real backtest:
+`scripts/sr-backtest.ts` replays the 4 November production backup: 3,713 v1
+rounds from 11 October to 4 November, assembled as the database does (one
+malformed batch round skipped, Battle.net-name rows re-pointed to their
+profiles, time present capped at the round length).
 
-- **Prediction:** SR orders established players by kills correctly 81.1–81.5%
-  of the time, against 80.9% for the formula ELO on the same pairs. The
-  winner's bonus (β = 0.1) improved prediction slightly in every setting.
-- **Impact:** rank correlation with the current leaderboard is 0.94 across 319
-  placed players. The top five barely change. Risers tend to take a large
-  share of kills with modest accuracy and K/D; fallers lean on accuracy and
-  K/D, or have few placement rounds and so a wide range.
-- **Responsivity:** the most predictive setting (`M = 12`) let eight poor
-  rounds take a player who won most of their earlier rounds below average.
-  `M = 5` predicts almost as well (81.1%) and is calmer. The backtest should
-  weigh stability for players, not only prediction.
-- **Noise:** about 3% of rounds over 30 s are under half a kill per minute.
-  Capping each pair's surprise at ±0.25 (`--clip=0.25`) kept prediction at
-  81.6% and lifted a player whose slump was mostly near-zero rounds from
-  151st to 111th. Dropping rounds under 0.5 kills/min (`--skim=0.5`) did
-  about the same but also discards genuine weak rounds from new players, so
-  it waits for the effort signals in v2 logs.
-- **Cold start:** everyone starts at 1,500, and uncertainty reaches its
-  minimum after about ten rounds. Players who played mostly in the first
-  weeks beat opponents still rated near 1,500 and then gained only a few
-  points per win, so their SR was still climbing when they stopped. Starting
-  each player from a first-pass rating (`--twopass`) moved one such player
-  from 109th to 57th. The backtest should compare seeded starts and a slower
-  shrinking of uncertainty.
+- **Method:** settings were chosen on the first 70% of rounds and scored on
+  the last 30% (from 28 October; 9,054 pairs). Ratings run through the
+  split. Scored pairs are those where both players had 10 earlier rated
+  rounds and 5 formula scores. The score is the weighted log-loss of the
+  predicted pairwise share against the actual pro-rated kill share, without
+  the winner's bonus. Each model's prediction goes through a logistic scale
+  fitted on the tuning rounds, so raw and logistic curves and the formula
+  ELO (mean of the last 100 round scores) compare fairly. Stability is
+  measured on established players: SR range over their last 20 rounds,
+  worst fall over 8 rounds, and how many placed players change side of the
+  median cautious SR in a week.
+- **Chosen:** raw kill share, β = 0.05, D = 300, m = 12, uncertainty 160 for
+  a new player with a floor of 30, cap ±0.25, default start (values in
+  `DEFAULT_SR_PARAMS`, `supabase/functions/_shared/sr.ts`). This is the best
+  predictor whose stability is no worse than the prototype setting (D = 400,
+  m = 5, 350/50). The raw curve beat every logistic scale. β = 0 predicted
+  marginally better, so β sits at the 0.05 floor. A low floor with a large
+  m lets new players find their level within about 10 rounds while keeping
+  established players calm.
+- **Prediction (held out):** log-loss 0.6540 against 0.6564 for the formula
+  ELO (paired bootstrap over rounds: −0.0024, 95% interval −0.0033 to
+  −0.0019) and 0.6546 for the prototype setting. Kill order is right 82.5%
+  of the time, against 81.9% for the formula ELO and 82.1% for the prototype.
+- **Stability:** an established player's 20-round range has median 18 SR
+  (90th percentile 30). The worst 8-round fall has median 7 and 90th
+  percentile 22 (largest 38, against 50 for the prototype). In a typical
+  week 16 placed players (7.7%) cross the median, against 11.4% for the
+  prototype. The best predictor overall (D = 500, m = 12, floor 70) gains
+  only 0.0012 but triples the range, so it was rejected.
+- **Cap:** dropping the ±0.25 cap would gain 0.0004 in log-loss. It is kept
+  as the guard against freak rounds, which are too rare to show in the
+  score; it also bounds one round's move for an established player to about
+  20 SR.
+- **Start:** a seed from the formula ELO as of 28 October (`player_history`,
+  so nothing from the scored period) predicts 0.0004 better than the default
+  start, with uncertainty 100. A two-pass start does the same but uses the
+  future. Using a seed would need its values frozen in a table.
+- **Strong player in a weak lobby:** at the 99th against the 10th percentile
+  of placed SR (1,674 against 1,455), winning 50 to 10 changes nothing and
+  50 to 20 costs about 9 SR.
+- **Impact:** placed players' SR runs from 1,367 to 1,674 (1st to 99th
+  percentile); players place after a median of 11 rated rounds. Rank
+  correlation with the current leaderboard is 0.96 across 376 placed
+  players. The top five are the same, 7 of the top 10 stay in it, and 20
+  formula-placed players are not yet placed. The 30 biggest risers have
+  many rounds (median 46 placements against 19 overall) with average
+  accuracy. The 30 biggest fallers lean on accuracy (37% against 32%) and
+  kills per minute (7.0 against 5.6), which the formula rewards but which
+  did not win them a larger share of the kills. The mean SR of active
+  players settles near 1,488 and rose 1.3 SR over the last two weeks.
 
 ## Engineering
 

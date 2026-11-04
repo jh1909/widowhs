@@ -118,7 +118,10 @@ an AFK player at the win, final KPM rankings, leaving/rejoining and server load.
 - A `__chromium_devtools_metrics_reporter` error comes from Chrome DevTools,
   not the site. Close DevTools and reload.
 
-## Prototypes
+## Backtests
 
-`scripts/sr-prototype.py` replays a production backup through the proposed
-skill rating; see [brief 01](briefs/01-skill-rating.md).
+`scripts/sr-backtest.ts` replays a production backup through the skill
+rating engine and scores its predictions against the formula ELO; usage is
+in its header, results in [brief 01](briefs/01-skill-rating.md#backtest-4-november-2026).
+Run it with `dev run --light -- node --import tsx scripts/sr-backtest.ts ...`
+and keep its output outside the repo.

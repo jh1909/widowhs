@@ -25,9 +25,25 @@ const near = (actual: number, expected: number, tolerance = 1e-9) =>
 const names = "ABCDEFGHIJKL".split("");
 const even = Object.fromEntries(names.map((n) => [n, 1500]));
 
-test("golden: a new winner against an established player, with the bonus and the surprise cap", () => {
+test("golden: the default params, a new winner against an established player", () => {
   const state = new Map([["B", established(1600, 80)]]);
   const result = rateRound(state, round([v1("A", 50), v1("B", 30)], "A"), P);
+  const [a, b] = result.events;
+  // Independently computed (Glicko-1 with D = 300, m = 12, rd0 160, beta = 0.05, cap 0.25).
+  near(a.srAfter, 1622.2624310841677);
+  near(a.uncertaintyAfter, 74.87185208162713);
+  near(a.expectedShare, 0.3258533248375812);
+  near(a.actualShare, 0.64375); // 50/80 = 0.625, plus 0.05 of the remainder
+  near(b.srAfter, 1528.3129925902435);
+  near(b.uncertaintyAfter, 61.317154918671946);
+  near(b.expectedShare, 0.6537486564520368);
+  assert.deepEqual([result.pairs[0].surpriseA, result.pairs[0].surpriseB], [0.25, -0.25]);
+});
+
+test("golden: the prototype's settings, a new winner against an established player", () => {
+  const prototype = withSettings({ m: 5, rd0: 350, rdMin: 50 }, { d: 400, beta: 0.1 });
+  const state = new Map([["B", established(1600, 80)]]);
+  const result = rateRound(state, round([v1("A", 50), v1("B", 30)], "A"), prototype);
   const [a, b] = result.events;
   // Independently computed (Glicko-1 with D = 400, M = 5, beta = 0.1, cap 0.25).
   near(a.srAfter, 1657.7966963042845);
@@ -43,13 +59,13 @@ test("golden: a new winner against an established player, with the bonus and the
 
 test("defaults: placement is the uncertainty after ten full rounds; cautious SR is SR minus twice it", () => {
   assert.equal(P.settings.placementUncertainty, derivePlacementUncertainty(P));
-  near(P.settings.placementUncertainty, 50);
-  assert.ok(derivePlacementUncertainty(P, 9) > 50);
-  assert.ok(derivePlacementUncertainty(withSettings({ m: 2 })) > 50); // a slower setting places later
+  near(P.settings.placementUncertainty, 30); // the floor, reached after 7 ideal rounds
+  assert.ok(derivePlacementUncertainty(P, 6) > 30);
+  assert.ok(derivePlacementUncertainty(withSettings({ m: 2 })) > 30); // a slower setting places later
   const player = established(1600, 60);
   assert.equal(cautiousSr(player, P), 1480);
   assert.equal(isPlaced(player, P), false);
-  assert.equal(isPlaced(established(1600, 50), P), true);
+  assert.equal(isPlaced(established(1600, 30), P), true);
 });
 
 test("ten full rounds take a new player from unplaced to placed", () => {
@@ -84,7 +100,8 @@ test("a strong player in a weak lobby gains almost nothing for winning", () => {
   const result = (ratings: Record<string, number>, others: number) =>
     change(rateRound(lobby(ratings), round([v1("S", 50), ...weak.map((n) => v1(n, others))], "S"), P)).S;
   const evenGain = result({ S: 1500, ...Object.fromEntries(weak.map((n) => [n, 1500])) }, 20);
-  const weakLobby = { S: 1800, ...Object.fromEntries(weak.map((n) => [n, 1400])) };
+  // About the 99th against the 10th percentile of placed players in the backtest.
+  const weakLobby = { S: 1675, ...Object.fromEntries(weak.map((n) => [n, 1450])) };
   assert.ok(evenGain > 10);
   assert.ok(result(weakLobby, 20) < 1);
   assert.ok(result(weakLobby, 45) < 0); // a narrow win costs rating there
@@ -144,8 +161,8 @@ test("zero-sum: rating changes sum to zero at equal uncertainty, the bonus only 
 
 test("the winner's bonus: a bigger win scores more, small wins gain most from it", () => {
   const share = (other: number) => rateRound(new Map(), round([v1("A", 50), v1("B", other)], "A"), P).pairs[0].shareA;
-  near(share(49), 50 / 99 + 0.1 * 49 / 99);
-  near(share(10), 50 / 60 + 0.1 * 10 / 60);
+  near(share(49), 50 / 99 + P.beta * 49 / 99);
+  near(share(10), 50 / 60 + P.beta * 10 / 60);
   assert.ok(share(10) > share(30) && share(30) > share(49));
   assert.ok(share(49) - 50 / 99 > share(10) - 50 / 60);
   const loser = rateRound(new Map(), round([v1("A", 49), v1("B", 50)], "B"), P).pairs[0].shareA;
@@ -222,7 +239,7 @@ test("seeded start: players in the frozen seed map start from it at the seed unc
   const params = withSettings({ start: "seed" });
   const seed = new Map([["A", 1700]]);
   const result = rateRound(new Map(), round([v1("A", 40), v1("B", 40)]), params, seed);
-  assert.deepEqual(result.events.map((e) => [e.name, e.srBefore, e.uncertaintyBefore]), [["A", 1700, 150], ["B", 1500, 350]]);
+  assert.deepEqual(result.events.map((e) => [e.name, e.srBefore, e.uncertaintyBefore]), [["A", 1700, P.settings.seedUncertainty], ["B", 1500, P.settings.rd0]]);
   assert.throws(() => rateRound(new Map(), round([v1("A", 40), v1("B", 40)]), params), /seed_required/);
 });
 
