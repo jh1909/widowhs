@@ -59,6 +59,14 @@ async function setup(beforeSr?: (db: PGlite) => Promise<void>) {
     if (name === SR_MIGRATION && beforeSr) await beforeSr(db);
     await db.exec(await migration(name));
   }
+  // Supabase sessions print floats with 15 significant digits; anything that
+  // passes ratings through text must still be exact there.
+  await db.exec('set extra_float_digits = 0');
+  // Reads compare exact values.
+  const read = async (sql: string, params: unknown[] = []) => {
+    await db.exec('set extra_float_digits = 3');
+    try { return (await db.query<any>(sql, params)).rows; } finally { await db.exec('set extra_float_digits = 0'); }
+  };
 
   let files = 0;
   const round = (text: string, playedAt: string) => {
@@ -88,9 +96,9 @@ async function setup(beforeSr?: (db: PGlite) => Promise<void>) {
   };
   const inputs = async () => (await db.query<any>('select * from public._sr_round_inputs()')).rows;
   const ratings = async () => ({
-    events: (await db.query<any>(`select * from public.rating_events order by played_at, match_id::text, player_name`)).rows,
-    players: (await db.query<any>('select * from public.player_ratings order by player_name')).rows,
-    rounds: (await db.query<any>('select * from public.round_ratings order by played_at, match_id::text')).rows,
+    events: await read(`select * from public.rating_events order by played_at, match_id::text, player_name`),
+    players: await read('select * from public.player_ratings order by player_name'),
+    rounds: await read('select * from public.round_ratings order by played_at, match_id::text'),
   });
   // Transaction ids of each event row: a row rewritten by a replay gets a new one.
   const versions = async () => new Map((await db.query<any>(
@@ -114,7 +122,7 @@ async function setup(beforeSr?: (db: PGlite) => Promise<void>) {
       await db.exec('rollback');
     }
   };
-  return { db, round, upload, asAdmin, inputs, ratings, versions, roundsRewritten, assertMatchesScratch };
+  return { db, read, round, upload, asAdmin, inputs, ratings, versions, roundsRewritten, assertMatchesScratch };
 }
 
 test('SR tables are hidden from the site', async () => {
@@ -385,6 +393,66 @@ test('every history change replays from the right round', async t => {
       assert.equal((await roundsRewritten(before)).size, 0);
     });
 
+    await t.test('corrections to sessions and raw logs replay from their round; other columns do nothing', async () => {
+      const v2 = (await db.query<any>("select match_id from public.raw_logs where format_version = 2 order by uploaded_at limit 1")).rows[0].match_id;
+      const earlier = (await db.query<any>(`select e.match_id from public.rating_events e
+        where e.played_at < (select min(played_at) from public.player_matches where match_id = $1) limit 1`, [v2])).rows[0].match_id;
+      let before = await versions();
+      await db.query('update public.player_sessions set kills = kills + 1, crouches = 0 where match_id = $1', [v2]);
+      assert.equal((await roundsRewritten(before)).size, 0);
+      before = await versions();
+      await db.query('update public.player_sessions set end_s = 120 where match_id = $1 and session_no = 2', [v2]);
+      let rewritten = await roundsRewritten(before);
+      assert.ok(rewritten.has(v2) && !rewritten.has(earlier));
+      await assertMatchesScratch();
+      before = await versions();
+      await db.query("update public.raw_logs set winner_name = 'Robert' where match_id = $1", [v2]);
+      rewritten = await roundsRewritten(before);
+      assert.ok(rewritten.has(v2) && !rewritten.has(earlier));
+      await assertMatchesScratch();
+      await db.query("update public.raw_logs set round_length = 280 where match_id = $1", [v2]);
+      await assertMatchesScratch();
+      await db.query('delete from public.player_sessions where match_id = $1 and session_no = 3', [v2]);
+      await assertMatchesScratch();
+      await db.query('update public.raw_logs set filename = $2, host_name = $2 where match_id = $1', [v2, 'renamed.txt']);
+      await assertMatchesScratch();
+    });
+
+    await t.test('an import replays once', async () => {
+      await db.exec(`create table public.sr_replay_calls(at timestamptz default now());
+        alter function public.replay_ratings(timestamptz) rename to replay_ratings_counted;
+        create function public.replay_ratings(p_from timestamptz default '-infinity') returns integer language plpgsql as
+          $$ begin insert into public.sr_replay_calls default values; return public.replay_ratings_counted(p_from); end $$;`);
+      try {
+        await upload(await round(v2Log, day(27)));
+        assert.equal((await db.query<any>('select count(*)::int as n from public.sr_replay_calls')).rows[0].n, 1);
+      } finally {
+        await db.exec(`drop function public.replay_ratings(timestamptz); drop table public.sr_replay_calls;
+          alter function public.replay_ratings_counted(timestamptz) rename to replay_ratings;`);
+      }
+      await assertMatchesScratch();
+    });
+
+    await t.test('renaming onto a name that already has rows rates those rows from their first round', async () => {
+      // Rows under a name with no profile (not rated), one of them before every other round.
+      await db.exec(`insert into public.player_matches(player_name, logged_player_name, score, deaths, accuracy, kpm, kdr, crouches,
+          time_in_lobby, total_match_time, performance_score, played_at, match_id) values
+        ('Lost', 'Lost', 50, 1, 50, 10, 5, 0, 300, 300, 800, '2026-09-01T12:00:00Z', '00000000-0000-0000-0000-0000000000f1'),
+        ('Alice', 'Alice', 20, 1, 50, 4, 5, 0, 300, 300, 800, '2026-09-01T12:00:00Z', '00000000-0000-0000-0000-0000000000f1'),
+        ('Gone', 'Gone', 50, 1, 50, 10, 5, 0, 300, 300, 800, '2026-09-02T12:00:00Z', '00000000-0000-0000-0000-0000000000f2'),
+        ('Alice', 'Alice', 30, 1, 50, 4, 5, 0, 300, 300, 800, '2026-09-02T12:00:00Z', '00000000-0000-0000-0000-0000000000f2');
+        insert into public.players(name, matches, elo) values ('Empty', 0, '-');`);
+      await assertMatchesScratch();
+      // A profile without rounds takes the name: its rows become rated.
+      await asAdmin("select public.rename_player('Empty', 'Lost')");
+      assert.ok((await ratings()).events.some(e => e.player_name === 'Lost'));
+      await assertMatchesScratch();
+      // A profile with later rounds takes the other name: replay from the earlier rows.
+      await asAdmin("select public.rename_player('Robert', 'Gone')");
+      assert.ok((await ratings()).events.some(e => e.player_name === 'Gone' && e.match_id === '00000000-0000-0000-0000-0000000000f2'));
+      await assertMatchesScratch();
+    });
+
     await t.test('a reset clears every rating', async () => {
       await asAdmin("select public.reset_leaderboard('RESET')");
       assert.deepEqual(await ratings(), { events: [], players: [], rounds: [] });
@@ -596,7 +664,7 @@ test('the database engine agrees with sr.ts round by round', async () => {
 
 test('replays agree with sr.ts on a random history; incremental and relabelled ratings equal a replay exactly', async t => {
   const s = await setup();
-  const { db, assertMatchesScratch } = s;
+  const { db, read, assertMatchesScratch } = s;
   try {
     const r = prng(7);
     const players = Array.from({ length: 12 }, (_, i) => `P${String(i).padStart(2, '0')}`).concat(['Ålice', '😀']);
@@ -657,13 +725,13 @@ test('replays agree with sr.ts on a random history; incremental and relabelled r
     const params = (await db.query<any>('select * from public.rating_params where active')).rows[0];
     const srParams: SrParams = { version: params.version, d: params.d, beta: params.beta, settings: params.settings };
     const compareWithTs = async () => {
-      const inputs = (await db.query<any>('select * from public._sr_round_inputs()')).rows;
+      const inputs = await read('select * from public._sr_round_inputs()');
       const rounds: SrRound[] = inputs.map(i => i.round);
       const { state, results } = replay(rounds, srParams);
       const sorted = rounds.slice().sort((a, b) => timeKey(a.playedAt) - timeKey(b.playedAt) || (a.id < b.id ? -1 : 1));
       assert.deepEqual(sorted.map(x => x.id), inputs.map(i => i.match_id), 'round order');
-      const events = new Map((await db.query<any>('select * from public.rating_events')).rows.map(e => [`${e.match_id}/${e.player_name}`, e]));
-      const lobbies = new Map((await db.query<any>('select * from public.round_ratings')).rows.map(x => [x.match_id, x]));
+      const events = new Map((await read('select * from public.rating_events')).map(e => [`${e.match_id}/${e.player_name}`, e]));
+      const lobbies = new Map((await read('select * from public.round_ratings')).map(x => [x.match_id, x]));
       let count = 0;
       results.forEach((res, k) => {
         const id = sorted[k].id;
@@ -687,7 +755,7 @@ test('replays agree with sr.ts on a random history; incremental and relabelled r
         }
       });
       assert.equal(events.size, count);
-      const ratings = (await db.query<any>('select * from public.player_ratings')).rows;
+      const ratings = await read('select * from public.player_ratings');
       assert.equal(ratings.length, state.size);
       for (const pr of ratings) {
         const st = state.get(pr.player_name)!;

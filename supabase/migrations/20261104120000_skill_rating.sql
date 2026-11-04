@@ -24,8 +24,9 @@
 --
 -- How it fits together:
 -- * Every history change (rows of player_matches inserted, updated or deleted;
---   a ban or unban; a profile created or deleted over existing rows; the
---   active rating_params changing) queues the earliest affected round time in
+--   corrections to player_sessions or raw_logs; a ban or unban; a profile
+--   created, deleted or renamed over existing rows; the active rating_params
+--   changing) queues the earliest affected round time in
 --   rating_replay_queue. A deferred trigger drains the queue once, at commit,
 --   and replays from there, in the same transaction as the change. Imports
 --   write their sessions after their rows, so replaying at commit sees whole
@@ -305,7 +306,7 @@ $$;
 --    shots, intervals: [[start, end], ...]}]}
 create function public._sr_round_inputs(p_from timestamptz default '-infinity')
 returns table (match_id uuid, played_at timestamptz, round jsonb)
-language sql stable security definer set search_path = '' as $$
+language sql stable security definer set search_path = '' set extra_float_digits = 3 as $$
   select r.match_id, r.played_at, pg_catalog.jsonb_build_object(
     'id', r.match_id,
     'playedAt', pg_catalog.to_char(r.played_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),
@@ -514,7 +515,7 @@ $$;
 -- maxSr} | null}.
 create function public._sr_rate_round_json(p_params public.rating_params, p_round jsonb, p_states jsonb,
   p_seed jsonb default null)
-returns jsonb language plpgsql immutable set search_path = '' as $$
+returns jsonb language plpgsql immutable set search_path = '' set extra_float_digits = 3 as $$
 declare
   names text[]; kills double precision[]; present double precision[]; afk double precision[];
   shots double precision[]; counts integer[]; starts double precision[]; ends double precision[];
@@ -574,9 +575,11 @@ $$;
 -- affected player's state from their last earlier event (or none, so they
 -- start fresh), rates the rounds in order with the state held in memory,
 -- writes the results and refreshes the standings. Returns the number of
--- rounds rated; a no-op when nothing is at or after p_from.
+-- rounds rated; a no-op when nothing is at or after p_from. Restored states
+-- pass through jsonb, so floats are printed in full whatever the session's
+-- extra_float_digits (Supabase uses 0, which keeps only 15 digits).
 create function public.replay_ratings(p_from timestamptz default '-infinity')
-returns integer language plpgsql security definer set search_path = '' as $$
+returns integer language plpgsql security definer set search_path = '' set extra_float_digits = 3 as $$
 declare
   params public.rating_params%rowtype;
   start_from timestamptz := coalesce(p_from, '-infinity'::timestamptz);
@@ -829,6 +832,49 @@ create trigger sr_matches_updated after update on public.player_matches
 create trigger sr_matches_deleted after delete on public.player_matches
   referencing old table as old_rows for each statement execute function public._sr_matches_changed();
 
+-- player_sessions and raw_logs: a correction to what input assembly reads
+-- (session intervals and names; a log's format, round length and winner)
+-- replays from that round. An import writes its raw logs before the round's
+-- rows, so they queue nothing, and its sessions queue the same round as its
+-- rows; sessions deleted with their rows queue nothing either.
+create function public._sr_round_details_changed()
+returns trigger language plpgsql security definer set search_path = '' as $$
+declare ids uuid[];
+begin
+  if tg_op = 'INSERT' then
+    select pg_catalog.array_agg(distinct match_id) into ids from new_rows;
+  elsif tg_op = 'DELETE' then
+    select pg_catalog.array_agg(distinct match_id) into ids from old_rows;
+  elsif tg_table_name = 'player_sessions' then
+    select pg_catalog.array_agg(distinct x.m) into ids
+    from old_rows o join new_rows n on n.id = o.id cross join lateral (values (o.match_id), (n.match_id)) x(m)
+    where (o.match_id, o.participation_id, o.start_s, o.end_s, o.logged_name)
+      is distinct from (n.match_id, n.participation_id, n.start_s, n.end_s, n.logged_name);
+  else
+    select pg_catalog.array_agg(distinct x.m) into ids
+    from old_rows o join new_rows n on n.id = o.id cross join lateral (values (o.match_id), (n.match_id)) x(m)
+    where (o.match_id, o.format_version, o.round_length, o.winner_name)
+      is distinct from (n.match_id, n.format_version, n.round_length, n.winner_name);
+  end if;
+  if ids is not null then
+    perform public._sr_request_replay((select min(m.played_at) from public.player_matches m where m.match_id = any(ids)));
+  end if;
+  return null;
+end;
+$$;
+create trigger sr_sessions_inserted after insert on public.player_sessions
+  referencing new table as new_rows for each statement execute function public._sr_round_details_changed();
+create trigger sr_sessions_updated after update on public.player_sessions
+  referencing old table as old_rows new table as new_rows for each statement execute function public._sr_round_details_changed();
+create trigger sr_sessions_deleted after delete on public.player_sessions
+  referencing old table as old_rows for each statement execute function public._sr_round_details_changed();
+create trigger sr_raw_logs_inserted after insert on public.raw_logs
+  referencing new table as new_rows for each statement execute function public._sr_round_details_changed();
+create trigger sr_raw_logs_updated after update on public.raw_logs
+  referencing old table as old_rows new table as new_rows for each statement execute function public._sr_round_details_changed();
+create trigger sr_raw_logs_deleted after delete on public.raw_logs
+  referencing old table as old_rows for each statement execute function public._sr_round_details_changed();
+
 -- players: a ban or unban replays from the player's first round. A profile
 -- created or deleted over rows that carry its name (rows without a profile
 -- are not rated) replays from their first round.
@@ -841,6 +887,20 @@ end;
 $$;
 create trigger sr_player_ban_changed after update of is_banned on public.players
   for each row when (old.is_banned is distinct from new.is_banned) execute function public._sr_player_ban_changed();
+
+-- A rename onto a name that already has rows (filed under it without a
+-- profile, so unrated) makes them this profile's: replay from their first
+-- round. Fires before sync_player_history_name moves the profile's own rows,
+-- which the player_matches hook handles (relabelling only if no such rows).
+create function public._sr_player_renamed()
+returns trigger language plpgsql security definer set search_path = '' as $$
+begin
+  perform public._sr_request_replay(public._sr_first_round_of(array[new.name]));
+  return null;
+end;
+$$;
+create trigger sr_player_renamed after update of name on public.players
+  for each row when (old.name is distinct from new.name) execute function public._sr_player_renamed();
 
 create function public._sr_players_added_or_removed()
 returns trigger language plpgsql security definer set search_path = '' as $$
@@ -885,7 +945,8 @@ revoke all on function public._sr_round_rows(timestamptz), public._sr_round_inpu
   public._sr_rate_round_json(public.rating_params, jsonb, jsonb, jsonb), public._sr_refresh_standings(),
   public.replay_ratings(timestamptz), public._sr_request_replay(timestamptz), public._sr_first_round_of(text[]),
   public._sr_run_queued_replay(), public._sr_matches_changed(), public._sr_player_ban_changed(),
-  public._sr_players_added_or_removed(), public._sr_params_changed()
+  public._sr_players_added_or_removed(), public._sr_params_changed(), public._sr_player_renamed(),
+  public._sr_round_details_changed()
   from public, anon, authenticated, service_role;
 grant execute on function public.replay_ratings(timestamptz) to service_role;
 
