@@ -65,7 +65,9 @@ It served as the seed round and ends when SR launches.
   weighted sum of `(S − E)` over opponents, normalised so lobby size does not
   change how much one round can move a rating.
 - **Engine details** (reference: `supabase/functions/_shared/sr.ts`):
-  time present means active time (present − AFK) for the cutoff and the
+  participants are rated in the order the database supplies them (first
+  `player_matches.id` in the round), so a rename never changes a result. Time
+  present means active time (present − AFK) for the cutoff and the
   weight. Both players' kills are pro-rated to the time they shared
   (kills × overlap ÷ own time present; for v1 only the longer-present
   player's change). A pair counts with weight min(overlap ÷ round length,

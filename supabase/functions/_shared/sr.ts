@@ -1,7 +1,8 @@
 // Skill rating (SR), docs/briefs/01-skill-rating.md. This is the reference
 // implementation: the database's plpgsql port must evaluate the same formulas
-// in the same order (participants by name in code-point order, i.e. COLLATE
-// "C"; pairs (a, b) with a before b; every sum in that order).
+// in the same order. Participants are taken in the caller's order (the
+// database's: first player_matches.id in the round), so a rename doesn't move
+// anyone; pairs are (i, j) with i before j, and every sum runs in that order.
 
 export type SrParticipant = {
   name: string;                  // profile name, one participant per profile
@@ -149,18 +150,20 @@ type Entry = {
 // the rating change.
 export function rateRound(state: ReadonlyMap<string, SrPlayer>, round: SrRound, params: SrParams, seed?: SrSeed): SrRoundResult {
   const s = params.settings;
-  const sorted = round.participants.slice().sort((a, b) => compareNames(a.name, b.name));
-  for (let i = 1; i < sorted.length; i++) {
-    if (sorted[i].name === sorted[i - 1].name) throw new Error(`duplicate_participant:${sorted[i].name}`);
+  const ordered = round.participants;
+  const names = new Set<string>();
+  for (const p of ordered) {
+    if (names.has(p.name)) throw new Error(`duplicate_participant:${p.name}`);
+    names.add(p.name);
   }
   const excluded: SrExclusion[] = [];
   const empty = (): SrRoundResult => ({ events: [], pairs: [], lobby: null, excluded });
   if (!(round.length > 0)) {
-    for (const p of sorted) excluded.push({ name: p.name, reason: "round_length" });
+    for (const p of ordered) excluded.push({ name: p.name, reason: "round_length" });
     return empty();
   }
   const entries: Entry[] = [];
-  for (const p of sorted) {
+  for (const p of ordered) {
     const active = Math.max(0, p.present - p.afk);
     if (active < s.minActiveSeconds) { excluded.push({ name: p.name, reason: "short" }); continue; }
     if (p.shots !== null && p.shots * 60 < s.minShotsPerMinute * active) { excluded.push({ name: p.name, reason: "effort" }); continue; }

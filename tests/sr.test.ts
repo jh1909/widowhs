@@ -226,19 +226,28 @@ test("seeded start: players in the frozen seed map start from it at the seed unc
   assert.throws(() => rateRound(new Map(), round([v1("A", 40), v1("B", 40)]), params), /seed_required/);
 });
 
-test("deterministic under shuffled participants and intervals; names sort by code point", () => {
+test("participants are rated in the order given; interval order never matters, participant order only to rounding", () => {
   const players = [v1("zed", 50), v1("Ålice", 44), v1("Bob", 31, 200), v2("😀", 12, [[200, 300], [0, 60]], 80), v1("bob", 0), v1("Al", 0, 100)];
   const state = lobby({ zed: 1620, "Ålice": 1480, Bob: 1550 });
   const expected = rateRound(state, round(players, "zed"), P);
+  assert.deepEqual(expected.events.map((e) => e.name), ["zed", "Ålice", "Bob", "😀", "bob", "Al"]);
+  assert.deepEqual(expected.pairs.slice(0, 2).map((p) => p.a + p.b), ["zedÅlice", "zedBob"]);
+  const reversedIntervals = players.map((p) => ({ ...p, intervals: p.intervals.slice().reverse() }));
+  assert.deepEqual(rateRound(state, round(reversedIntervals, "zed"), P), expected);
+  const byName = (r: ReturnType<typeof rateRound>) => new Map(r.events.map((e) => [e.name, e]));
+  const want = byName(expected);
   for (let seed = 1; seed < 20; seed++) {
     let x = seed;
-    const shuffled = players.map((p) => ({ ...p, intervals: p.intervals.slice().reverse() }))
-      .map((p) => ({ p, k: (x = (x * 1103515245 + 12345) % 2147483648) })).sort((a, b) => a.k - b.k).map(({ p }) => p);
-    assert.deepEqual(rateRound(state, round(shuffled, "zed"), P), expected);
+    const shuffled = players.map((p) => ({ p, k: (x = (x * 1103515245 + 12345) % 2147483648) })).sort((a, b) => a.k - b.k).map(({ p }) => p);
+    const got = rateRound(state, round(shuffled, "zed"), P);
+    for (const [name, e] of byName(got)) {
+      const w = want.get(name)!;
+      for (const key of ["srAfter", "uncertaintyAfter", "expectedShare", "actualShare", "performance"] as const) near(e[key], w[key], 1e-12 * Math.max(1, Math.abs(w[key])));
+    }
+    near(got.lobby!.meanSr, expected.lobby!.meanSr, 1e-9);
   }
-  assert.deepEqual(expected.events.map((e) => e.name), ["Al", "Bob", "bob", "zed", "Ålice", "😀"]);
-  assert.ok(compareNames("￿", "😀") < 0); // UTF-16 order would put the emoji first
-  assert.throws(() => rateRound(state, round([v1("A", 1), v1("A", 2)]), P), /duplicate_participant/);
+  assert.ok(compareNames("\uFFFF", "😀") < 0); // round ids tie-break by code point; UTF-16 order would put the emoji first
+  assert.throws(() => rateRound(state, round([v1("A", 1), v1("B", 2), v1("A", 2)]), P), /duplicate_participant:A/);
 });
 
 test("replay from scratch equals incremental rateRound calls, in played_at then id order", () => {
