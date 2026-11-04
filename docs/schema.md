@@ -133,7 +133,7 @@ erDiagram
     bool placed
     int rank "placed, not banned"
     float rated_weight
-    int rated_rounds
+    int full_rounds
     timestamptz last_rated_at
   }
   rating_events {
@@ -141,7 +141,8 @@ erDiagram
     text player_name PK, FK
     timestamptz played_at "the round's time"
     int params_version FK
-    float weight "time present / round length"
+    float weight "active time / round length"
+    bool full_round
     float sr_before
     float sr_after
     float uncertainty_before
@@ -150,12 +151,13 @@ erDiagram
     float actual_share
     float performance "actual minus expected"
     float rated_weight "running total, to resume a replay"
-    int rated_rounds "running total"
+    int full_rounds "running total"
   }
   round_ratings {
     uuid match_id PK "FK to rounds later"
     timestamptz played_at
     int params_version FK
+    int lobby_players "eligible players"
     float lobby_sr_mean "time-weighted"
     float lobby_sr_min
     float lobby_sr_max
@@ -165,7 +167,7 @@ erDiagram
     int version PK
     float d
     float beta "winner's bonus"
-    jsonb settings "K range, share curve, decay pace"
+    jsonb settings "the engine's SrSettings"
     bool active "at most one"
   }
   badges {

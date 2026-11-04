@@ -6,11 +6,13 @@ import Papa from 'papaparse';
 import { normalizeMatchLog } from '../supabase/functions/upload-csv/parser.ts';
 import { prepareRound, type PreparedRound } from '../supabase/functions/_shared/log-ingest.ts';
 import { buildMatchImport, type ImportPlayer } from '../supabase/functions/_shared/import-stats.ts';
+import { DEFAULT_SR_PARAMS, rateRound, replay, timeKey, type SrParams, type SrPlayer, type SrRound } from '../supabase/functions/_shared/sr.ts';
 
 const actor = '00000000-0000-0000-0000-000000000001';
 const other = '00000000-0000-0000-0000-000000000002';
 const rows = (text: string) => Papa.parse<string[]>(normalizeMatchLog(text), {
   delimiter: ',', header: false, skipEmptyLines: 'greedy' }).data;
+const SR_MIGRATION = '20261104120000_skill_rating.sql';
 const migration = (name: string) => readFile(new URL(`../supabase/migrations/${name}`, import.meta.url), 'utf8');
 
 // One v1 line: name, kills, time in lobby, total match time.
@@ -25,7 +27,7 @@ const v2Log = `#V,2,3.5.0
 #P,3,Carol,2,10.25,200,2,5,12,30,8,1,75
 #P,4,Bob,1,150,301.5,0,8,10,40,12,3,0`;
 
-async function setup() {
+async function setup(beforeSr?: (db: PGlite) => Promise<void>) {
   const db = new PGlite();
   await db.exec(`
     create role anon; create role authenticated; create role service_role bypassrls;
@@ -46,8 +48,15 @@ async function setup() {
     create table public.audit_logs(id bigint generated always as identity primary key,action text,admin_user text,details text);
     insert into public.players(name,user_id,is_admin,matches,elo) values('Admin','${actor}',true,0,'-');
     grant select,insert,update on public.players to authenticated;
+    -- As production: anyone could insert rounds.
+    alter table public.player_matches enable row level security;
+    create policy "Allow public read access" on public.player_matches for select using (true);
+    create policy "Allow public insert access" on public.player_matches for insert with check (true);
+    grant all on public.player_matches to anon, authenticated;
+    grant all on sequence public.player_matches_id_seq to anon, authenticated;
   `);
   for (const name of (await readdir(new URL('../supabase/migrations/', import.meta.url))).sort()) {
+    if (name === SR_MIGRATION && beforeSr) await beforeSr(db);
     await db.exec(await migration(name));
   }
 
@@ -123,9 +132,11 @@ test('SR tables are hidden from the site', async () => {
         await db.exec('reset role');
       }
     }
-    const params = (await db.query<any>('select version, active, settings from public.rating_params')).rows;
-    assert.deepEqual(params.map(p => [p.version, p.active, p.settings.placeholder]), [[1, true, true]]);
-    await assert.rejects(db.exec("insert into public.rating_params(version,d,beta,active) values (2,400,0.1,true)"), /rating_params_one_active/);
+    const params = (await db.query<any>('select version, d, beta, settings, active from public.rating_params')).rows;
+    // Version 1 is the engine's DEFAULT_SR_PARAMS, so the two implementations share one parameter object.
+    assert.deepEqual(params, [{ version: 1, d: DEFAULT_SR_PARAMS.d, beta: DEFAULT_SR_PARAMS.beta,
+      settings: DEFAULT_SR_PARAMS.settings, active: true }]);
+    await assert.rejects(db.exec("insert into public.rating_params(version,d,beta,settings,active) values (2,400,0.1,'{}',true)"), /rating_params_one_active/);
   } finally {
     await db.close();
   }
@@ -231,7 +242,7 @@ test('every history change replays from the right round', async t => {
       assert.equal(r.rounds.length, 7);
       assert.equal(r.events.filter(e => e.match_id === id).length, 3);
       const alice = r.players.find(p => p.player_name === 'Alice');
-      assert.equal(alice.rated_rounds, 7);
+      assert.equal(alice.full_rounds, 7);
       assert.equal(alice.cautious_sr, alice.sr - 2 * alice.uncertainty);
       assert.deepEqual(r.players.filter(p => p.rank !== null).map(p => p.player_name),
         r.players.filter(p => p.placed).sort((a, b) => b.cautious_sr - a.cautious_sr).map(p => p.player_name));
@@ -333,7 +344,7 @@ test('every history change replays from the right round', async t => {
     await t.test('activating another parameter version replays everything with it', async () => {
       await db.exec(`update public.rating_params set active = false where version = 1;
         insert into public.rating_params (version, d, beta, settings, active)
-        select 2, 300, beta, settings || '{"standin_k": 16}', true from public.rating_params where version = 1;`);
+        select 2, 300, beta, settings || '{"m": 8, "surpriseCap": null}', true from public.rating_params where version = 1;`);
       const r = await ratings();
       assert.ok(r.events.length > 0 && r.events.every(e => e.params_version === 2));
       assert.ok(r.rounds.every(x => x.params_version === 2));
@@ -353,10 +364,11 @@ test('every history change replays from the right round', async t => {
       await assert.rejects(db.exec('select 1/0'));
       await db.exec('rollback');
       assert.deepEqual(await ratings(), before);
-      const saved = (await db.query<any>(
-        "select pg_get_functiondef('public._sr_rate_round(public.rating_params,jsonb,jsonb)'::regprocedure) as d")).rows[0].d;
-      await db.exec(`create or replace function public._sr_rate_round(p_params public.rating_params, p_round jsonb, p_states jsonb)
-        returns jsonb language plpgsql as $$ begin raise exception 'engine failed'; end $$;`);
+      const fn = (await db.query<any>(`select pg_get_functiondef(oid) as def, pg_get_function_arguments(oid) as args
+        from pg_proc where proname = '_sr_rate_round'`)).rows[0];
+      const saved = fn.def;
+      await db.exec(`create or replace function public._sr_rate_round(${fn.args}) returns public._sr_round_result
+        language plpgsql as $$ begin raise exception 'engine failed'; end $$;`);
       try {
         await assert.rejects(upload(await round(v1(['Alice', 50, 300, 300], ['Zed', 10, 300, 300]), day(29))), /engine failed/);
       } finally {
@@ -376,6 +388,340 @@ test('every history change replays from the right round', async t => {
     await t.test('a reset clears every rating', async () => {
       await asAdmin("select public.reset_leaderboard('RESET')");
       assert.deepEqual(await ratings(), { events: [], players: [], rounds: [] });
+    });
+  } finally {
+    await db.close();
+  }
+});
+
+test('browsers can read rounds but no longer write them', async () => {
+  const { db } = await setup();
+  try {
+    for (const role of ['anon', 'authenticated']) {
+      await db.exec(`set role ${role}`);
+      try {
+        await db.query('select count(*) from public.player_matches');
+        await assert.rejects(db.query("insert into public.player_matches(player_name, score) values ('X', 1)"), /permission denied/);
+        await assert.rejects(db.query('delete from public.player_matches where true'), /permission denied/);
+        await assert.rejects(db.query('truncate public.player_matches'), /permission denied/);
+      } finally {
+        await db.exec('reset role');
+      }
+    }
+  } finally {
+    await db.close();
+  }
+});
+
+test('rows filed under an alias of exactly one profile move to it', async () => {
+  const { db } = await setup(async db => {
+    await db.exec(`
+      insert into public.players(name, matches, elo, bnet_accounts, previous_names) values
+        ('Prof', 2, '-', '["Linked"]', '{}'), ('Renamed', 1, '-', '[]', '{Old}'), ('Other', 2, '-', '[]', '{}'),
+        ('A1', 0, '-', '["Amb"]', '{}'), ('A2', 0, '-', '[]', '{amb}');
+      insert into public.player_matches(player_name, logged_player_name, score, deaths, accuracy, kpm, kdr, crouches,
+        time_in_lobby, total_match_time, performance_score, played_at, match_id) values
+        ('linked', 'linked', 50, 10, 50, 10, 5, 3, 200, 300, 800, '2026-10-11T12:00:00Z', '00000000-0000-0000-0000-00000000000a'),
+        ('Other', 'Other', 30, 10, 40, 8, 3, 2, 300, 300, 600, '2026-10-11T12:00:00Z', '00000000-0000-0000-0000-00000000000a'),
+        ('Prof', 'Linked', 20, 10, 40, 6, 2, 1, 300, 300, 500, '2026-10-12T12:00:00Z', '00000000-0000-0000-0000-00000000000b'),
+        ('Other', 'Other', 50, 10, 40, 8, 3, 2, 300, 300, 600, '2026-10-12T12:00:00Z', '00000000-0000-0000-0000-00000000000b'),
+        ('Old', 'Old', 10, 10, 40, 6, 1, 1, 300, 300, 300, '2026-10-12T13:00:00Z', '00000000-0000-0000-0000-00000000000c'),
+        ('Amb', 'Amb', 10, 10, 40, 6, 1, 1, 300, 300, 300, '2026-10-12T14:00:00Z', '00000000-0000-0000-0000-00000000000d'),
+        ('Nobody', 'Nobody', 10, 10, 40, 6, 1, 1, 300, 300, 300, '2026-10-12T15:00:00Z', '00000000-0000-0000-0000-00000000000e');
+      insert into public.player_history(player_name, elo, rank, created_at) values ('linked', 800, 1, '2026-10-11T12:00:00Z');
+    `);
+  });
+  try {
+    const rows = (await db.query<any>('select player_name, logged_player_name from public.player_matches order by id')).rows;
+    assert.deepEqual(rows.map(r => [r.player_name, r.logged_player_name]), [
+      ['Prof', 'linked'], ['Other', 'Other'], ['Prof', 'Linked'], ['Other', 'Other'], ['Renamed', 'Old'], ['Amb', 'Amb'], ['Nobody', 'Nobody']]);
+    const prof = (await db.query<any>(`select matches, personal_best_time::float as pb, placement_matches, recent_matches
+      from public.players where name = 'Prof'`)).rows[0];
+    // Lifetime counters already counted the rows; derived stats now include them.
+    assert.deepEqual(prof, { matches: 2, pb: 200, placement_matches: 2, recent_matches: 2 });
+    const history = (await db.query<any>("select player_name, elo_samples::int as n from public.player_history order by player_name")).rows;
+    assert.ok(history.some(h => h.player_name === 'Prof') && !history.some(h => h.player_name === 'linked'));
+    const events = (await db.query<any>("select player_name from public.rating_events where match_id = '00000000-0000-0000-0000-00000000000a' order by 1")).rows;
+    assert.deepEqual(events.map(e => e.player_name), ['Other', 'Prof']);
+  } finally {
+    await db.close();
+  }
+});
+
+// ---- Agreement with the TypeScript engine (supabase/functions/_shared/sr.ts) ----
+
+const near = (a: number, b: number, what: string, tolerance = 1e-9) =>
+  assert.ok(Math.abs(a - b) <= tolerance, `${what}: ${a} vs ${b}`);
+const EVENT_NUMBERS = ['weight', 'srBefore', 'srAfter', 'uncertaintyBefore', 'uncertaintyAfter',
+  'expectedShare', 'actualShare', 'performance'] as const;
+
+function assertSameRound(ts: ReturnType<typeof rateRound>, db: any, what: string) {
+  assert.deepEqual(db.events.map((e: any) => e.name), ts.events.map(e => e.name), `${what}: rated players`);
+  ts.events.forEach((e, i) => {
+    const d = db.events[i];
+    assert.equal(d.full, e.full, `${what} ${e.name} full`);
+    for (const key of EVENT_NUMBERS) near(d[key], e[key], `${what} ${e.name} ${key}`);
+  });
+  if (ts.lobby === null) assert.equal(db.lobby, null, `${what}: lobby`);
+  else {
+    assert.equal(db.lobby.players, ts.lobby.players, `${what}: lobby players`);
+    near(db.lobby.meanSr, ts.lobby.meanSr, `${what} lobby mean`);
+    near(db.lobby.minSr, ts.lobby.minSr, `${what} lobby min`);
+    near(db.lobby.maxSr, ts.lobby.maxSr, `${what} lobby max`);
+  }
+}
+
+const P = DEFAULT_SR_PARAMS;
+const withSettings = (settings: Partial<SrParams['settings']>, top: Partial<SrParams> = {}): SrParams =>
+  ({ ...P, ...top, settings: { ...P.settings, ...settings } });
+const L = 300;
+const p1 = (name: string, kills: number, present = L, length = L) =>
+  ({ name, kills, present, afk: 0, shots: null, intervals: [[length - present, length]] as [number, number][] });
+const p2 = (name: string, kills: number, intervals: [number, number][], shots: number, afk = 0) =>
+  ({ name, kills, afk, shots, intervals, present: intervals.reduce((t, [s, e]) => t + e - s, 0) });
+const rnd = (participants: SrRound['participants'], winner: string | null = null, length = L): SrRound =>
+  ({ id: 'r1', playedAt: '2026-10-01T12:00:00Z', length, winner, participants });
+const established = (sr: number, uncertainty = 50): SrPlayer => ({ sr, uncertainty, ratedWeight: 20, fullRounds: 20, lastRatedAt: null });
+const lobbyOf = (ratings: Record<string, number>, uncertainty = 50) =>
+  new Map(Object.entries(ratings).map(([name, sr]) => [name, established(sr, uncertainty)]));
+const letters = 'ABCDEFGHIJKL'.split('');
+const even = Object.fromEntries(letters.map(n => [n, 1500]));
+
+// The fixtures of tests/sr.test.ts, as (state, round, params, seed).
+const fixtures: [string, Map<string, SrPlayer>, SrRound, SrParams, Map<string, number>?][] = [
+  ['golden', new Map([['B', established(1600, 80)]]), rnd([p1('A', 50), p1('B', 30)], 'A'), P],
+  ['golden, prototype settings', new Map([['B', established(1600, 80)]]), rnd([p1('A', 50), p1('B', 30)], 'A'),
+    withSettings({ m: 5, rd0: 350, rdMin: 50 }, { d: 400, beta: 0.1 })],
+  ['eleven on 49', lobbyOf(even), rnd(letters.map((n, i) => p1(n, i ? 49 : 50)), 'A'), P],
+  ['dominant winner', lobbyOf(even), rnd(letters.map((n, i) => p1(n, i ? 25 : 50)), 'A'), P],
+  ['fourth far behind', lobbyOf({ A: 1500, B: 1500, C: 1500, D: 1500 }), rnd([p1('A', 50), p1('B', 47), p1('C', 45), p1('D', 32)], 'A'), P],
+  ['strong in weak lobby', lobbyOf({ S: 1800, B: 1400, C: 1400, D: 1400, E: 1400, F: 1400 }),
+    rnd([p1('S', 50), ...'BCDEF'.split('').map(n => p1(n, 45))], 'S'), P],
+  ['late joiner at 45 s', lobbyOf({ A: 1500, B: 1500, C: 1500 }), rnd([p1('A', 50), p1('B', 40), p1('C', 3, 45)], 'A'), P],
+  ['late joiner at 20 s', lobbyOf({ A: 1500, B: 1500, C: 1500 }), rnd([p1('A', 50), p1('B', 40), p1('C', 5, 20)], 'A'), P],
+  ['AFK time', new Map(), rnd([p1('A', 50), p2('B', 2, [[0, 100]], 40, 75), p2('C', 30, [[0, 300]], 300, 150)]), P],
+  ['tied kills', lobbyOf({ A: 1500, B: 1500 }), rnd([p1('A', 30), p1('B', 30)]), P],
+  ['0-0 pairs', lobbyOf({ A: 1500, B: 1500, C: 1500 }), rnd([p1('A', 50), p1('B', 0), p1('C', 0)], 'A'), P],
+  ['nobody scores', new Map(), rnd([p1('A', 0), p1('B', 0)]), P],
+  ['two players', lobbyOf({ A: 1550, B: 1450 }), rnd([p1('A', 50), p1('B', 41)], 'A'), P],
+  ['winner B', lobbyOf({ A: 1700, B: 1450, C: 1500 }), rnd([p1('A', 10), p1('B', 50), p1('C', 30)], 'B'), P],
+  ['rejoin', lobbyOf({ A: 1500, B: 1500 }), rnd([p2('A', 20, [[200, 300], [0, 100]], 200), p2('B', 45, [[0, 300]], 400)]), P],
+  ['never together', new Map(), rnd([p2('A', 20, [[0, 100]], 200), p2('B', 25, [[150, 300]], 300), p1('C', 50)], 'C'), P],
+  ['v1 pro-rating', new Map(), rnd([p1('A', 30, 120), p1('B', 50)]), P],
+  ['surprise cap', lobbyOf({ A: 1800, B: 1500, C: 1500 }), rnd([p1('A', 0), p1('B', 50), p1('C', 45)], 'B'), P],
+  ['no surprise cap', lobbyOf({ A: 1800, B: 1500, C: 1500 }), rnd([p1('A', 0), p1('B', 50), p1('C', 45)], 'B'), withSettings({ surpriseCap: null })],
+  ['effort: idler', lobbyOf({ A: 1500, B: 1500, Z: 1500 }),
+    rnd([p2('A', 50, [[0, 300]], 400), p2('B', 30, [[0, 300]], 300), p2('Z', 0, [[0, 300]], 9)], 'A'), P],
+  ['effort: just enough', new Map(), rnd([p2('A', 50, [[0, 300]], 400), p2('B', 30, [[0, 300]], 300), p2('Z', 0, [[0, 300]], 10)], 'A'), P],
+  ['lobby strength', lobbyOf({ A: 1600, B: 1400, C: 1900 }), rnd([p1('A', 50), p1('B', 30), p1('C', 5, 60), p1('D', 1, 10)], 'A'), P],
+  ['logistic', new Map(), rnd([p1('A', 30), p1('B', 20)]), withSettings({ shareCurve: 'logistic', logisticScale: 10 })],
+  ['seeded start', new Map(), rnd([p1('A', 40), p1('B', 40)]), withSettings({ start: 'seed' }), new Map([['A', 1700]])],
+  ['order and unicode', lobbyOf({ zed: 1620, 'Ålice': 1480, Bob: 1550 }),
+    rnd([p1('zed', 50), p1('Ålice', 44), p1('Bob', 31, 200), p2('😀', 12, [[200, 300], [0, 60]], 80), p1('bob', 0), p1('Al', 0, 100)], 'zed'), P],
+  ['zero round length', new Map(), rnd([p1('A', 50), p1('B', 10)], 'A', 0), P],
+];
+
+// mulberry32
+function prng(seed: number) {
+  return () => {
+    seed = (seed + 0x6D2B79F5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function randomCase(r: () => number, i: number): [string, Map<string, SrPlayer>, SrRound, SrParams, Map<string, number>?] {
+  const pick = <T,>(xs: T[]) => xs[Math.floor(r() * xs.length)];
+  const pool = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'Ålice', '😀', 'zed', 'Zed'];
+  const n = 2 + Math.floor(r() * 11);
+  const names = pool.slice().sort(() => r() - 0.5).slice(0, n);
+  const length = r() < 0.05 ? 25 : Math.round((60 + r() * 340) * 100) / 100;
+  const participants = names.map(name => {
+    const kills = r() < 0.15 ? 0 : r() < 0.2 ? 50 : Math.floor(r() * 50);
+    let intervals: [number, number][];
+    const shape = r();
+    if (shape < 0.4) { const present = Math.round(r() * length); intervals = [[length - present, length]]; }
+    else {
+      intervals = [];
+      for (let k = 1 + Math.floor(r() * 3); k > 0; k--) {
+        const a = Math.round(r() * length * 100) / 100, b = Math.round(r() * length * 100) / 100;
+        intervals.push(r() < 0.1 ? [b, a] : [Math.min(a, b), Math.max(a, b)]); // some empty or backwards
+      }
+      if (r() < 0.2) intervals.push([...intervals[0]] as [number, number]); // a duplicate
+    }
+    const span = intervals.reduce((t, [a, b]) => t + Math.max(0, b - a), 0);
+    const present = r() < 0.8 ? span : Math.round(r() * length);
+    const afk = r() < 0.3 ? Math.round(r() * present * 50) / 100 : 0;
+    const shots = shape < 0.4 ? null : r() < 0.15 ? Math.floor(r() * 5) : Math.floor(r() * 200);
+    return { name, kills, present, afk, shots, intervals };
+  });
+  const winner = r() < 0.6 ? pick(names) : r() < 0.5 ? null : 'Nobody';
+  const state = new Map<string, SrPlayer>();
+  for (const name of names) if (r() < 0.6) {
+    state.set(name, { sr: 1200 + r() * 600, uncertainty: 30 + r() * 320, ratedWeight: r() * 50, fullRounds: Math.floor(r() * 50), lastRatedAt: null });
+  }
+  const params = withSettings({
+    shareCurve: r() < 0.3 ? 'logistic' : 'raw', logisticScale: 5 + r() * 10,
+    surpriseCap: r() < 0.3 ? null : 0.1 + r() * 0.3, m: 2 + r() * 10,
+    rd0: 100 + r() * 250, rdMin: 20 + r() * 40, start: r() < 0.2 ? 'seed' : 'default',
+  }, { d: 200 + r() * 300, beta: r() * 0.2 });
+  const seed = params.settings.start === 'seed'
+    ? new Map(names.filter(() => r() < 0.5).map(name => [name, 1300 + r() * 400] as [string, number])) : undefined;
+  return [`random ${i}`, state, { id: `x${i}`, playedAt: '2026-10-01T12:00:00Z', length, winner, participants }, params, seed];
+}
+
+const paramsRow = (p: SrParams) => [p.version, p.d, p.beta, JSON.stringify(p.settings)];
+const PARAMS_SQL = 'row($1::int, $2::float8, $3::float8, $4::jsonb, false, null, now())::public.rating_params';
+
+test('the database engine agrees with sr.ts round by round', async () => {
+  const { db } = await setup();
+  try {
+    const r = prng(20261104);
+    const cases = [...fixtures, ...Array.from({ length: 400 }, (_, i) => randomCase(r, i))];
+    let rated = 0;
+    for (const [what, state, round, params, seed] of cases) {
+      const ts = rateRound(state, round, params, seed);
+      const states = Object.fromEntries(state);
+      const out = (await db.query<any>(`select public._sr_rate_round_json(${PARAMS_SQL}, $5, $6, $7) as r`,
+        [...paramsRow(params), JSON.stringify(round), JSON.stringify(states), seed ? JSON.stringify(Object.fromEntries(seed)) : null])).rows[0].r;
+      assertSameRound(ts, out, what);
+      rated += ts.events.length;
+    }
+    assert.ok(rated > 1500, `only ${rated} events compared`);
+  } finally {
+    await db.close();
+  }
+});
+
+test('replays agree with sr.ts on a random history; incremental and relabelled ratings equal a replay exactly', async t => {
+  const s = await setup();
+  const { db, assertMatchesScratch } = s;
+  try {
+    const r = prng(7);
+    const players = Array.from({ length: 12 }, (_, i) => `P${String(i).padStart(2, '0')}`).concat(['Ålice', '😀']);
+    await db.exec(`insert into public.players(name, matches, elo) values ${players.map(n => `('${n}', 0, '-')`).join(', ')}`);
+    let id = 1_000_000;
+    let roundNo = 0;
+    const hex = (n: number) => Array.from({ length: n }, () => Math.floor(r() * 16).toString(16)).join('');
+    // Writes rounds straight into the tables, as an import would.
+    const insertRounds = async (count: number, start = Date.UTC(2026, 9, 1)) => {
+      const pm: string[] = [], sessions: string[] = [], logs: string[] = [];
+      for (let k = 0; k < count; k++) {
+        const match = crypto.randomUUID();
+        // Some rounds share a time; some are microseconds apart.
+        const at = new Date(start + Math.floor(r() * 30) * 86400_000 + Math.floor(r() * 4) * 3600_000).toISOString()
+          .replace('Z', r() < 0.3 ? `${Math.floor(r() * 1000)}Z` : 'Z').replace(/\.(\d{3})(\d*)Z/, (_, ms, us) => `.${ms}${us.padEnd(3, '0')}Z`);
+        const v2 = r() < 0.5;
+        const length = v2 ? Math.round((90 + r() * 300) * 100) / 100 : 90 + Math.floor(r() * 300);
+        const lobby = players.slice().sort(() => r() - 0.5).slice(0, 2 + Math.floor(r() * 10));
+        const winner = lobby[0];
+        let session = 0;
+        roundNo++;
+        for (const name of lobby) {
+          const kills = name === winner ? 50 : Math.floor(r() * 50);
+          if (!v2) {
+            const rowsOfPlayer = r() < 0.08 ? 2 : 1; // the same profile twice, as in production
+            for (let x = 0; x < rowsOfPlayer; x++) {
+              const time = r() < 0.7 ? length : Math.floor(r() * length);
+              pm.push(`(${id++}, '${name}', '${name}', ${x ? Math.floor(kills / 3) : kills}, 10, 40, 8, 2, 0, ${time}, ${length}, 500, '${at}', '${match}', null, null, null)`);
+            }
+          } else {
+            const pid = id++;
+            const spans: [number, number][] = [];
+            const a = r() < 0.6 ? 0 : Math.round(r() * length * 0.6 * 100) / 100;
+            if (r() < 0.25) { // leaves and rejoins
+              const leave = Math.round((a + r() * (length - a) / 2) * 100) / 100;
+              const back = Math.round((leave + r() * (length - leave)) * 100) / 100;
+              spans.push([a, leave], [back, length]);
+            } else spans.push([a, r() < 0.8 ? length : Math.round((a + r() * (length - a)) * 100) / 100]);
+            const time = spans.reduce((x, [p, q]) => x + q - p, 0);
+            const afk = r() < 0.3 ? Math.round(r() * time * 0.5 * 100) / 100 : 0;
+            const shots = r() < 0.1 ? Math.floor(r() * 5) : 20 + Math.floor(r() * 150);
+            pm.push(`(${pid}, '${name}', '${name}', ${kills}, 10, 40, 8, 2, 0, ${Math.floor(time)}, ${Math.floor(length)}, 500, '${at}', '${match}', '${r() < 0.8 ? 'present' : 'left'}', ${afk}, ${shots})`);
+            spans.forEach(([p, q], x) => sessions.push(`('${match}', ${pid}, ${++session}, '${name}', 0, ${p}, ${q}, 'present', ${x ? 0 : kills}, 0, ${x ? 0 : shots}, 0, 0, ${x ? 0 : afk})`));
+          }
+        }
+        if (v2) logs.push(`('${hex(64)}', 2, '${match}', ${length}, ${r() < 0.9 ? `'${winner}'` : 'null'}, '')`);
+      }
+      await db.exec(`begin;
+        insert into public.player_matches(id, player_name, logged_player_name, score, deaths, accuracy, kpm, kdr, crouches,
+          time_in_lobby, total_match_time, performance_score, played_at, match_id, status, afk_seconds, shots)
+          overriding system value values ${pm.join(', ')};
+        ${logs.length ? `insert into public.raw_logs(sha256, format_version, match_id, round_length, winner_name, text) values ${logs.join(', ')};` : ''}
+        ${sessions.length ? `insert into public.player_sessions(match_id, participation_id, session_no, logged_name, slot, start_s, end_s,
+          status, kills, deaths, shots, hits, crouches, afk_seconds) values ${sessions.join(', ')};` : ''}
+        commit;`);
+    };
+
+    const params = (await db.query<any>('select * from public.rating_params where active')).rows[0];
+    const srParams: SrParams = { version: params.version, d: params.d, beta: params.beta, settings: params.settings };
+    const compareWithTs = async () => {
+      const inputs = (await db.query<any>('select * from public._sr_round_inputs()')).rows;
+      const rounds: SrRound[] = inputs.map(i => i.round);
+      const { state, results } = replay(rounds, srParams);
+      const sorted = rounds.slice().sort((a, b) => timeKey(a.playedAt) - timeKey(b.playedAt) || (a.id < b.id ? -1 : 1));
+      assert.deepEqual(sorted.map(x => x.id), inputs.map(i => i.match_id), 'round order');
+      const events = new Map((await db.query<any>('select * from public.rating_events')).rows.map(e => [`${e.match_id}/${e.player_name}`, e]));
+      const lobbies = new Map((await db.query<any>('select * from public.round_ratings')).rows.map(x => [x.match_id, x]));
+      let count = 0;
+      results.forEach((res, k) => {
+        const id = sorted[k].id;
+        const lobby = lobbies.get(id);
+        assert.equal(lobby.lobby_players, res.lobby?.players ?? 0);
+        if (res.lobby) {
+          near(lobby.lobby_sr_mean, res.lobby.meanSr, 'lobby mean');
+          near(lobby.lobby_sr_min, res.lobby.minSr, 'lobby min');
+          near(lobby.lobby_sr_max, res.lobby.maxSr, 'lobby max');
+        } else assert.equal(lobby.lobby_sr_mean, null);
+        assert.equal(lobby.rated_players, res.events.length);
+        for (const e of res.events) {
+          const d = events.get(`${id}/${e.name}`);
+          assert.ok(d, `event ${id}/${e.name}`);
+          assert.equal(d.full_round, e.full);
+          near(d.weight, e.weight, 'weight'); near(d.sr_before, e.srBefore, 'srBefore'); near(d.sr_after, e.srAfter, 'srAfter');
+          near(d.uncertainty_before, e.uncertaintyBefore, 'uBefore'); near(d.uncertainty_after, e.uncertaintyAfter, 'uAfter');
+          near(d.expected_share, e.expectedShare, 'expected'); near(d.actual_share, e.actualShare, 'actual');
+          near(d.performance, e.performance, 'performance');
+          count++;
+        }
+      });
+      assert.equal(events.size, count);
+      const ratings = (await db.query<any>('select * from public.player_ratings')).rows;
+      assert.equal(ratings.length, state.size);
+      for (const pr of ratings) {
+        const st = state.get(pr.player_name)!;
+        near(pr.sr, st.sr, 'sr'); near(pr.uncertainty, st.uncertainty, 'uncertainty');
+        near(pr.rated_weight, st.ratedWeight, 'ratedWeight'); assert.equal(pr.full_rounds, st.fullRounds);
+        assert.equal(pr.last_rated_at.getTime() * 1000, Math.floor(timeKey(st.lastRatedAt!) / 1000) * 1000);
+        near(pr.cautious_sr, st.sr - srParams.settings.cautiousFactor * st.uncertainty, 'cautious');
+        assert.equal(pr.placed, st.uncertainty <= srParams.settings.placementUncertainty);
+      }
+      return count;
+    };
+
+    await t.test('a bulk history', async () => {
+      await insertRounds(150);
+      assert.ok(await compareWithTs() > 500);
+      await assertMatchesScratch();
+    });
+    await t.test('rounds added one at a time, in and out of order', async () => {
+      for (let k = 0; k < 12; k++) await insertRounds(1);
+      await compareWithTs();
+      await assertMatchesScratch();
+    });
+    await t.test('a rename relabels exactly', async () => {
+      await db.exec("update public.players set name = 'P03 renamed' where name = 'P03'");
+      await compareWithTs();
+      await assertMatchesScratch();
+    });
+    await t.test('a ban and an unban', async () => {
+      await db.exec("update public.players set is_banned = true where name = 'P05'");
+      await compareWithTs();
+      await assertMatchesScratch();
+      await db.exec("update public.players set is_banned = false where name = 'P05'");
+      await compareWithTs();
+      await assertMatchesScratch();
     });
   } finally {
     await db.close();
