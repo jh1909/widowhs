@@ -834,22 +834,39 @@ create trigger sr_matches_deleted after delete on public.player_matches
 
 -- player_sessions and raw_logs: a correction to what input assembly reads
 -- (session intervals and names; a log's format, round length and winner)
--- replays from that round. An import writes its raw logs before the round's
--- rows, so they queue nothing, and its sessions queue the same round as its
--- rows; sessions deleted with their rows queue nothing either.
+-- replays from that round. Assembly reaches sessions through their
+-- participation, so a session counts for its participation's round as well as
+-- its own match_id, before and after the change. An import writes its raw logs
+-- before the round's rows, so they queue nothing, and its sessions queue the
+-- same round as its rows; sessions deleted with their rows queue nothing either.
 create function public._sr_round_details_changed()
 returns trigger language plpgsql security definer set search_path = '' as $$
-declare ids uuid[];
+declare
+  ids uuid[];
+  participations bigint[];
 begin
-  if tg_op = 'INSERT' then
+  if tg_table_name = 'player_sessions' then
+    if tg_op = 'INSERT' then
+      select pg_catalog.array_agg(distinct match_id), pg_catalog.array_agg(distinct participation_id)
+        into ids, participations from new_rows;
+    elsif tg_op = 'DELETE' then
+      select pg_catalog.array_agg(distinct match_id), pg_catalog.array_agg(distinct participation_id)
+        into ids, participations from old_rows;
+    else
+      select pg_catalog.array_agg(distinct x.m), pg_catalog.array_agg(distinct x.p) into ids, participations
+      from old_rows o join new_rows n on n.id = o.id
+      cross join lateral (values (o.match_id, o.participation_id), (n.match_id, n.participation_id)) x(m, p)
+      where (o.match_id, o.participation_id, o.start_s, o.end_s, o.logged_name)
+        is distinct from (n.match_id, n.participation_id, n.start_s, n.end_s, n.logged_name);
+    end if;
+    select pg_catalog.array_agg(distinct x.m) into ids from (
+      select unnest(ids) as m
+      union select pm.match_id from public.player_matches pm where pm.id = any(participations)
+    ) x where x.m is not null;
+  elsif tg_op = 'INSERT' then
     select pg_catalog.array_agg(distinct match_id) into ids from new_rows;
   elsif tg_op = 'DELETE' then
     select pg_catalog.array_agg(distinct match_id) into ids from old_rows;
-  elsif tg_table_name = 'player_sessions' then
-    select pg_catalog.array_agg(distinct x.m) into ids
-    from old_rows o join new_rows n on n.id = o.id cross join lateral (values (o.match_id), (n.match_id)) x(m)
-    where (o.match_id, o.participation_id, o.start_s, o.end_s, o.logged_name)
-      is distinct from (n.match_id, n.participation_id, n.start_s, n.end_s, n.logged_name);
   else
     select pg_catalog.array_agg(distinct x.m) into ids
     from old_rows o join new_rows n on n.id = o.id cross join lateral (values (o.match_id), (n.match_id)) x(m)

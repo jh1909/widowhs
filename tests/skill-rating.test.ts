@@ -232,7 +232,7 @@ test('input assembly turns stored rows into rounds', async t => {
 
 test('every history change replays from the right round', async t => {
   const s = await setup();
-  const { db, round, upload, asAdmin, ratings, versions, roundsRewritten, assertMatchesScratch } = s;
+  const { db, round, upload, asAdmin, inputs, ratings, versions, roundsRewritten, assertMatchesScratch } = s;
   try {
     const day = (n: number) => `2026-10-${String(n).padStart(2, '0')}T20:00:00`;
     const ids: string[] = [];
@@ -450,6 +450,19 @@ test('every history change replays from the right round', async t => {
       // A profile with later rounds takes the other name: replay from the earlier rows.
       await asAdmin("select public.rename_player('Robert', 'Gone')");
       assert.ok((await ratings()).events.some(e => e.player_name === 'Gone' && e.match_id === '00000000-0000-0000-0000-0000000000f2'));
+      await assertMatchesScratch();
+    });
+
+    await t.test('moving a session to an earlier round through its participation replays from that round', async () => {
+      const [early, late] = await upload(await round(v2Log, day(15)), await round(v2Log, day(16)));
+      const carolEarly = (await db.query<any>("select id from public.player_matches where match_id = $1 and logged_player_name = 'Carol'", [early])).rows[0].id;
+      // Bob's first session of the later round ([0, 100]) is attached to Carol's earlier participation; its match_id stays.
+      const before = await versions();
+      await db.query('update public.player_sessions set participation_id = $1 where match_id = $2 and session_no = 2', [carolEarly, late]);
+      const rewritten = await roundsRewritten(before);
+      assert.ok(rewritten.has(early) && rewritten.has(late));
+      const carol = (await inputs()).find(i => i.match_id === early).round.participants.find((x: any) => x.intervals.length && x.kills === 5);
+      assert.deepEqual(carol.intervals, [[0, 200]]);
       await assertMatchesScratch();
     });
 
