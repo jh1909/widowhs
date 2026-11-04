@@ -62,20 +62,36 @@ It served as the seed round and ends when SR launches.
   real slumps, and unless opponents' wins were dropped too it would inflate
   every rating.
 - **Update.** A player's change is their K (from their uncertainty) times the
-  weighted sum of `(S − E)` over opponents, normalised so lobby size does not
-  change how much one round can move a rating.
+  weighted sum of `(S − E)` over opponents. Small lobbies carry less evidence
+  for both gains/losses and uncertainty, so they also contribute more slowly
+  to placement. The curve and its anchors live in `DEFAULT_SR_PARAMS.settings.lobbySize`
+  in [`sr.ts`](../../supabase/functions/_shared/sr.ts); tests pin the agreed shape.
+  A smooth power curve goes through the lower player-count/weight anchor and
+  reaches the upper player-count/weight anchor, then stays at that ceiling.
+  Below the lower player count, play is unrated. The low-end weight is an
+  anchor, not a hard floor clamped onto the curve.
+  Weight is integrated over periods of concurrent eligible sessions, with
+  each period normalised by its own opponent count. Replacements do not make
+  a duel into a larger lobby, and a brief join affects only its time present.
 - **Engine details** (reference: `supabase/functions/_shared/sr.ts`):
   participants are rated in the order the database supplies them (first
   `player_matches.id` in the round), so a rename never changes a result. Time
   present means active time (present − AFK) for the cutoff and the
   weight. Both players' kills are pro-rated to the time they shared
   (kills × overlap ÷ own time present; for v1 only the longer-present
-  player's change). A pair counts with weight min(overlap ÷ round length,
-  both players' weights); pairs that never shared the lobby are skipped.
+  player's change). Each pair's weight integrates the lobby curve and opponent
+  normalisation over its shared periods, then applies the existing active-time
+  cap. AFK logs contain a duration, not AFK start/end times: partially AFK
+  sessions retain that cap rather than inventing an AFK timeline. Fully idle
+  and effort-excluded participants do not contribute to the lobby size.
+  Pairs that never shared the lobby, or only shared below-cutoff periods, are skipped.
   Expected uses Glicko's g(opponent uncertainty). A player whose pairs were
   all 0–0 is not rated that round. The match dialog's expected and actual
   share are the player's pairwise E and S averaged over their pairs,
   weighted as in the update.
+  Event weight and cumulative rated weight include the size curve and active
+  participation. Full-round counts still describe active attendance, not
+  placement evidence; placement is determined by uncertainty.
 - **Lobby strength** is stored per round: time-weighted mean SR of the
   participants, with lowest and highest.
 - **Starting point.** Replay all history in `played_at` order from a default
@@ -111,7 +127,7 @@ Stress tests, each a fixture in the test suite:
 - a late joiner at 45 s counts for little; at 20 s not at all
 - tied kills, 0–0 pairs, two-player lobbies, a round with a rejoin
 
-### Backtest (4 November 2026)
+### Original size-neutral backtest (4 November 2026)
 
 `scripts/sr-backtest.ts` replays the 4 November production backup: 3,713 v1
 rounds from 11 October to 4 November, assembled as the database does (one
@@ -133,7 +149,7 @@ profiles, time present capped at the round length).
   19 October; the first half is warm-up).
 - **Chosen:** raw kill share, β = 0.05, D = 400, m = 5, uncertainty 160 for
   a new player with a floor of 50, cap ±0.25, default start (values in
-  `DEFAULT_SR_PARAMS`, `supabase/functions/_shared/sr.ts`). This is the best
+  the version 1 parameters, before lobby-size weighting). This is the best
   tuning-period predictor whose stability there is no worse than the
   prototype setting's (D = 400, m = 5, 350/50, 90th percentiles within 5%).
   The raw curve beat every logistic scale. β = 0 predicted marginally
@@ -182,6 +198,36 @@ profiles, time present capped at the round length).
   (6.8 against 5.5), which the formula rewards but which did not win them a
   larger share of the kills. The mean SR of active players settles near
   1,492 and rose 0.9 SR over the last two weeks.
+
+### Lobby-size weighting comparison (4 November 2026)
+
+`scripts/sr-backtest.ts DUMP OUTDIR lobby` compares the original size-neutral
+settings with the agreed curve, using the same historical v1 backup and split.
+This is a product-policy comparison with frozen settings, not another search
+on the held-out data. The original prototype/sweep remains size-neutral for
+reproducibility. The script explicitly rejects v2 backups until its input
+assembly supports session data.
+
+- Held-out log-loss changes from 0.6547 to 0.6545, and kill-order accuracy from
+  82.33% to 82.29%. These are descriptive results, not evidence of a significant
+  prediction improvement.
+- The median rounds to placement remains 10; the 10th–90th percentile interval
+  changes from 8–13 to 8–14. Established players' median 20-round SR range
+  changes from 17.9 to 18.7. The final placed count changes from 458 to 469:
+  replay changes opponents' uncertainty and subsequent results throughout history,
+  so a lower weight does not guarantee fewer placed players in aggregate.
+- Reports break prediction scores down by eligible lobby size. Only 5 held-out
+  established pairs came from 2–3-player rounds, so this backup cannot establish
+  small-lobby prediction quality. Tests separately verify the intended discount,
+  time integration, slower duel placements, exclusion rules and both engine ports.
+
+The four `lobbySize` fields are versioned data in `rating_params.settings`.
+Changing the low-end weight changes the derived exponent smoothly; changing
+the player-count anchors moves the cutoff/ceiling; `fullWeight` scales the
+ceiling. Create a new parameter version, deactivate the previous version and
+activate the new one in one transaction. Existing hooks re-rate all history.
+No engine or Workshop change is needed to retune these fields. Version 1 is
+retained for a size-neutral comparison or rollback.
 
 ## Engineering
 

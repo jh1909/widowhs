@@ -14,10 +14,17 @@ export type SrParticipant = {
 };
 export type SrRound = { id: string; playedAt: string; length: number; winner: string | null; participants: SrParticipant[] };
 
+export type SrLobbySize = {
+  minPlayers: number;   // fewer concurrent eligible players contribute nothing
+  minWeight: number;    // curve passes through this weight at minPlayers (not a clamped floor)
+  fullPlayers: number;  // ceiling starts here
+  fullWeight: number;   // ceiling on round weight
+};
 export type SrSettings = {
   shareCurve: "raw" | "logistic"; // pairwise result: kill share, or a logistic curve on the kill difference
   logisticScale: number;          // kills; the logistic curve's spread
-  m: number;                      // how many full pairwise games one round is worth, whatever the lobby size
+  m: number;                      // full-weight pairwise games per round
+  lobbySize?: SrLobbySize;        // absent only for replaying the original, size-neutral model
   rd0: number;                    // uncertainty of a new player
   rdMin: number;                  // floor on uncertainty
   surpriseCap: number | null;     // cap on |S - E| per pair; null disables
@@ -84,6 +91,7 @@ export function derivePlacementUncertainty(p: Pick<SrParams, "d"> & { settings: 
 // Chosen by scripts/sr-backtest.ts (brief 01, "Backtest").
 const baseSettings = {
   shareCurve: "raw", logisticScale: 10, m: 5, rd0: 160, rdMin: 50, surpriseCap: 0.25,
+  lobbySize: { minPlayers: 2, minWeight: 0.05, fullPlayers: 8, fullWeight: 1 },
   start: "default", startSr: 1500, seedUncertainty: 150,
   minActiveSeconds: 30,
   // An active Widowmaker fires every few seconds; AFK time is already
@@ -93,9 +101,26 @@ const baseSettings = {
   fullRoundGraceSeconds: 10, cautiousFactor: 2,
 } as const;
 export const DEFAULT_SR_PARAMS: SrParams = {
-  version: 1, d: 400, beta: 0.05,
+  version: 2, d: 400, beta: 0.05,
   settings: { ...baseSettings, placementUncertainty: derivePlacementUncertainty({ d: 400, settings: baseSettings }) },
 };
+
+// The exponent is derived from both endpoints, so moving either endpoint
+// changes one smooth power curve rather than clipping it to a minimum weight.
+export function lobbySizeWeight(players: number, curve?: SrLobbySize): number {
+  if (curve === undefined) return players < 2 ? 0 : 1;
+  if (!curve || !Number.isInteger(curve.minPlayers) || curve.minPlayers < 2 ||
+      !Number.isInteger(curve.fullPlayers) || curve.fullPlayers <= curve.minPlayers ||
+      !Number.isFinite(curve.minWeight) || !Number.isFinite(curve.fullWeight) ||
+      curve.minWeight <= 0 || curve.minWeight > curve.fullWeight || curve.fullWeight > 1) {
+    throw new Error("invalid_lobby_size");
+  }
+  if (players < curve.minPlayers) return 0;
+  if (players >= curve.fullPlayers) return curve.fullWeight;
+  const exponent = Math.log(curve.minWeight / curve.fullWeight) /
+    Math.log((curve.minPlayers - 1) / (curve.fullPlayers - 1));
+  return curve.fullWeight * Math.pow((players - 1) / (curve.fullPlayers - 1), exponent);
+}
 
 export function cautiousSr(player: SrPlayer, params: SrParams): number {
   return player.sr - params.settings.cautiousFactor * player.uncertainty;
@@ -140,6 +165,7 @@ function overlap(x: [number, number][], y: [number, number][]): number {
 
 type Entry = {
   name: string; kills: number; weight: number; active: number; intervals: [number, number][]; span: number;
+  ratedWeight: number;
   sr: number; uncertainty: number; g: number;
   s1: number; s2: number; sw: number; ss: number; se: number; pairs: number;
 };
@@ -154,6 +180,7 @@ type Entry = {
 // the rating change.
 export function rateRound(state: ReadonlyMap<string, SrPlayer>, round: SrRound, params: SrParams, seed?: SrSeed): SrRoundResult {
   const s = params.settings;
+  lobbySizeWeight(2, s.lobbySize); // reject invalid settings even for empty rounds
   const ordered = round.participants;
   const names = new Set<string>();
   for (const p of ordered) {
@@ -178,13 +205,35 @@ export function rateRound(state: ReadonlyMap<string, SrPlayer>, round: SrRound, 
     const uncertainty = preRoundUncertainty(player, round.playedAt, params);
     entries.push({
       name: p.name, kills: p.kills, weight: Math.min(1, active / round.length), active, intervals, span,
-      sr: player.sr, uncertainty, g: glickoG(uncertainty, params.d),
+      sr: player.sr, uncertainty, g: glickoG(uncertainty, params.d), ratedWeight: 0,
       s1: 0, s2: 0, sw: 0, ss: 0, se: 0, pairs: 0,
     });
   }
   if (entries.length < 2) return empty();
 
   const scale = s.m / (entries.length - 1);
+  // Integrate the curve over concurrent sessions, not over the average size
+  // or the total names in the round. Normalising each period separately also
+  // keeps replacements from diluting a player's evidence. AFK timestamps are
+  // unavailable: keep the existing pairwise active-time cap below.
+  const pairWeights = entries.map(() => entries.map(() => 0));
+  if (s.lobbySize !== undefined) {
+    const boundaries = [...new Set([0, round.length, ...entries.flatMap(e => e.intervals.flat())])]
+      .filter(t => t >= 0 && t <= round.length).sort((a, b) => a - b);
+    for (let k = 1; k < boundaries.length; k++) {
+      const start = boundaries[k - 1], end = boundaries[k];
+      const present = entries.map((e, i) => e.intervals.some(([a, b]) => a <= start && b >= end) ? i : -1)
+        .filter(i => i >= 0);
+      const weight = lobbySizeWeight(present.length, s.lobbySize);
+      if (weight === 0) continue;
+      const duration = (end - start) / round.length;
+      for (const i of present) entries[i].ratedWeight += duration * weight;
+      for (let a = 0; a < present.length; a++) for (let b = a + 1; b < present.length; b++) {
+        pairWeights[present[a]][present[b]] += duration * s.m * weight / (present.length - 1);
+      }
+    }
+    for (const e of entries) e.ratedWeight *= Math.min(1, e.active / e.span);
+  }
   const winner = entries.some((e) => e.name === round.winner) ? round.winner : null;
   const cap = (x: number) => s.surpriseCap === null ? x : Math.max(-s.surpriseCap, Math.min(s.surpriseCap, x));
   const pairs: SrPair[] = [];
@@ -200,7 +249,10 @@ export function rateRound(state: ReadonlyMap<string, SrPlayer>, round: SrRound, 
       if (winner === a.name) shareA = shareA + params.beta * (1 - shareA);
       else if (winner === b.name) shareA = 1 - ((1 - shareA) + params.beta * shareA);
       const shareB = 1 - shareA;
-      const weight = Math.min(shared / round.length, a.weight, b.weight) * scale;
+      const weight = s.lobbySize === undefined
+        ? Math.min(shared / round.length, a.weight, b.weight) * scale
+        : pairWeights[i][j] * Math.min(1, a.active / shared, b.active / shared);
+      if (weight <= 0) continue;
       const expectedA = 1 / (1 + Math.pow(10, -b.g * (a.sr - b.sr) / params.d));
       const expectedB = 1 / (1 + Math.pow(10, -a.g * (b.sr - a.sr) / params.d));
       const surpriseA = cap(shareA - expectedA), surpriseB = cap(shareB - expectedB);
@@ -226,7 +278,8 @@ export function rateRound(state: ReadonlyMap<string, SrPlayer>, round: SrRound, 
     const inv = 1 / (e.uncertainty * e.uncertainty) + q * q * e.s2;
     const actualShare = e.ss / e.sw, expectedShare = e.se / e.sw;
     events.push({
-      name: e.name, weight: e.weight, full: round.length - e.active <= s.fullRoundGraceSeconds,
+      name: e.name, weight: s.lobbySize === undefined ? e.weight : e.ratedWeight,
+      full: round.length - e.active <= s.fullRoundGraceSeconds,
       srBefore: e.sr, srAfter: e.sr + q / inv * e.s1,
       uncertaintyBefore: e.uncertainty, uncertaintyAfter: Math.max(s.rdMin, Math.sqrt(1 / inv)),
       expectedShare, actualShare, performance: actualShare - expectedShare,

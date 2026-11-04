@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  DEFAULT_SR_PARAMS as P, PLACEMENT_ROUNDS, applyRound, cautiousSr, compareNames, compareRounds, derivePlacementUncertainty, isPlaced, rateRound, replay, timeKey,
+  DEFAULT_SR_PARAMS as P, PLACEMENT_ROUNDS, applyRound, cautiousSr, compareNames, compareRounds, derivePlacementUncertainty, isPlaced, lobbySizeWeight, rateRound, replay, timeKey,
   type SrParams, type SrParticipant, type SrPlayer, type SrRound, type SrState,
 } from "../supabase/functions/_shared/sr.ts";
 
@@ -25,9 +25,9 @@ const near = (actual: number, expected: number, tolerance = 1e-9) =>
 const names = "ABCDEFGHIJKL".split("");
 const even = Object.fromEntries(names.map((n) => [n, 1500]));
 
-test("golden: the default params, a new winner against an established player", () => {
+test("golden: the original size-neutral params, a new winner against an established player", () => {
   const state = new Map([["B", established(1600, 80)]]);
-  const result = rateRound(state, round([v1("A", 50), v1("B", 30)], "A"), P);
+  const result = rateRound(state, round([v1("A", 50), v1("B", 30)], "A"), withSettings({ lobbySize: undefined }));
   const [a, b] = result.events;
   // Independently computed (Glicko-1 with D = 400, m = 5, rd0 160, beta = 0.05, cap 0.25).
   near(a.srAfter, 1592.870227328268);
@@ -41,7 +41,7 @@ test("golden: the default params, a new winner against an established player", (
 });
 
 test("golden: the prototype's settings, a new winner against an established player", () => {
-  const prototype = withSettings({ m: 5, rd0: 350, rdMin: 50 }, { d: 400, beta: 0.1 });
+  const prototype = withSettings({ m: 5, rd0: 350, rdMin: 50, lobbySize: undefined }, { d: 400, beta: 0.1 });
   const state = new Map([["B", established(1600, 80)]]);
   const result = rateRound(state, round([v1("A", 50), v1("B", 30)], "A"), prototype);
   const [a, b] = result.events;
@@ -70,15 +70,21 @@ test("defaults: placement is the uncertainty after six ideal rounds; cautious SR
   assert.equal(isPlaced(established(1600, 50), P), true);
 });
 
-test("ten full rounds take a new player from unplaced to placed", () => {
-  const state: SrState = lobby({ X: 1500, Y: 1500 });
+test("full-size rounds place a newcomer; duels supply much less placement evidence", () => {
+  const opponents = "XYZUVWT".split("");
+  const state: SrState = lobby(Object.fromEntries(opponents.map(n => [n, 1500])));
+  const duels = lobby({ X: 1500 });
   for (let i = 0; i < 12; i++) {
-    const r = round([v1("N", 40), v1("X", 45), v1("Y", 42)], null, `r${String(i).padStart(2, "0")}`);
+    const r = round([v1("N", 40), ...opponents.map(n => v1(n, 45))], null, `r${String(i).padStart(2, "0")}`);
     applyRound(state, r, rateRound(state, r, P));
+    const duel = round([v1("N", 40), v1("X", 45)]);
+    applyRound(duels, duel, rateRound(duels, duel, P));
     if (i === 3) assert.equal(isPlaced(state.get("N")!, P), false);
   }
   assert.equal(isPlaced(state.get("N")!, P), true);
   assert.equal(state.get("N")!.fullRounds, 12);
+  assert.equal(isPlaced(duels.get("N")!, P), false);
+  near(duels.get("N")!.ratedWeight, 12 * 0.05);
 });
 
 test("eleven players on 49, winner on 50: the winner's gain is small", () => {
@@ -104,7 +110,7 @@ test("a strong player in a weak lobby gains almost nothing for winning", () => {
   const evenGain = result({ S: 1500, ...Object.fromEntries(weak.map((n) => [n, 1500])) }, 20);
   // About the 99th against the 10th percentile of placed players in the backtest.
   const weakLobby = { S: 1715, ...Object.fromEntries(weak.map((n) => [n, 1435])) };
-  assert.ok(evenGain > 10);
+  assert.ok(evenGain > 5);
   assert.ok(result(weakLobby, 20) < 1);
   assert.ok(result(weakLobby, 45) < 0); // a narrow win costs rating there
 });
@@ -114,7 +120,7 @@ test("a late joiner at 45 s counts for little; at 20 s not at all", () => {
   const late = rateRound(lobby({ A: 1500, B: 1500, C: 1500 }), round([...base, v1("C", 3, 45)], "A"), P);
   const full = rateRound(lobby({ A: 1500, B: 1500, C: 1500 }), round([...base, v1("C", 3 * 300 / 45)], "A"), P);
   const c = late.events.find((e) => e.name === "C")!;
-  near(c.weight, 0.15);
+  near(c.weight, 0.15 * lobbySizeWeight(3, P.settings.lobbySize));
   assert.ok(Math.abs(change(late).C) < Math.abs(change(full).C) / 3);
   assert.ok(late.pairs.every((p) => p.b !== "C" || p.weight <= 0.15 * P.settings.m / 2 + 1e-12));
 
@@ -128,7 +134,7 @@ test("a late joiner at 45 s counts for little; at 20 s not at all", () => {
 test("participation uses active time: AFK time is subtracted before the 30 s cutoff and the weight", () => {
   const result = rateRound(new Map(), round([v1("A", 50), v2("B", 2, [[0, 100]], 40, 75), v2("C", 30, [[0, 300]], 300, 150)]), P);
   assert.deepEqual(result.excluded, [{ name: "B", reason: "short" }]);
-  near(result.events.find((e) => e.name === "C")!.weight, 0.5);
+  near(result.events.find((e) => e.name === "C")!.weight, 0.5 * 0.05);
 });
 
 test("tied kills between equal players change nothing", () => {
@@ -175,7 +181,7 @@ test("a rejoin: two intervals for one participant, kills pro-rated to the exact 
   // A was present 0-100 and 200-300; B the whole round. B's kills count 200/300.
   const result = rateRound(lobby({ A: 1500, B: 1500 }), round([v2("A", 20, [[200, 300], [0, 100]], 200), v2("B", 45, [[0, 300]], 400)]), P);
   near(result.pairs[0].shareA, 20 / (20 + 45 * 200 / 300));
-  near(result.pairs[0].weight, (200 / 300) * P.settings.m);
+  near(result.pairs[0].weight, (200 / 300) * P.settings.m * 0.05);
   // The same as a v1 row present for 200 s.
   const flat = rateRound(lobby({ A: 1500, B: 1500 }), round([v1("A", 20, 200), v1("B", 45)]), P);
   near(flat.pairs[0].shareA, result.pairs[0].shareA);
@@ -187,7 +193,7 @@ test("a rejoin: two intervals for one participant, kills pro-rated to the exact 
 test("v1 pro-rating reduces to the prototype's rule: the longer-present player's kills scale to the shorter time", () => {
   const result = rateRound(new Map(), round([v1("A", 30, 120), v1("B", 50)]), P);
   near(result.pairs[0].shareA, 30 / (30 + 50 * 120 / 300));
-  near(result.pairs[0].weight, 0.4 * P.settings.m);
+  near(result.pairs[0].weight, 0.4 * P.settings.m * 0.05);
 });
 
 test("the surprise cap bounds a freak round", () => {
@@ -217,10 +223,73 @@ test("effort: v2 sessions with almost no shots per active minute are excluded bo
   assert.equal(old.excluded.length, 0);
 });
 
-test("lobby size doesn't change how much one round can move a rating", () => {
-  const two = change(rateRound(lobby({ A: 1500, B: 1500 }), round([v1("A", 50), v1("B", 25)], "A"), P)).A;
-  const twelve = change(rateRound(lobby(even), round(names.map((n, i) => v1(n, i ? 25 : 50)), "A"), P)).A;
-  near(two, twelve);
+test("the smooth lobby-size curve goes through both anchors and caps at eight", () => {
+  const weights = Array.from({ length: 13 }, (_, n) => lobbySizeWeight(n, P.settings.lobbySize));
+  assert.deepEqual(weights.slice(0, 2), [0, 0]);
+  near(weights[2], 0.05);
+  assert.deepEqual(weights.slice(2, 9).map(w => Math.round(w * 100)), [5, 15, 27, 42, 60, 79, 100]);
+  for (let n = 3; n <= 8; n++) assert.ok(weights[n] > weights[n - 1]);
+  for (let n = 8; n <= 12; n++) near(weights[n], 1);
+  const retuned = { minPlayers: 3, minWeight: 0.1, fullPlayers: 6, fullWeight: 0.8 };
+  near(lobbySizeWeight(2, retuned), 0);
+  near(lobbySizeWeight(3, retuned), 0.1);
+  near(lobbySizeWeight(6, retuned), 0.8);
+  near(lobbySizeWeight(12, retuned), 0.8);
+  assert.ok(lobbySizeWeight(4, retuned) > 0.1 && lobbySizeWeight(4, retuned) < 0.8);
+});
+
+test("invalid curve settings fail instead of producing invalid ratings", () => {
+  for (const patch of [{ minPlayers: 1 }, { minPlayers: 2.5 }, { fullPlayers: 2 },
+    { minWeight: 0 }, { minWeight: -1 }, { minWeight: NaN }, { fullWeight: 0.01 }, { fullWeight: Infinity }, { fullWeight: 2 }]) {
+    const lobbySize = { ...P.settings.lobbySize!, ...patch };
+    assert.throws(() => rateRound(new Map(), round([]), withSettings({ lobbySize })), /invalid_lobby_size/);
+  }
+});
+
+test("small lobbies reduce gains, losses and uncertainty changes; eight and twelve have equal weight", () => {
+  let previous = 0;
+  for (let n = 2; n <= 12; n++) {
+    const parts = names.slice(0, n).map((name, i) => v1(name, i ? 25 : 50));
+    const result = rateRound(lobby(even, 80), round(parts, "A"), P);
+    const gain = change(result).A;
+    if (n <= 8) assert.ok(gain > previous);
+    else near(gain, previous);
+    previous = gain;
+    const legacy = rateRound(lobby(even, 80), round(parts, "A"), withSettings({ lobbySize: undefined }));
+    if (n < 8) {
+      assert.ok(gain < change(legacy).A);
+      assert.ok(Math.abs(change(result).B) < Math.abs(change(legacy).B));
+      assert.ok(result.events[0].uncertaintyAfter > legacy.events[0].uncertaintyAfter);
+    } else near(gain, change(legacy).A);
+    near(result.events[0].weight, lobbySizeWeight(n, P.settings.lobbySize));
+  }
+});
+
+test("size is integrated over time; late joins only increase the periods they share", () => {
+  const parts = names.slice(0, 8).map((name, i) => v1(name, i ? 20 : 50, i < 2 ? 300 : 150));
+  const result = rateRound(new Map(), round(parts, "A"), P);
+  near(result.events[0].weight, 0.5 * 0.05 + 0.5);
+  near(result.pairs.filter(p => p.a === "A").reduce((sum, p) => sum + p.weight, 0), P.settings.m * 0.525);
+  near(result.events.find(e => e.name === "C")!.weight, 0.5);
+  // Much less influence when six extra players are there for only 30 s.
+  const brief = rateRound(new Map(), round(parts.map((p, i) => i < 2 ? p : v1(p.name, 5, 30)), "A"), P);
+  near(brief.events[0].weight, 0.9 * 0.05 + 0.1);
+});
+
+test("opponent replacements and rejoins do not inflate or dilute a duel", () => {
+  const state = lobby({ A: 1500, B: 1500, C: 1500 });
+  const continuous = rateRound(state, round([v1("A", 50), v1("B", 40)], "A"), P);
+  const replaced = rateRound(state, round([v1("A", 50), v2("B", 20, [[0, 150]], 200), v2("C", 20, [[150, 300]], 200)], "A"), P);
+  const a = continuous.events[0], b = replaced.events[0];
+  near(b.srAfter, a.srAfter); near(b.uncertaintyAfter, a.uncertaintyAfter); near(b.weight, 0.05);
+  const rejoined = rateRound(state, round([v2("A", 50, [[0, 150], [150, 300]], 400), v1("B", 40)], "A"), P);
+  assert.deepEqual(rejoined.events, continuous.events);
+});
+
+test("raising the minimum size leaves duels unrated", () => {
+  const params = withSettings({ lobbySize: { ...P.settings.lobbySize!, minPlayers: 3 } });
+  const result = rateRound(new Map(), round([v1("A", 50), v1("B", 40)], "A"), params);
+  assert.deepEqual(result.events, []); assert.deepEqual(result.pairs, []);
 });
 
 test("lobby strength: time-weighted mean pre-round SR, lowest and highest", () => {

@@ -122,6 +122,30 @@ an AFK player at the win, final KPM rankings, leaving/rejoining and server load.
 
 `scripts/sr-backtest.ts` replays a production backup through the skill
 rating engine and scores its predictions against the formula ELO; usage is
-in its header, results in [brief 01](briefs/01-skill-rating.md#backtest-4-november-2026).
+in its header, results in [brief 01](briefs/01-skill-rating.md#original-size-neutral-backtest-4-november-2026).
 Run it with `dev run --light -- node --import tsx scripts/sr-backtest.ts ...`
 and keep its output outside the repo.
+
+The `lobby` mode compares the original size-neutral model with the current
+lobby-size policy and reports held-out results by lobby size. This historical
+script accepts v1 backups only; it rejects v2 data rather than guessing sessions.
+
+## SR lobby-size tuning
+
+After the original SR migration, apply
+`supabase/migrations/20261104200000_sr_lobby_size.sql`. It activates version 2
+and re-rates history at commit; no Workshop, Edge Function or website change
+is required. As with other migrations, apply it on staging before production.
+
+Retune the curve by copying the active `rating_params` row into a new version
+and changing `settings.lobbySize`: `minPlayers`, `minWeight`, `fullPlayers`,
+`fullWeight`. The lower weight is a curve anchor, not a clamp; the exponent is
+derived from the anchors. Player counts are integers, with `2 <= minPlayers < fullPlayers`,
+and weights must satisfy `0 < minWeight <= fullWeight <= 1`. Invalid configurations
+are rejected before they can change ratings.
+
+Deactivate the old version and activate the new one in the same transaction.
+The existing hooks replay all history once using the final active settings.
+Keep the placement uncertainty threshold fixed when changing lobby weights:
+small lobbies are intended to supply less placement evidence. Historical
+versions without `lobbySize` use the original size-neutral algorithm.

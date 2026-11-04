@@ -3,13 +3,15 @@
 // scores how well pre-round ratings predict each round's kill shares, against
 // the formula ELO. Reads the backup with pg_restore; writes only to OUTDIR.
 //
-//   node --import tsx scripts/sr-backtest.ts DUMP OUTDIR [sweep | eval JSON | trace JSON NAME...]
+//   node --import tsx scripts/sr-backtest.ts DUMP OUTDIR [sweep | lobby | eval JSON | trace JSON NAME...]
 //
 // sweep: coarse grid, then local refinement, then the start variants, all
 // judged on the tuning period; then one held-out evaluation. Writes sweep.tsv,
 // heldout.tsv, report.txt, chosen.json and names.tsv (the report's P1, P2...).
 // eval: one parameter set, a partial rating_params object over the
 // prototype's settings, e.g. '{"d":300,"settings":{"m":12}}'. trace: round-by-round SR.
+// lobby: frozen v1 vs v2 parameters, including held-out results by lobby size.
+// This historical backtest assembles v1 logs only; v2 dumps are rejected.
 import { spawnSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -335,7 +337,7 @@ function evaluate(data: Data, label: string, params: SrParams, seed?: SrSeed, he
 type Patch = { d?: number; beta?: number; settings?: Partial<SrParams["settings"]> };
 // The search starts from the prototype's settings, not the engine defaults,
 // so its result doesn't depend on what it chose last time.
-const PROTOTYPE = { d: 400, beta: 0.1, settings: { shareCurve: "raw", logisticScale: 10, m: 5, rd0: 350, rdMin: 50, surpriseCap: null, start: "default", seedUncertainty: 150 } } as const;
+const PROTOTYPE = { d: 400, beta: 0.1, settings: { shareCurve: "raw", logisticScale: 10, m: 5, rd0: 350, rdMin: 50, surpriseCap: null, start: "default", seedUncertainty: 150, lobbySize: undefined } } as const;
 function makeParams(patch: Patch): SrParams {
   const settings = { ...DEFAULT_SR_PARAMS.settings, ...PROTOTYPE.settings, ...patch.settings };
   const p: SrParams = { ...DEFAULT_SR_PARAMS, d: patch.d ?? PROTOTYPE.d, beta: patch.beta ?? PROTOTYPE.beta, settings };
@@ -344,7 +346,7 @@ function makeParams(patch: Patch): SrParams {
 }
 const describe = (p: SrParams) => {
   const s = p.settings;
-  return `${s.shareCurve === "raw" ? "raw" : `logit${s.logisticScale}`} b=${p.beta} D=${p.d} m=${s.m} rd=${s.rd0}/${s.rdMin} cap=${s.surpriseCap ?? "none"} ${s.start}${s.start === "seed" ? `/${s.seedUncertainty}` : ""}`;
+  return `${s.shareCurve === "raw" ? "raw" : `logit${s.logisticScale}`} b=${p.beta} D=${p.d} m=${s.m} rd=${s.rd0}/${s.rdMin} cap=${s.surpriseCap ?? "none"} ${s.start}${s.start === "seed" ? `/${s.seedUncertainty}` : ""} lobby=${s.lobbySize ? JSON.stringify(s.lobbySize) : "neutral"}`;
 };
 
 // Formula ELO at the start of the test period, from player_history snapshots
@@ -388,6 +390,7 @@ const [dump, outDir, mode = "sweep", ...rest] = process.argv.slice(2);
 if (!dump || !outDir) { console.error("usage: sr-backtest.ts DUMP OUTDIR [sweep | eval JSON | trace JSON NAME...]"); process.exit(2); }
 mkdirSync(outDir, { recursive: true });
 const matches = readTable(dump, "player_matches");
+if (matches.some(r => r.status != null)) throw new Error("This historical backtest only assembles v1 rounds; use a v1 backup, not v2 session data.");
 const players = readTable(dump, "players");
 const history = readTable(dump, "player_history");
 const banned = new Set(players.filter((p) => p.is_banned === "t").map((p) => p.name!));
@@ -401,6 +404,36 @@ say(`rounds ${data.rounds.length} (${data.rounds[0].playedAt.slice(0, 10)} to ${
   `tuning ${split} rounds, test from ${data.rounds[split].playedAt} (${data.rounds.length - split} rounds); banned left out ${banned.size}`);
 say(`assembly: skipped ${data.skipped.length} round(s) with conflicting lengths (${data.skipped.join(", ")}); re-pointed ${data.repointed} rows by alias, dropped ${data.droppedRows} rows without a profile; ` +
   `merged ${data.merged} duplicate rows; capped ${data.capped} times present at the round length`);
+
+if (mode === "lobby") {
+  // A policy comparison, not another parameter search on the held-out data.
+  const neutral: SrParams = { ...DEFAULT_SR_PARAMS, version: 1, settings: { ...DEFAULT_SR_PARAMS.settings, lobbySize: undefined } };
+  const variants = [evaluate(data, "v1 neutral", neutral, undefined, true),
+    evaluate(data, "v2 lobby", DEFAULT_SR_PARAMS, undefined, true)];
+  say("Frozen settings: the lobby curve is a product decision, not selected on held-out scores.");
+  say(header);
+  for (const e of variants) say(line(e));
+  const bucket = (idx: number) => {
+    const n = data.rounds[idx].participants.filter(p => p.present >= DEFAULT_SR_PARAMS.settings.minActiveSeconds).length;
+    return n <= 3 ? "2-3" : n <= 5 ? "4-5" : n <= 7 ? "6-7" : "8+";
+  };
+  say("HELD-OUT BY ELIGIBLE LOBBY SIZE (one global prediction scale fitted on tuning data per model)");
+  say("model\tsize\trounds\tpairs\tlog_loss\torder_accuracy");
+  for (const e of variants) {
+    for (const size of ["2-3", "4-5", "6-7", "8+"]) {
+      const samples = e.out.test.filter(s => bucket(s.r) === size);
+      say([e.label, size, new Set(samples.map(s => s.r)).size, samples.length,
+        f(logLoss(samples, s => sigmoid(e.tune.k * s.x))), f(accuracy(samples, s => s.x))].join("\t"));
+    }
+    const placed = [...e.out.state.values()].filter(p => isPlaced(p, e.params));
+    const placements = [...e.out.placedAfter.values()];
+    say(`${e.label}: placed ${placed.length}; rounds to placement median ${quantile(placements, 0.5)}, ` +
+      `p10/p90 ${quantile(placements, 0.1)}/${quantile(placements, 0.9)}; ` +
+      `SR p1/p99 ${f(quantile(placed.map(p => p.sr), 0.01), 0)}/${f(quantile(placed.map(p => p.sr), 0.99), 0)}`);
+  }
+  writeFileSync(join(outDir, "lobby.txt"), log.join("\n") + "\n");
+  process.exit(0);
+}
 
 if (mode === "eval" || mode === "trace") {
   const params = makeParams(JSON.parse(rest[0] ?? "{}"));

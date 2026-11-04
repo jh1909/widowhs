@@ -6,7 +6,7 @@ import Papa from 'papaparse';
 import { normalizeMatchLog } from '../supabase/functions/upload-csv/parser.ts';
 import { prepareRound, type PreparedRound } from '../supabase/functions/_shared/log-ingest.ts';
 import { buildMatchImport, type ImportPlayer } from '../supabase/functions/_shared/import-stats.ts';
-import { DEFAULT_SR_PARAMS, rateRound, replay, timeKey, type SrParams, type SrPlayer, type SrRound } from '../supabase/functions/_shared/sr.ts';
+import { DEFAULT_SR_PARAMS, lobbySizeWeight, rateRound, replay, timeKey, type SrParams, type SrPlayer, type SrRound } from '../supabase/functions/_shared/sr.ts';
 
 const actor = '00000000-0000-0000-0000-000000000001';
 const other = '00000000-0000-0000-0000-000000000002';
@@ -27,7 +27,7 @@ const v2Log = `#V,2,3.5.0
 #P,3,Carol,2,10.25,200,2,5,12,30,8,1,75
 #P,4,Bob,1,150,301.5,0,8,10,40,12,3,0`;
 
-async function setup(beforeSr?: (db: PGlite) => Promise<void>) {
+async function setup(beforeSr?: (db: PGlite) => Promise<void>, beforeLobby?: (db: PGlite) => Promise<void>) {
   const db = new PGlite();
   await db.exec(`
     create role anon; create role authenticated; create role service_role bypassrls;
@@ -57,6 +57,7 @@ async function setup(beforeSr?: (db: PGlite) => Promise<void>) {
   `);
   for (const name of (await readdir(new URL('../supabase/migrations/', import.meta.url))).sort()) {
     if (name === SR_MIGRATION && beforeSr) await beforeSr(db);
+    if (name === '20261104200000_sr_lobby_size.sql' && beforeLobby) await beforeLobby(db);
     await db.exec(await migration(name));
   }
   // Supabase sessions print floats with 15 significant digits; anything that
@@ -140,11 +141,11 @@ test('SR tables are hidden from the site', async () => {
         await db.exec('reset role');
       }
     }
-    const params = (await db.query<any>('select version, d, beta, settings, active from public.rating_params')).rows;
-    // Version 1 is the engine's DEFAULT_SR_PARAMS, so the two implementations share one parameter object.
-    assert.deepEqual(params, [{ version: 1, d: DEFAULT_SR_PARAMS.d, beta: DEFAULT_SR_PARAMS.beta,
+    const params = (await db.query<any>('select version, d, beta, settings, active from public.rating_params where active')).rows;
+    // The active version is shared with the reference engine; the original is retained.
+    assert.deepEqual(params, [{ version: 2, d: DEFAULT_SR_PARAMS.d, beta: DEFAULT_SR_PARAMS.beta,
       settings: DEFAULT_SR_PARAMS.settings, active: true }]);
-    await assert.rejects(db.exec("insert into public.rating_params(version,d,beta,settings,active) values (2,400,0.1,'{}',true)"), /rating_params_one_active/);
+    await assert.rejects(db.exec("insert into public.rating_params(version,d,beta,settings,active) values (3,400,0.1,'{}',true)"), /rating_params_one_active/);
   } finally {
     await db.close();
   }
@@ -350,16 +351,16 @@ test('every history change replays from the right round', async t => {
     });
 
     await t.test('activating another parameter version replays everything with it', async () => {
-      await db.exec(`update public.rating_params set active = false where version = 1;
+      await db.exec(`update public.rating_params set active = false where version = 2;
         insert into public.rating_params (version, d, beta, settings, active)
-        select 2, 300, beta, settings || '{"m": 8, "surpriseCap": null}', true from public.rating_params where version = 1;`);
+        select 3, 300, beta, settings || '{"m": 8, "surpriseCap": null}', true from public.rating_params where version = 2;`);
       const r = await ratings();
-      assert.ok(r.events.length > 0 && r.events.every(e => e.params_version === 2));
-      assert.ok(r.rounds.every(x => x.params_version === 2));
+      assert.ok(r.events.length > 0 && r.events.every(e => e.params_version === 3));
+      assert.ok(r.rounds.every(x => x.params_version === 3));
       await assertMatchesScratch();
-      await db.exec('update public.rating_params set active = false where version = 2');
+      await db.exec('update public.rating_params set active = false where version = 3');
       assert.deepEqual(await ratings(), { events: [], players: [], rounds: [] });
-      await db.exec('update public.rating_params set active = true where version = 2');
+      await db.exec('update public.rating_params set active = true where version = 3');
       await assertMatchesScratch();
     });
 
@@ -600,6 +601,14 @@ const fixtures: [string, Map<string, SrPlayer>, SrRound, SrParams, Map<string, n
   ['order and unicode', lobbyOf({ zed: 1620, 'Ålice': 1480, Bob: 1550 }),
     rnd([p1('zed', 50), p1('Ålice', 44), p1('Bob', 31, 200), p2('😀', 12, [[200, 300], [0, 60]], 80), p1('bob', 0), p1('Al', 0, 100)], 'zed'), P],
   ['zero round length', new Map(), rnd([p1('A', 50), p1('B', 10)], 'A', 0), P],
+  ['legacy weighting', new Map(), rnd([p1('A', 50), p1('B', 30)], 'A'), withSettings({ lobbySize: undefined })],
+  ['half duel, half eight', new Map(), rnd(letters.slice(0, 8).map((n, i) => p1(n, i ? 20 : 50, i < 2 ? 300 : 150)), 'A'), P],
+  ['replacement duel', lobbyOf({ A: 1500, B: 1500, C: 1500 }),
+    rnd([p1('A', 50), p2('B', 20, [[0, 150]], 200), p2('C', 20, [[150, 300]], 200)], 'A'), P],
+  ['retuned anchors', new Map(), rnd(letters.slice(0, 5).map((n, i) => p1(n, i ? 30 : 50)), 'A'),
+    withSettings({ lobbySize: { minPlayers: 3, minWeight: 0.1, fullPlayers: 6, fullWeight: 0.8 } })],
+  ['below cutoff', new Map(), rnd([p1('A', 50), p1('B', 30)], 'A'),
+    withSettings({ lobbySize: { ...P.settings.lobbySize!, minPlayers: 3 } })],
 ];
 
 // mulberry32
@@ -646,6 +655,8 @@ function randomCase(r: () => number, i: number): [string, Map<string, SrPlayer>,
     shareCurve: r() < 0.3 ? 'logistic' : 'raw', logisticScale: 5 + r() * 10,
     surpriseCap: r() < 0.3 ? null : 0.1 + r() * 0.3, m: 2 + r() * 10,
     rd0: 100 + r() * 250, rdMin: 20 + r() * 40, start: r() < 0.2 ? 'seed' : 'default',
+    lobbySize: r() < 0.15 ? undefined : { minPlayers: 2 + Math.floor(r() * 2), minWeight: 0.01 + r() * 0.2,
+      fullPlayers: 6 + Math.floor(r() * 4), fullWeight: 0.5 + r() * 0.5 },
   }, { d: 200 + r() * 300, beta: r() * 0.2 });
   const seed = params.settings.start === 'seed'
     ? new Map(names.filter(() => r() < 0.5).map(name => [name, 1300 + r() * 400] as [string, number])) : undefined;
@@ -654,6 +665,57 @@ function randomCase(r: () => number, i: number): [string, Map<string, SrPlayer>,
 
 const paramsRow = (p: SrParams) => [p.version, p.d, p.beta, JSON.stringify(p.settings)];
 const PARAMS_SQL = 'row($1::int, $2::float8, $3::float8, $4::jsonb, false, null, now())::public.rating_params';
+
+test('lobby migration re-rates existing history; curve retunes replay and version 1 remains usable', async () => {
+  let before: any[] = [];
+  const { db, read, assertMatchesScratch } = await setup(undefined, async db => {
+    await db.exec(`insert into public.players(name, matches, elo) values ('Alice',0,'-'),('Bob',0,'-');
+      insert into public.player_matches(player_name, score, time_in_lobby, total_match_time, played_at, match_id)
+      values ('Alice',50,300,300,'2026-10-01','00000000-0000-0000-0000-000000000901'),
+        ('Bob',30,300,300,'2026-10-01','00000000-0000-0000-0000-000000000901');`);
+    before = (await db.query<any>('select * from public.rating_events order by player_name')).rows;
+    assert.equal(before.length, 2);
+    assert.ok(before.every(e => e.params_version === 1 && e.weight === 1));
+  });
+  try {
+    const after = await read('select * from public.rating_events order by player_name');
+    assert.equal(after.length, 2);
+    assert.ok(after.every(e => e.params_version === 2));
+    near(after[0].weight, 0.05, 'duel evidence');
+    assert.ok(after[0].sr_after - after[0].sr_before < (before[0].sr_after - before[0].sr_before) / 5);
+    await assertMatchesScratch();
+    const changed = { minPlayers: 2, minWeight: 0.1, fullPlayers: 6, fullWeight: 0.8 };
+    await db.query("update public.rating_params set settings = jsonb_set(settings, '{lobbySize}', $1::jsonb) where active", [JSON.stringify(changed)]);
+    const retuned = await read('select * from public.rating_events order by player_name');
+    near(retuned[0].weight, 0.1, 'retuned duel evidence');
+    assert.ok(retuned[0].sr_after > after[0].sr_after);
+    await assertMatchesScratch();
+    for (const curve of [null, {}, { ...changed, minPlayers: 1 }, { ...changed, minPlayers: 2.5 },
+      { ...changed, fullPlayers: 2 }, { ...changed, minWeight: 0 }, { ...changed, fullWeight: 0.01 },
+      { ...changed, minWeight: '0.1' }, { ...changed, fullWeight: 2 }]) {
+      await assert.rejects(db.query("update public.rating_params set settings = jsonb_set(settings, '{lobbySize}', $1::jsonb) where active",
+        [JSON.stringify(curve)]), /invalid_lobby_size/);
+    }
+    assert.deepEqual(await read('select * from public.rating_events order by player_name'), retuned);
+    await db.exec('update public.rating_params set active = false where active; update public.rating_params set active = true where version = 1;');
+    const restored = await read('select * from public.rating_events order by player_name');
+    assert.ok(restored.every(e => e.params_version === 1 && e.weight === 1));
+    for (let i = 0; i < restored.length; i++) near(restored[i].sr_after, before[i].sr_after, 'restored legacy SR');
+    await assertMatchesScratch();
+  } finally { await db.close(); }
+});
+
+test('SQL curve matches the reference anchors, ceiling and validation', async () => {
+  const { db } = await setup();
+  try {
+    for (const curve of [P.settings.lobbySize!, { minPlayers: 3, minWeight: 0.1, fullPlayers: 6, fullWeight: 0.8 }]) {
+      for (let n = 0; n <= 14; n++) {
+        const rows = (await db.query<any>('select public._sr_lobby_size_weight($1, $2) as w', [n, JSON.stringify({ lobbySize: curve })])).rows;
+        near(rows[0].w, lobbySizeWeight(n, curve), `curve ${n}`);
+      }
+    }
+  } finally { await db.close(); }
+});
 
 test('the database engine agrees with sr.ts round by round', async () => {
   const { db } = await setup();
