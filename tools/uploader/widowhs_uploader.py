@@ -58,10 +58,13 @@ class Uploader:
         # Size and mtime of each file at the previous poll, to see it settle.
         self.previous = {}
         self.backoff = POLL_SECONDS
-        if first_run and not include_existing:
-            self.state["skipped"] = sorted(path.name for path in self.logs())
+        if first_run:
+            if not include_existing:
+                self.state["skipped"] = sorted(path.name for path in self.logs())
+                log(f"First run: {len(self.state['skipped'])} existing log(s) recorded as seen, not uploaded.")
+            # Saved now, so a later run without --include-existing doesn't skip
+            # logs this run failed to upload.
             self.save()
-            log(f"First run: {len(self.state['skipped'])} existing log(s) recorded as seen, not uploaded.")
 
     def logs(self):
         return sorted(self.log_dir.glob("Log-*.txt"))
