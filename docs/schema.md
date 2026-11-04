@@ -42,9 +42,6 @@ erDiagram
     text winner_name
     text host_name
     uuid previous_round_id FK "same host, under 2 min gap"
-    numeric lobby_sr_mean "from 01"
-    numeric lobby_sr_min
-    numeric lobby_sr_max
   }
   player_sessions {
     uuid id PK
@@ -107,7 +104,9 @@ erDiagram
   players ||--o| player_ratings : "current SR"
   players ||--o{ rating_events : "per round"
   rounds ||--o{ rating_events : "rated in"
+  rounds ||--o| round_ratings : "lobby strength"
   rating_params ||--o{ rating_events : "computed with"
+  rating_params ||--o{ round_ratings : "computed with"
   players ||--o{ player_badges : "holds"
   badges ||--o{ player_badges : "awarded as"
   badges |o--o{ player_profile_details : "pinned"
@@ -128,33 +127,46 @@ erDiagram
   }
   player_ratings {
     text player_name PK, FK
-    numeric sr
-    numeric uncertainty "grows while inactive (02)"
-    numeric cautious_sr "sr minus 2 x uncertainty"
+    float sr
+    float uncertainty "grows while inactive (02)"
+    float cautious_sr "sr minus 2 x uncertainty"
     bool placed
-    int rank
-    numeric rated_weight
+    int rank "placed, not banned"
+    float rated_weight
+    int rated_rounds
     timestamptz last_rated_at
   }
   rating_events {
-    uuid round_id PK, FK
+    uuid match_id PK "the round; FK to rounds later"
     text player_name PK, FK
+    timestamptz played_at "the round's time"
     int params_version FK
-    numeric weight "time present / round length"
-    numeric sr_before
-    numeric sr_after
-    numeric uncertainty_before
-    numeric uncertainty_after
-    numeric expected_share
-    numeric actual_share
-    numeric performance "actual minus expected"
+    float weight "time present / round length"
+    float sr_before
+    float sr_after
+    float uncertainty_before
+    float uncertainty_after
+    float expected_share
+    float actual_share
+    float performance "actual minus expected"
+    float rated_weight "running total, to resume a replay"
+    int rated_rounds "running total"
+  }
+  round_ratings {
+    uuid match_id PK "FK to rounds later"
+    timestamptz played_at
+    int params_version FK
+    float lobby_sr_mean "time-weighted"
+    float lobby_sr_min
+    float lobby_sr_max
+    int rated_players
   }
   rating_params {
     int version PK
-    numeric d
-    numeric beta "winner's bonus"
+    float d
+    float beta "winner's bonus"
     jsonb settings "K range, share curve, decay pace"
-    bool active
+    bool active "at most one"
   }
   badges {
     text id PK
@@ -216,6 +228,7 @@ alone and is not drawn. `audit_logs`, `leaderboard_state` and
 | `player_ratings` | New; takes over `rank` | 01, 02 |
 | `rating_events` | New, one row per player per rated round | 01 |
 | `rating_params` | New, so every rating can be replayed exactly | 01 |
+| `round_ratings` | New: lobby strength per rated round, until `rounds` exists | 01 |
 | `rating_drift_daily` | New | 02 |
 | `badges`, `player_badges` | New; achievements and stat medals move here from the browser | 05 |
 | `player_profile_details` | Adds `pinned_badge` | 05 |
