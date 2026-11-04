@@ -195,6 +195,8 @@ rule("Global init")
 		Global.targetHP = Global.ranked ? 175 : Array(Null, 175, 200, 225)[Global.healthSetting];
 		"match time zero for the log, the offset the v1 log used for the round length"
 		Global.roundStart = 7.020;
+		"start empty: appending to an unset variable keeps its default 0 as a first element"
+		Global.killCodes = Empty Array;
 		"testing only: bots are never added to a ranked match"
 		Global.testBots = !Global.ranked && Workshop Setting Toggle(Custom String("Testing"), Custom String(
 			"Fill empty slots with bots"), False, 1);
@@ -593,11 +595,18 @@ rule("AFK enter")
 			Create HUD Text(Event Player, Custom String("Kicked in {0}s", Round To Integer(Max(Event Player.afkDeadline - Total Time Elapsed,
 				0), Up)), Null, Null, Top, 2, Color(Orange), Color(White), Color(White), String, Default Visibility);
 			Event Player.afkHUD[1] = Last Text ID;
-			Wait Until(!Event Player.afk, 60);
-			If(Event Player.afk && !Global.gameComplete);
-				"2: kicked, kept when Player leaves closes the session"
-				Global.sessionStatus[Event Player.session] = 2;
-				Remove Player(Event Player);
+		End;
+		"until the player returns, the round ends or, in Ranked, the kick deadline passes"
+		Wait Until(!Event Player.afk || Global.gameComplete || Global.ranked && Total Time Elapsed >= Event Player.afkDeadline, 99999);
+		If(Event Player.afk && Global.gameComplete);
+			"AFK return stops at the win, so clear the warning here before the end scene"
+			Destroy HUD Text(First Of(Event Player.afkHUD));
+			Destroy HUD Text(Event Player.afkHUD[1]);
+		Else If(Event Player.afk && Global.ranked);
+			"2: kicked, kept when Player leaves closes the session"
+			Global.sessionStatus[Event Player.session] = 2;
+			Remove Player(Event Player);
+		End;
 	}
 }
 
