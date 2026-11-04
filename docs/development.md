@@ -11,11 +11,20 @@ at is the one it reads and writes.
 
 | Project | URL | Use |
 |---|---|---|
-| Staging | `https://icjnuxlfprxwjxhexgkv.supabase.co` | Local development and trying migrations and Edge Functions |
+| Staging | `https://icjnuxlfprxwjxhexgkv.supabase.co` (named "widowhs-backup" in Supabase) | Local development and trying migrations and Edge Functions |
 | Production | `https://kzymescftenxuspjsssh.supabase.co` | The live site (`supabase/config.toml`) |
 
 Apply a migration or deploy a function on staging first, check it there, then
 repeat on production. Each project has its own keys and secrets.
+
+Staging holds a copy of production's `public` schema and data, not its auth
+users. To refresh it, dump production's `public` schema and data, load them
+into an empty staging `public` schema (data with
+`session_replication_role = replica`, so triggers don't fire), then add
+placeholder `auth.users` rows (id only) for the `user_id` values that the
+copied tables reference. Then apply only the migrations production doesn't
+have yet. Deploy functions to staging with
+`supabase functions deploy <name> --remote=icjnuxlfprxwjxhexgkv --use-api`.
 
 ## Checks
 
