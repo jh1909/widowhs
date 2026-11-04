@@ -64,6 +64,16 @@ It served as the seed round and ends when SR launches.
 - **Update.** A player's change is their K (from their uncertainty) times the
   weighted sum of `(S − E)` over opponents, normalised so lobby size does not
   change how much one round can move a rating.
+- **Engine details** (reference: `supabase/functions/_shared/sr.ts`):
+  time present means active time (present − AFK) for the cutoff and the
+  weight. Both players' kills are pro-rated to the time they shared
+  (kills × overlap ÷ own time present; for v1 only the longer-present
+  player's change). A pair counts with weight min(overlap ÷ round length,
+  both players' weights); pairs that never shared the lobby are skipped.
+  Expected uses Glicko's g(opponent uncertainty). A player whose pairs were
+  all 0–0 is not rated that round. The match dialog's expected and actual
+  share are the player's pairwise E and S averaged over their pairs,
+  weighted as in the update.
 - **Lobby strength** is stored per round: time-weighted mean SR of the
   participants, with lowest and highest.
 - **Starting point.** Replay all history in `played_at` order from a default
