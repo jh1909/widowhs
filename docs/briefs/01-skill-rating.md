@@ -79,8 +79,9 @@ It served as the seed round and ends when SR launches.
 - **Lobby strength** is stored per round: time-weighted mean SR of the
   participants, with lowest and highest.
 - **Starting point.** Replay all history in `played_at` order from a default
-  rating. A variant seeded from the formula ELO is backtested; the better
-  predictor is used.
+  rating. A seed from the formula ELO predicted only marginally better in
+  the backtest, so SR starts from the default and owes nothing to the
+  retired formula.
 - **Leaderboard** ranks by the cautious value, SR minus twice the uncertainty.
   A player is placed once their uncertainty falls below the level reached
   after about 10 full-weight rounds. Profiles show SR with its range.
@@ -153,7 +154,8 @@ profiles, time present capped at the round length).
 - **Start:** a seed from the formula ELO as of 28 October (`player_history`,
   so nothing from the scored period) predicts 0.0004 better than the default
   start, with uncertainty 100. A two-pass start does the same but uses the
-  future. Using a seed would need its values frozen in a table.
+  future. The gain is too small to justify a frozen seed table and a
+  mapping from the formula's scale, so the default start is used.
 - **Strong player in a weak lobby:** at the 99th against the 10th percentile
   of placed SR (1,674 against 1,455), winning 50 to 10 changes nothing and
   50 to 20 costs about 9 SR.
