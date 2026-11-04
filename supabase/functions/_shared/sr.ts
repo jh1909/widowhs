@@ -11,6 +11,7 @@ export type SrParticipant = {
   afk: number;                   // AFK seconds (v2), 0 for v1
   shots: number | null;          // v2 only
   intervals: [number, number][]; // round-relative [start, end]; v1: [[length - present, length]]
+  scoreEvents?: { at: number; delta: number }[]; // v3: exact session score gains/losses, merged by profile
 };
 export type SrRound = { id: string; playedAt: string; length: number; winner: string | null; participants: SrParticipant[] };
 
@@ -25,6 +26,8 @@ export type SrSettings = {
   logisticScale: number;          // kills; the logistic curve's spread
   m: number;                      // full-weight pairwise games per round
   lobbySize?: SrLobbySize;        // absent only for replaying the original, size-neutral model
+  rollingEvidenceKills?: number; // v3: scoring observations for a full evidence budget; absent retains time model
+  rollingMinShots?: number;      // v3: absolute effort floor for scoreless players, independent of lobby age
   rd0: number;                    // uncertainty of a new player
   rdMin: number;                  // floor on uncertainty
   surpriseCap: number | null;     // cap on |S - E| per pair; null disables
@@ -88,10 +91,13 @@ export function derivePlacementUncertainty(p: Pick<SrParams, "d"> & { settings: 
   return rd;
 }
 
-// Chosen by scripts/sr-backtest.ts (brief 01, "Backtest").
+// Rating calibration: scripts/sr-backtest.ts. Lobby/evidence anchors are
+// explicit product policy; see brief 01 for the historical-data limitation.
 const baseSettings = {
   shareCurve: "raw", logisticScale: 10, m: 5, rd0: 160, rdMin: 50, surpriseCap: 0.25,
   lobbySize: { minPlayers: 2, minWeight: 0.05, fullPlayers: 8, fullWeight: 1 },
+  rollingEvidenceKills: 50,
+  rollingMinShots: 8,
   start: "default", startSr: 1500, seedUncertainty: 150,
   minActiveSeconds: 30,
   // An active Widowmaker fires every few seconds; AFK time is already
@@ -101,7 +107,7 @@ const baseSettings = {
   fullRoundGraceSeconds: 10, cautiousFactor: 2,
 } as const;
 export const DEFAULT_SR_PARAMS: SrParams = {
-  version: 2, d: 400, beta: 0.05,
+  version: 3, d: 400, beta: 0.05,
   settings: { ...baseSettings, placementUncertainty: derivePlacementUncertainty({ d: 400, settings: baseSettings }) },
 };
 
@@ -166,9 +172,64 @@ function overlap(x: [number, number][], y: [number, number][]): number {
 type Entry = {
   name: string; kills: number; weight: number; active: number; intervals: [number, number][]; span: number;
   ratedWeight: number;
+  scoreEvents?: SrParticipant['scoreEvents'];
   sr: number; uncertainty: number; g: number;
   s1: number; s2: number; sw: number; ss: number; se: number; pairs: number;
 };
+
+// Shared with backtest reporting so its lobby-size groups match the engine.
+export function srParticipationExclusion(p: SrParticipant, settings: SrSettings, timed: boolean): 'short' | 'effort' | null {
+  const active = Math.max(0, p.present - p.afk);
+  if (active < settings.minActiveSeconds) return 'short';
+  const scored = timed && p.scoreEvents?.some(e => e.delta > 0);
+  const lowEffort = p.shots !== null && (timed ? p.shots < settings.rollingMinShots! : p.shots * 60 < settings.minShotsPerMinute * active);
+  return !scored && lowEffort ? 'effort' : null;
+}
+
+// Scoring is the clock for rolling lobbies. Each positive score change is
+// compared with every eligible opponent present, never just its victim.
+// Unweighted observations bound each player's full-round evidence budget;
+// the size curve discounts evidence and the corresponding scoring outcome.
+// Pairwise caps are symmetric and cannot grow when opponents are replaced.
+function scoringPairs(entries: Entry[], params: SrParams): Map<string, { ka: number; kb: number; weight: number }> {
+  const target = params.settings.rollingEvidenceKills!;
+  const raw = entries.map(() => 0);
+  const pairs = new Map<string, { a: number; b: number; ka: number; kb: number; weighted: number }>();
+  const events = entries.flatMap((e, actor) => e.scoreEvents!.map((event, order) => ({ ...event, actor, order })))
+    .sort((a, b) => a.at - b.at || a.actor - b.actor || a.order - b.order);
+  for (const event of events) {
+    const present = entries.map((e, i) => e.intervals.some(([a, b]) => a <= event.at && event.at <= b) ? i : -1)
+      .filter(i => i >= 0);
+    const quality = lobbySizeWeight(present.length, params.settings.lobbySize);
+    if (quality === 0) continue;
+    const unit = 1 / (present.length - 1);
+    for (const other of present) {
+      if (other === event.actor) continue;
+      const a = Math.min(other, event.actor), b = Math.max(other, event.actor), key = `${a}:${b}`;
+      const pair = pairs.get(key) ?? { a, b, ka: 0, kb: 0, weighted: 0 };
+      if (event.actor === a) pair.ka += event.delta * quality;
+      else pair.kb += event.delta * quality;
+      if (event.delta > 0) {
+        pair.weighted += quality * unit;
+        raw[a] += unit / target; raw[b] += unit / target;
+      }
+      pairs.set(key, pair);
+    }
+  }
+  const out = new Map<string, { ka: number; kb: number; weight: number }>();
+  // Participant order matches SQL and keeps floating-point sums stable.
+  for (let a = 0; a < entries.length; a++) for (let b = a + 1; b < entries.length; b++) {
+    const key = `${a}:${b}`, pair = pairs.get(key);
+    if (!pair || pair.weighted === 0) continue;
+    const ka = Math.max(0, pair.ka), kb = Math.max(0, pair.kb);
+    if (ka + kb === 0) continue;
+    const weight = params.settings.m * pair.weighted / target / Math.max(1, raw[a], raw[b]);
+    entries[a].ratedWeight += weight / params.settings.m;
+    entries[b].ratedWeight += weight / params.settings.m;
+    out.set(key, { ka, kb, weight });
+  }
+  return out;
+}
 
 // Rates one round against the pre-round state, without changing it.
 //
@@ -181,6 +242,12 @@ type Entry = {
 export function rateRound(state: ReadonlyMap<string, SrPlayer>, round: SrRound, params: SrParams, seed?: SrSeed): SrRoundResult {
   const s = params.settings;
   lobbySizeWeight(2, s.lobbySize); // reject invalid settings even for empty rounds
+  if (s.rollingEvidenceKills !== undefined && (!Number.isSafeInteger(s.rollingEvidenceKills) || s.rollingEvidenceKills < 1)) {
+    throw new Error('invalid_rolling_evidence');
+  }
+  if (s.rollingEvidenceKills !== undefined && (!Number.isSafeInteger(s.rollingMinShots) || s.rollingMinShots! < 0)) {
+    throw new Error('invalid_rolling_evidence');
+  }
   const ordered = round.participants;
   const names = new Set<string>();
   for (const p of ordered) {
@@ -193,11 +260,25 @@ export function rateRound(state: ReadonlyMap<string, SrPlayer>, round: SrRound, 
     for (const p of ordered) excluded.push({ name: p.name, reason: "round_length" });
     return empty();
   }
+  const timed = s.rollingEvidenceKills !== undefined && ordered.some(p => p.scoreEvents !== undefined);
+  if (timed) for (const p of ordered) {
+    if (!Array.isArray(p.scoreEvents)) throw new Error('incomplete_score_events');
+    let previous = -1, score = 0;
+    for (const event of p.scoreEvents) {
+      if (!Number.isFinite(event.at) || event.at < previous || event.at < 0 || event.at > round.length ||
+          (event.delta !== 1 && event.delta !== -1) || !p.intervals.some(([a, b]) => a <= event.at && event.at <= b)) {
+        throw new Error('invalid_score_event');
+      }
+      previous = event.at; score += event.delta;
+      if (score < 0) throw new Error('invalid_score_event');
+    }
+    if (score !== p.kills) throw new Error('incomplete_score_events');
+  }
   const entries: Entry[] = [];
   for (const p of ordered) {
     const active = Math.max(0, p.present - p.afk);
-    if (active < s.minActiveSeconds) { excluded.push({ name: p.name, reason: "short" }); continue; }
-    if (p.shots !== null && p.shots * 60 < s.minShotsPerMinute * active) { excluded.push({ name: p.name, reason: "effort" }); continue; }
+    const reason = srParticipationExclusion(p, s, timed);
+    if (reason) { excluded.push({ name: p.name, reason }); continue; }
     const intervals = normaliseIntervals(p.intervals);
     let span = 0;
     for (const [a, b] of intervals) span += b - a;
@@ -205,19 +286,20 @@ export function rateRound(state: ReadonlyMap<string, SrPlayer>, round: SrRound, 
     const uncertainty = preRoundUncertainty(player, round.playedAt, params);
     entries.push({
       name: p.name, kills: p.kills, weight: Math.min(1, active / round.length), active, intervals, span,
-      sr: player.sr, uncertainty, g: glickoG(uncertainty, params.d), ratedWeight: 0,
+      sr: player.sr, uncertainty, g: glickoG(uncertainty, params.d), ratedWeight: 0, scoreEvents: p.scoreEvents,
       s1: 0, s2: 0, sw: 0, ss: 0, se: 0, pairs: 0,
     });
   }
   if (entries.length < 2) return empty();
 
   const scale = s.m / (entries.length - 1);
+  const scoring = timed ? scoringPairs(entries, params) : null;
   // Integrate the curve over concurrent sessions, not over the average size
   // or the total names in the round. Normalising each period separately also
   // keeps replacements from diluting a player's evidence. AFK timestamps are
   // unavailable: keep the existing pairwise active-time cap below.
   const pairWeights = entries.map(() => entries.map(() => 0));
-  if (s.lobbySize !== undefined) {
+  if (s.lobbySize !== undefined && scoring === null) {
     const boundaries = [...new Set([0, round.length, ...entries.flatMap(e => e.intervals.flat())])]
       .filter(t => t >= 0 && t <= round.length).sort((a, b) => a - b);
     for (let k = 1; k < boundaries.length; k++) {
@@ -240,16 +322,18 @@ export function rateRound(state: ReadonlyMap<string, SrPlayer>, round: SrRound, 
   for (let i = 0; i < entries.length; i++) {
     for (let j = i + 1; j < entries.length; j++) {
       const a = entries[i], b = entries[j];
-      const shared = overlap(a.intervals, b.intervals);
-      if (shared <= 0) continue;
-      // Each player's kills pro-rated to the time both were present.
-      const ka = a.kills * shared / a.span, kb = b.kills * shared / b.span;
+      const shared = scoring === null ? overlap(a.intervals, b.intervals) : 0;
+      const scored = scoring?.get(`${i}:${j}`);
+      if (scoring === null ? shared <= 0 : !scored) continue;
+      // New logs use exact shared scoring; old logs retain the time estimate.
+      const ka = scored ? scored.ka : a.kills * shared / a.span;
+      const kb = scored ? scored.kb : b.kills * shared / b.span;
       if (ka + kb <= 0) continue;
       let shareA = s.shareCurve === "raw" ? ka / (ka + kb) : 1 / (1 + Math.exp(-(ka - kb) / s.logisticScale));
       if (winner === a.name) shareA = shareA + params.beta * (1 - shareA);
       else if (winner === b.name) shareA = 1 - ((1 - shareA) + params.beta * shareA);
       const shareB = 1 - shareA;
-      const weight = s.lobbySize === undefined
+      const weight = scored ? scored.weight : s.lobbySize === undefined
         ? Math.min(shared / round.length, a.weight, b.weight) * scale
         : pairWeights[i][j] * Math.min(1, a.active / shared, b.active / shared);
       if (weight <= 0) continue;
@@ -278,7 +362,7 @@ export function rateRound(state: ReadonlyMap<string, SrPlayer>, round: SrRound, 
     const inv = 1 / (e.uncertainty * e.uncertainty) + q * q * e.s2;
     const actualShare = e.ss / e.sw, expectedShare = e.se / e.sw;
     events.push({
-      name: e.name, weight: s.lobbySize === undefined ? e.weight : e.ratedWeight,
+      name: e.name, weight: scoring !== null || s.lobbySize !== undefined ? e.ratedWeight : e.weight,
       full: round.length - e.active <= s.fullRoundGraceSeconds,
       srBefore: e.sr, srAfter: e.sr + q / inv * e.s1,
       uncertaintyBefore: e.uncertainty, uncertaintyAfter: Math.max(s.rdMin, Math.sqrt(1 / inv)),

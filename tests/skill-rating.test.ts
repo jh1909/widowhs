@@ -6,7 +6,7 @@ import Papa from 'papaparse';
 import { normalizeMatchLog } from '../supabase/functions/upload-csv/parser.ts';
 import { prepareRound, type PreparedRound } from '../supabase/functions/_shared/log-ingest.ts';
 import { buildMatchImport, type ImportPlayer } from '../supabase/functions/_shared/import-stats.ts';
-import { DEFAULT_SR_PARAMS, lobbySizeWeight, rateRound, replay, timeKey, type SrParams, type SrPlayer, type SrRound } from '../supabase/functions/_shared/sr.ts';
+import { DEFAULT_SR_PARAMS, lobbySizeWeight, normaliseIntervals, rateRound, replay, timeKey, type SrParams, type SrPlayer, type SrRound } from '../supabase/functions/_shared/sr.ts';
 
 const actor = '00000000-0000-0000-0000-000000000001';
 const other = '00000000-0000-0000-0000-000000000002';
@@ -73,7 +73,7 @@ async function setup(beforeSr?: (db: PGlite) => Promise<void>, beforeLobby?: (db
   const round = (text: string, playedAt: string) => {
     files++;
     // A unique comment-free variant keeps each file's hash distinct.
-    const body = text.startsWith('#V') ? text.replace('#V,2,3.5.0', `#V,2,3.5.0-${files}`) : `${text}\nUnknown,${files},0,0,0,0,0,0,0`;
+    const body = text.startsWith('#V') ? text.replace(/^#V,[23],[^\n]+/, header => `${header}-${files}`) : `${text}\nUnknown,${files},0,0,0,0,0,0,0`;
     return prepareRound({ name: `Log-${files}.txt`, text: body, played_at: playedAt, host_name: 'Test' }, rows(body));
   };
   const upload = async (...rounds: PreparedRound[]) => {
@@ -143,9 +143,9 @@ test('SR tables are hidden from the site', async () => {
     }
     const params = (await db.query<any>('select version, d, beta, settings, active from public.rating_params where active')).rows;
     // The active version is shared with the reference engine; the original is retained.
-    assert.deepEqual(params, [{ version: 2, d: DEFAULT_SR_PARAMS.d, beta: DEFAULT_SR_PARAMS.beta,
+    assert.deepEqual(params, [{ version: 3, d: DEFAULT_SR_PARAMS.d, beta: DEFAULT_SR_PARAMS.beta,
       settings: DEFAULT_SR_PARAMS.settings, active: true }]);
-    await assert.rejects(db.exec("insert into public.rating_params(version,d,beta,settings,active) values (3,400,0.1,'{}',true)"), /rating_params_one_active/);
+    await assert.rejects(db.exec("insert into public.rating_params(version,d,beta,settings,active) values (4,400,0.1,'{}',true)"), /rating_params_one_active/);
   } finally {
     await db.close();
   }
@@ -351,16 +351,16 @@ test('every history change replays from the right round', async t => {
     });
 
     await t.test('activating another parameter version replays everything with it', async () => {
-      await db.exec(`update public.rating_params set active = false where version = 2;
+      await db.exec(`update public.rating_params set active = false where version = 3;
         insert into public.rating_params (version, d, beta, settings, active)
-        select 3, 300, beta, settings || '{"m": 8, "surpriseCap": null}', true from public.rating_params where version = 2;`);
+        select 4, 300, beta, settings || '{"m": 8, "surpriseCap": null}', true from public.rating_params where version = 3;`);
       const r = await ratings();
-      assert.ok(r.events.length > 0 && r.events.every(e => e.params_version === 3));
-      assert.ok(r.rounds.every(x => x.params_version === 3));
+      assert.ok(r.events.length > 0 && r.events.every(e => e.params_version === 4));
+      assert.ok(r.rounds.every(x => x.params_version === 4));
       await assertMatchesScratch();
-      await db.exec('update public.rating_params set active = false where version = 3');
+      await db.exec('update public.rating_params set active = false where version = 4');
       assert.deepEqual(await ratings(), { events: [], players: [], rounds: [] });
-      await db.exec('update public.rating_params set active = true where version = 3');
+      await db.exec('update public.rating_params set active = true where version = 4');
       await assertMatchesScratch();
     });
 
@@ -666,6 +666,30 @@ function randomCase(r: () => number, i: number): [string, Map<string, SrPlayer>,
 const paramsRow = (p: SrParams) => [p.version, p.d, p.beta, JSON.stringify(p.settings)];
 const PARAMS_SQL = 'row($1::int, $2::float8, $3::float8, $4::jsonb, false, null, now())::public.rating_params';
 
+function scoringCase(r: () => number, i: number): ReturnType<typeof randomCase> {
+  const result = randomCase(r, i);
+  const round = result[2];
+  for (const p of round.participants) {
+    p.intervals = normaliseIntervals(p.intervals);
+    p.present = p.intervals.reduce((sum, [a, b]) => sum + b - a, 0);
+    p.afk = Math.min(p.afk, p.present);
+    if (!p.present) p.kills = 0;
+    const loss = p.present && r() < 0.3 ? 2 : 0;
+    const count = p.kills + loss;
+    p.scoreEvents = Array.from({ length: count }, (_, k) => {
+      let remaining = (k + 1) * p.present / (count + 1), at = 0;
+      for (const [a, b] of p.intervals) {
+        if (remaining <= b - a) { at = a + remaining; break; }
+        remaining -= b - a;
+      }
+      return { at, delta: loss && k === count - 1 ? -1 : 1 };
+    });
+  }
+  result[0] = `scoring random ${i}`;
+  result[3] = { ...result[3], settings: { ...result[3].settings, rollingEvidenceKills: 25 + Math.floor(r() * 75) } };
+  return result;
+}
+
 test('lobby migration re-rates existing history; curve retunes replay and version 1 remains usable', async () => {
   let before: any[] = [];
   const { db, read, assertMatchesScratch } = await setup(undefined, async db => {
@@ -680,7 +704,7 @@ test('lobby migration re-rates existing history; curve retunes replay and versio
   try {
     const after = await read('select * from public.rating_events order by player_name');
     assert.equal(after.length, 2);
-    assert.ok(after.every(e => e.params_version === 2));
+    assert.ok(after.every(e => e.params_version === 3));
     near(after[0].weight, 0.05, 'duel evidence');
     assert.ok(after[0].sr_after - after[0].sr_before < (before[0].sr_after - before[0].sr_before) / 5);
     await assertMatchesScratch();
@@ -717,11 +741,69 @@ test('SQL curve matches the reference anchors, ceiling and validation', async ()
   } finally { await db.close(); }
 });
 
+const scoringLog = (offset: number, count = 8) => {
+  const length = offset + 240;
+  const players = Array.from({ length: count }, (_, i) => ({ session: i + 1, name: `Timed${i}`, kills: i ? 25 : 50 }));
+  const events = players.flatMap(p => Array.from({ length: p.kills }, (_, i) => ({
+    session: p.session, at: offset + (i + 1) * 240 / (p.kills + (p.session === 1 ? 0 : 1)), score: i + 1,
+  }))).sort((a, b) => a.at - b.at || a.session - b.session);
+  return `#V,3,3.6.0\n#R,${length},Timed0\n` + players.map(p =>
+    `#P,${p.session},${p.name},${p.session - 1},${p.session === 1 ? 0 : offset},${length},0,${p.kills},10,500,50,0,${p.session === 1 ? offset : 0}`).join('\n') +
+    '\n' + events.map(e => `#S,${e.session},${e.at},${e.score}`).join('\n');
+};
+
+test('v3 import, rolling replay, corrections, identity and moderation agree with the reference', async () => {
+  const s = await setup();
+  const { db, round: prepare, upload, inputs, ratings, assertMatchesScratch, versions, roundsRewritten } = s;
+  try {
+    const prepared = await Promise.all([prepare(scoringLog(0), '2026-11-01T00:00:00'), prepare(scoringLog(1800), '2026-11-02T00:00:00')]);
+    const ids = await upload(...prepared);
+    const assembled = await inputs();
+    const rounds = ids.map(id => assembled.find(r => r.match_id === id).round as SrRound);
+    for (const round of rounds) for (const p of round.participants) {
+      assert.ok(Array.isArray(p.scoreEvents));
+      assert.equal(p.scoreEvents!.reduce((sum, e) => sum + e.delta, 0), p.kills);
+    }
+    const pure = await Promise.all(rounds.map(r => db.query<any>(`select public._sr_rate_round_json(${PARAMS_SQL},$5,'{}') as r`,
+      [...paramsRow(P), JSON.stringify(r)])));
+    const first = pure[0].rows[0].r.events, delayed = pure[1].rows[0].r.events;
+    for (let i = 0; i < first.length; i++) for (const key of ['srAfter', 'uncertaintyAfter', 'weight', 'actualShare']) {
+      near(first[i][key], delayed[i][key], `waiting invariant ${key}`);
+    }
+    near(delayed[0].weight, 1, 'late full-size winning contest');
+    for (let i = 0; i < rounds.length; i++) assertSameRound(rateRound(new Map(), rounds[i], P), pure[i].rows[0].r, 'timed import');
+    await assertMatchesScratch();
+    const before = await versions();
+    await db.query(`update public.player_sessions set score_events = jsonb_set(score_events,'{0,at_s}','1801')
+      where match_id = $1 and session_no = 1`, [ids[1]]);
+    const changed = await roundsRewritten(before);
+    assert.ok(changed.has(ids[1]) && !changed.has(ids[0]));
+    await assertMatchesScratch();
+    await db.exec("update public.players set name='Timed renamed' where name='Timed1'");
+    await assertMatchesScratch();
+    await db.exec("update public.players set is_banned=true where name='Timed2'");
+    await assertMatchesScratch();
+    await db.exec("update public.players set is_banned=false where name='Timed2'");
+    await assertMatchesScratch();
+    const beforeRetune = await ratings();
+    await db.exec(`update public.rating_params set settings = jsonb_set(settings,'{rollingEvidenceKills}','100') where active`);
+    const afterRetune = await ratings();
+    assert.ok(afterRetune.events[0].weight < beforeRetune.events[0].weight);
+    await assertMatchesScratch();
+    for (const bad of ['0', '-1', 'null', '"50"']) {
+      await assert.rejects(db.exec(`update public.rating_params set settings=jsonb_set(settings,'{rollingEvidenceKills}','${bad}') where active`), /invalid_rolling_evidence/);
+    }
+    await db.query('delete from public.player_matches where match_id=$1', [ids[0]]);
+    await assertMatchesScratch();
+  } finally { await db.close(); }
+});
+
 test('the database engine agrees with sr.ts round by round', async () => {
   const { db } = await setup();
   try {
     const r = prng(20261104);
-    const cases = [...fixtures, ...Array.from({ length: 400 }, (_, i) => randomCase(r, i))];
+    const cases = [...fixtures, ...Array.from({ length: 400 }, (_, i) => randomCase(r, i)),
+      ...Array.from({ length: 200 }, (_, i) => scoringCase(r, i))];
     let rated = 0;
     for (const [what, state, round, params, seed] of cases) {
       const ts = rateRound(state, round, params, seed);

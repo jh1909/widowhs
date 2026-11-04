@@ -11,7 +11,7 @@
 // eval: one parameter set, a partial rating_params object over the
 // prototype's settings, e.g. '{"d":300,"settings":{"m":12}}'. trace: round-by-round SR.
 // lobby: frozen v1 vs v2 parameters, including held-out results by lobby size.
-// This historical backtest assembles v1 logs only; v2 dumps are rejected.
+// Reads legacy logs and exact v2/v3 sessions; v3 has timestamped scoring.
 import { spawnSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -20,7 +20,7 @@ import {
   type SrParams, type SrRound, type SrSeed, type SrState,
 } from "../supabase/functions/_shared/sr.ts";
 
-type Row = Record<string, string | null>;
+import { aliasMap, assembleRounds, meanConcurrentSize, type Extra, type Row } from "./sr-backtest-inputs.ts";
 function readTable(dump: string, table: string): Row[] {
   const out = spawnSync("pg_restore", ["--data-only", "-t", table, "-f", "-", dump], { encoding: "utf8", maxBuffer: 1 << 30 });
   if (out.status !== 0) throw new Error(`pg_restore ${table}: ${out.stderr}`);
@@ -44,82 +44,6 @@ const iso = (ts: string) => {
   return new Date(Date.parse(s)).toISOString();
 };
 const num = (v: string | null | undefined) => (v == null || v === "" ? null : Number(v));
-
-// One round per match_id, as the database assembles v1 rounds:
-// - time is the earliest played_at (ties by match_id);
-// - rounds whose rows disagree on total_match_time are skipped (a malformed batch);
-// - a row without a profile is re-pointed to the one profile whose linked
-//   Battle.net name or previous name matches it case-insensitively, else
-//   left out; banned players are left out;
-// - length is the largest total_match_time, else the longest time_in_lobby (all rows);
-// - a profile's duplicate rows are merged: kills summed, longest time kept,
-//   time present capped at the length;
-// - participants are ordered by their first player_matches.id;
-// - the winner is the sole top scorer with at least 50 kills.
-type Extra = { perf: { name: string; score: number }[] };
-type Assembly = { rounds: SrRound[]; extra: Map<string, Extra>; skipped: string[]; droppedRows: number; repointed: number; capped: number; merged: number };
-const pgArray = (v: string | null): string[] => {
-  if (!v || v === "{}") return [];
-  const out: string[] = [];
-  const re = /"((?:[^"\\]|\\.)*)"|([^,{}]+)/g;
-  for (let m; (m = re.exec(v.slice(1, -1))); ) out.push(m[1] !== undefined ? m[1].replace(/\\(.)/g, "$1") : m[2]);
-  return out;
-};
-function aliasMap(players: Row[]): Map<string, string> {
-  const owners = new Map<string, Set<string>>();
-  for (const p of players) {
-    for (const alias of [...pgArray(p.bnet_accounts), ...pgArray(p.previous_names)]) {
-      const key = alias.toLowerCase();
-      if (!owners.has(key)) owners.set(key, new Set());
-      owners.get(key)!.add(p.name!);
-    }
-  }
-  return new Map([...owners].filter(([, s]) => s.size === 1).map(([k, s]) => [k, [...s][0]]));
-}
-function assembleRounds(matches: Row[], profiles: Set<string>, aliases: Map<string, string>, banned: Set<string>): Assembly {
-  const byMatch = new Map<string, Row[]>();
-  for (const r of matches) {
-    const id = r.match_id!;
-    if (!byMatch.has(id)) byMatch.set(id, []);
-    byMatch.get(id)!.push(r);
-  }
-  const out: Assembly = { rounds: [], extra: new Map(), skipped: [], droppedRows: 0, repointed: 0, capped: 0, merged: 0 };
-  for (const [id, rows] of byMatch) {
-    const totals = rows.map((r) => num(r.total_match_time)).filter((x): x is number => x !== null);
-    if (new Set(totals).size > 1) { out.skipped.push(id); continue; }
-    const playedAt = rows.map((r) => r.played_at!).sort((a, b) => timeKey(a) - timeKey(b))[0];
-    const length = totals.length ? Math.max(...totals) : Math.max(...rows.map((r) => num(r.time_in_lobby) ?? 0));
-    const named = rows.map((r) => {
-      if (profiles.has(r.player_name!)) return r;
-      const owner = aliases.get(r.player_name!.toLowerCase());
-      if (owner) out.repointed += 1;
-      return owner ? { ...r, player_name: owner } : r;
-    });
-    const kept = named.filter((r) => profiles.has(r.player_name!) && !banned.has(r.player_name!));
-    out.droppedRows += rows.length - kept.length;
-    const merged = new Map<string, { first: number; kills: number; present: number }>();
-    for (const r of kept) {
-      const name = r.player_name!, rowId = Number(r.id);
-      const kills = num(r.score) ?? 0, present = num(r.time_in_lobby) ?? 0;
-      const m = merged.get(name);
-      if (m) { out.merged += 1; m.kills += kills; m.present = Math.max(m.present, present); m.first = Math.min(m.first, rowId); }
-      else merged.set(name, { first: rowId, kills, present });
-    }
-    const participants = [...merged].sort((a, b) => a[1].first - b[1].first).map(([name, m]) => {
-      if (m.present > length) out.capped += 1;
-      const present = Math.min(m.present, length);
-      return { name, kills: m.kills, present, afk: 0, shots: null, intervals: [[length - present, length]] as [number, number][] };
-    });
-    if (!participants.length) continue;
-    const top = Math.max(...participants.map((p) => p.kills));
-    const leaders = participants.filter((p) => p.kills === top);
-    const winner = leaders.length === 1 && top >= 50 ? leaders[0].name : null;
-    out.rounds.push({ id, playedAt, length, winner, participants });
-    out.extra.set(id, { perf: kept.filter((r) => r.performance_score != null).map((r) => ({ name: r.player_name!, score: Number(r.performance_score) })) });
-  }
-  out.rounds.sort(compareRounds);
-  return out;
-}
 
 // ---- evaluation ----
 
@@ -183,8 +107,14 @@ function run(data: Data, params: SrParams, seed?: SrSeed, trace?: Map<string, st
       const ba = baseScore(pr.a), bb = baseScore(pr.b);
       if (ba === null || bb === null) continue;
       const a = by.get(pr.a)!, b = by.get(pr.b)!;
-      const shared = Math.min(a.present, b.present);
-      const ka = a.kills * shared / a.present, kb = b.kills * shared / b.present;
+      let shared = 0;
+      for (const [as, ae] of a.intervals) for (const [bs, be] of b.intervals) shared += Math.max(0, Math.min(ae, be) - Math.max(as, bs));
+      const withBoth = (at: number) => a.intervals.some(([s, e]) => s <= at && at <= e) && b.intervals.some(([s, e]) => s <= at && at <= e);
+      const ka = a.scoreEvents === undefined ? a.kills * shared / a.present
+        : Math.max(0, a.scoreEvents.reduce((sum, e) => sum + (withBoth(e.at) ? e.delta : 0), 0));
+      const kb = b.scoreEvents === undefined ? b.kills * shared / b.present
+        : Math.max(0, b.scoreEvents.reduce((sum, e) => sum + (withBoth(e.at) ? e.delta : 0), 0));
+      if (!(ka + kb > 0)) continue;
       into.push({
         r: idx, y: ka / (ka + kb), w: Math.min(shared / r.length, a.present / r.length, b.present / r.length, 1),
         x: Math.log(pr.expectedA / (1 - pr.expectedA)), e: pr.expectedA, base: ba - bb, up: Math.sign(ka - kb),
@@ -337,7 +267,7 @@ function evaluate(data: Data, label: string, params: SrParams, seed?: SrSeed, he
 type Patch = { d?: number; beta?: number; settings?: Partial<SrParams["settings"]> };
 // The search starts from the prototype's settings, not the engine defaults,
 // so its result doesn't depend on what it chose last time.
-const PROTOTYPE = { d: 400, beta: 0.1, settings: { shareCurve: "raw", logisticScale: 10, m: 5, rd0: 350, rdMin: 50, surpriseCap: null, start: "default", seedUncertainty: 150, lobbySize: undefined } } as const;
+const PROTOTYPE = { d: 400, beta: 0.1, settings: { shareCurve: "raw", logisticScale: 10, m: 5, rd0: 350, rdMin: 50, surpriseCap: null, start: "default", seedUncertainty: 150, lobbySize: undefined, rollingEvidenceKills: undefined } } as const;
 function makeParams(patch: Patch): SrParams {
   const settings = { ...DEFAULT_SR_PARAMS.settings, ...PROTOTYPE.settings, ...patch.settings };
   const p: SrParams = { ...DEFAULT_SR_PARAMS, d: patch.d ?? PROTOTYPE.d, beta: patch.beta ?? PROTOTYPE.beta, settings };
@@ -346,7 +276,7 @@ function makeParams(patch: Patch): SrParams {
 }
 const describe = (p: SrParams) => {
   const s = p.settings;
-  return `${s.shareCurve === "raw" ? "raw" : `logit${s.logisticScale}`} b=${p.beta} D=${p.d} m=${s.m} rd=${s.rd0}/${s.rdMin} cap=${s.surpriseCap ?? "none"} ${s.start}${s.start === "seed" ? `/${s.seedUncertainty}` : ""} lobby=${s.lobbySize ? JSON.stringify(s.lobbySize) : "neutral"}`;
+  return `${s.shareCurve === "raw" ? "raw" : `logit${s.logisticScale}`} b=${p.beta} D=${p.d} m=${s.m} rd=${s.rd0}/${s.rdMin} cap=${s.surpriseCap ?? "none"} ${s.start}${s.start === "seed" ? `/${s.seedUncertainty}` : ""} lobby=${s.lobbySize ? JSON.stringify(s.lobbySize) : "neutral"} rolling=${s.rollingEvidenceKills ?? "off"}`;
 };
 
 // Formula ELO at the start of the test period, from player_history snapshots
@@ -390,11 +320,11 @@ const [dump, outDir, mode = "sweep", ...rest] = process.argv.slice(2);
 if (!dump || !outDir) { console.error("usage: sr-backtest.ts DUMP OUTDIR [sweep | eval JSON | trace JSON NAME...]"); process.exit(2); }
 mkdirSync(outDir, { recursive: true });
 const matches = readTable(dump, "player_matches");
-if (matches.some(r => r.status != null)) throw new Error("This historical backtest only assembles v1 rounds; use a v1 backup, not v2 session data.");
 const players = readTable(dump, "players");
 const history = readTable(dump, "player_history");
 const banned = new Set(players.filter((p) => p.is_banned === "t").map((p) => p.name!));
-const data = assembleRounds(matches, new Set(players.map((p) => p.name!)), aliasMap(players), banned);
+const data = assembleRounds(matches, new Set(players.map((p) => p.name!)), aliasMap(players), banned,
+  readTable(dump, 'raw_logs'), readTable(dump, 'player_sessions'));
 const split = Math.floor(data.rounds.length * TUNE_SHARE);
 testDay = data.rounds[split].playedAt.slice(0, 10);
 valDay = data.rounds[Math.floor(data.rounds.length * VALIDATION_SHARE)].playedAt.slice(0, 10);
@@ -407,21 +337,22 @@ say(`assembly: skipped ${data.skipped.length} round(s) with conflicting lengths 
 
 if (mode === "lobby") {
   // A policy comparison, not another parameter search on the held-out data.
-  const neutral: SrParams = { ...DEFAULT_SR_PARAMS, version: 1, settings: { ...DEFAULT_SR_PARAMS.settings, lobbySize: undefined } };
+  const neutral: SrParams = { ...DEFAULT_SR_PARAMS, version: 1, settings: { ...DEFAULT_SR_PARAMS.settings, lobbySize: undefined, rollingEvidenceKills: undefined } };
+  const time: SrParams = { ...DEFAULT_SR_PARAMS, version: 2, settings: { ...DEFAULT_SR_PARAMS.settings, rollingEvidenceKills: undefined } };
   const variants = [evaluate(data, "v1 neutral", neutral, undefined, true),
-    evaluate(data, "v2 lobby", DEFAULT_SR_PARAMS, undefined, true)];
+    evaluate(data, "v2 time", time, undefined, true), evaluate(data, "v3 rolling", DEFAULT_SR_PARAMS, undefined, true)];
   say("Frozen settings: the lobby curve is a product decision, not selected on held-out scores.");
   say(header);
   for (const e of variants) say(line(e));
-  const bucket = (idx: number) => {
-    const n = data.rounds[idx].participants.filter(p => p.present >= DEFAULT_SR_PARAMS.settings.minActiveSeconds).length;
+  const buckets = data.rounds.map(round => {
+    const n = meanConcurrentSize(round, DEFAULT_SR_PARAMS);
     return n <= 3 ? "2-3" : n <= 5 ? "4-5" : n <= 7 ? "6-7" : "8+";
-  };
-  say("HELD-OUT BY ELIGIBLE LOBBY SIZE (one global prediction scale fitted on tuning data per model)");
+  });
+  say("HELD-OUT BY MEAN CONCURRENT ELIGIBLE SIZE (scoring-weighted for v3, time-weighted for old logs; global prediction scale)");
   say("model\tsize\trounds\tpairs\tlog_loss\torder_accuracy");
   for (const e of variants) {
     for (const size of ["2-3", "4-5", "6-7", "8+"]) {
-      const samples = e.out.test.filter(s => bucket(s.r) === size);
+      const samples = e.out.test.filter(s => buckets[s.r] === size);
       say([e.label, size, new Set(samples.map(s => s.r)).size, samples.length,
         f(logLoss(samples, s => sigmoid(e.tune.k * s.x))), f(accuracy(samples, s => s.x))].join("\t"));
     }

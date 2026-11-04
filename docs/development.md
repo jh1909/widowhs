@@ -126,9 +126,12 @@ in its header, results in [brief 01](briefs/01-skill-rating.md#original-size-neu
 Run it with `dev run --light -- node --import tsx scripts/sr-backtest.ts ...`
 and keep its output outside the repo.
 
-The `lobby` mode compares the original size-neutral model with the current
-lobby-size policy and reports held-out results by lobby size. This historical
-script accepts v1 backups only; it rejects v2 data rather than guessing sessions.
+The `lobby` mode compares the original size-neutral model, time-based weighting
+and rolling scoring evidence. It assembles v1 logs, v2 sessions and exact v3
+histories; incomplete v3 histories fail rather than being guessed. Reports use
+mean concurrent size (scoring-weighted for v3, time-weighted otherwise).
+Historical v1/v2 data can validate the fallback, but cannot establish the
+predictive accuracy of the timestamped model.
 
 ## SR lobby-size tuning
 
@@ -149,3 +152,23 @@ The existing hooks replay all history once using the final active settings.
 Keep the placement uncertainty threshold fixed when changing lobby weights:
 small lobbies are intended to supply less placement evidence. Historical
 versions without `lobbySize` use the original size-neutral algorithm.
+
+## Rolling-lobby SR
+
+After the timed-score migration from PR #2, apply
+`20261104220000_rolling_skill_rating.sql` (staging first). It activates version 3
+and replays history. Exact score histories use scoring-based evidence; older
+logs keep the previous time model. No historical timestamps are invented.
+
+`settings.rollingEvidenceKills` controls the observation target for a full
+round's evidence. It must be a positive safe integer. Each positive score
+change supplies observations against the opponents present; the lobby curve
+discounts small-lobby observations, and a symmetric cap bounds each player's
+round budget. Elapsed waiting time supplies no observations. Removing this
+setting explicitly selects the previous time model, including for v3 logs.
+`rollingMinShots` is a nonnegative safe integer: the minimum total shots for
+a scoreless v3 participant. Actual scoring also proves effort. This replaces
+the session-wide shot-rate floor for timestamped logs, keeping prior waiting
+from changing eligibility. Old logs retain their existing effort checks.
+Use a new parameter version and switch active versions in one transaction,
+as for curve tuning. The replay hooks cover corrections to score histories.

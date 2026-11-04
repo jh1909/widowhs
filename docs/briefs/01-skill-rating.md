@@ -56,6 +56,10 @@ It served as the seed round and ends when SR launches.
   2. From v2 logs: AFK time is subtracted from time present, and sessions with
      almost no shots per minute count as not playing and are excluded,
      both ways. These judge effort, not score.
+     In v3 an actual positive score change proves effort even if an earlier
+     quiet period lowered the session-wide shot rate. Scoreless sessions use
+     the absolute `rollingMinShots` effort floor, so earlier waiting cannot
+     exclude a genuine zero-score participant. The active-time cutoff still applies.
   3. Kicked sessions keep only their active time, so a fully idle one is
      excluded (the existing ranked AFK kick).
   Excusing each player's worst rounds by score is ruled out: it would hide
@@ -70,10 +74,25 @@ It served as the seed round and ends when SR launches.
   reaches the upper player-count/weight anchor, then stays at that ceiling.
   Below the lower player count, play is unrated. The low-end weight is an
   anchor, not a hard floor clamped onto the curve.
-  Weight is integrated over periods of concurrent eligible sessions, with
-  each period normalised by its own opponent count. Replacements do not make
-  a duel into a larger lobby, and a brief join affects only its time present.
-- **Engine details** (reference: `supabase/functions/_shared/sr.ts`):
+  For older logs the weight is integrated over concurrent session periods.
+- **Rolling lobbies (v3 logs).** Exact score-change times replace elapsed time
+  as the evidence clock. Every scoring player is compared with all eligible
+  opponents present at that event, regardless of the victim. The size curve
+  discounts the scoring outcomes and evidence from small lobbies. Waiting
+  adds nothing, and a late joiner never inherits earlier scoring or a fraction
+  based on the lobby's age. Environmental losses reduce shared scoring, but
+  never manufacture extra positive observations.
+  Each positive event contributes one observation spread over the current
+  opponents. A full evidence budget is controlled by `rollingEvidenceKills`.
+  Pair evidence is divided by the larger of the two players' observation
+  budgets (or one if neither is full), so no player exceeds one full round's
+  budget and opponent replacements cannot multiply it. This symmetric cap
+  can reduce a pair's evidence if either player already has substantial play
+  elsewhere in that round. This depends on scoring, never the time spent waiting.
+  Tiny low-scoring periods supply little evidence; a fast substantial contest
+  can count normally. The winner bonus is still applied once per pair, and
+  all SR updates use pre-round ratings, not intermediate event-by-event SR.
+- **Older-log fallback** (reference: `supabase/functions/_shared/sr.ts`):
   participants are rated in the order the database supplies them (first
   `player_matches.id` in the round), so a rename never changes a result. Time
   present means active time (present − AFK) for the cutoff and the
@@ -205,8 +224,9 @@ profiles, time present capped at the round length).
 settings with the agreed curve, using the same historical v1 backup and split.
 This is a product-policy comparison with frozen settings, not another search
 on the held-out data. The original prototype/sweep remains size-neutral for
-reproducibility. The script explicitly rejects v2 backups until its input
-assembly supports session data.
+reproducibility. The script also assembles v2 sessions and v3 scoring histories
+and evaluates exact shared kill totals when available. Input-assembly tests
+cover all versions, alias resolution, rejoins and missing-history rejection.
 
 - Held-out log-loss changes from 0.6547 to 0.6545, and kill-order accuracy from
   82.33% to 82.29%. These are descriptive results, not evidence of a significant
@@ -216,8 +236,9 @@ assembly supports session data.
   changes from 17.9 to 18.7. The final placed count changes from 458 to 469:
   replay changes opponents' uncertainty and subsequent results throughout history,
   so a lower weight does not guarantee fewer placed players in aggregate.
-- Reports break prediction scores down by eligible lobby size. Only 5 held-out
-  established pairs came from 2–3-player rounds, so this backup cannot establish
+- Reports break prediction scores down by mean concurrent eligible size
+  (scoring-weighted for v3, time-weighted for old logs). Only 16 held-out
+  established pairs fell in the smallest concurrent-size group, so this backup cannot establish
   small-lobby prediction quality. Tests separately verify the intended discount,
   time integration, slower duel placements, exclusion rules and both engine ports.
 
@@ -228,6 +249,28 @@ ceiling. Create a new parameter version, deactivate the previous version and
 activate the new one in one transaction. Existing hooks re-rate all history.
 No engine or Workshop change is needed to retune these fields. Version 1 is
 retained for a size-neutral comparison or rollback.
+
+### Rolling-lobby evidence (v3 logs)
+
+Parameter version 3 adds scoring-based evidence for timestamped logs. The
+full-round observation target lives in `rollingEvidenceKills`; it is an
+explicit policy setting, not fitted on timestamped production data. Such
+data does not exist in the historical backup. On that backup version 3 gives
+the same results as version 2, because it uses the documented time fallback.
+This validates fallback continuity, not the new model's predictive accuracy.
+
+Regression fixtures cover a four-minute full lobby after thirty minutes of
+waiting, a resident who waited without entering the AFK state, and stretching
+the same early duel from three minutes to thirty. These leave equivalent
+shared scoring unchanged. Additional tests cover low-volume late joins,
+fast wins, opponent replacements, score losses and the evidence ceiling.
+The SQL/reference suite includes randomized timestamped cases and v3 imports
+through the actual parser/import/replay path, including corrections,
+identity changes, moderation and retuning.
+
+Once timestamped production data accumulates, rerun the backtest before
+changing the observation target on prediction grounds. The lobby curve and
+observation target remain independent, versioned settings.
 
 ## Engineering
 
