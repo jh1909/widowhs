@@ -63,9 +63,10 @@ with no `#P` line.
   participations until [06](briefs/06-identity.md) resolves them.
 - Each participation's existing fields are derived the way the Workshop
   derived them for v1: time in lobby is the summed session time rounded
-  down, accuracy is hits ÷ shots, kills per minute uses the summed time,
-  K/D is kills ÷ max(deaths, 1). Total match time is the round length
-  rounded down. Existing stats and ELO work unchanged.
+  down, accuracy is hits ÷ shots, K/D is kills ÷ max(deaths, 1). Kills per
+  minute uses the summed time minus AFK time. Total match time is the round
+  length rounded down. The ELO weight counts active time
+  ([ranking](ranking.md#rating)).
 - Sessions are stored in `player_sessions` and kill codes are counted into
   `round_kill_pairs` per killer and victim session. Banned players'
   sessions and their kill pairs are not stored.

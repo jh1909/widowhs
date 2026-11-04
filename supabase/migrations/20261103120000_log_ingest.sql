@@ -1,6 +1,7 @@
 -- Brief 00: keep every uploaded log unchanged and import each file once (by
 -- SHA-256), and store v2 player sessions and kill pairs
--- (docs/workshop-log-format.md).
+-- (docs/workshop-log-format.md). v2 rows weigh active play in ELO
+-- (docs/ranking.md); v1 rows are unchanged.
 --
 -- Deploy in this order, staging first: this migration, then the upload-csv
 -- Edge Function, then publish Workshop script v3.5.0. apply_match_import keeps
@@ -33,6 +34,23 @@ alter table public.player_matches
   add column shots integer,
   add column hits integer,
   add column afk_seconds numeric;
+
+-- v2 rows (with a status) weigh active play, time present minus AFK time, as a
+-- share of the round; under 30 s of active play counts for nothing, which
+-- drops fully AFK sessions and the AFK kick. v1 rows keep the existing rule.
+-- Mirrored by scoreWeight in supabase/functions/_shared/elo-weight.ts.
+create function public.match_elo_weight(p_kills numeric, p_time numeric, p_total numeric, p_status text, p_afk numeric)
+returns numeric language sql immutable parallel safe set search_path = '' as $$
+  select case when p_status is null then public.match_elo_weight(p_kills, p_time, p_total)
+    when p_time - coalesce(p_afk, 0) < 30 then 0
+    when p_total is null or p_total - (p_time - coalesce(p_afk, 0)) <= 10 then 1
+    else least(1, (p_time - coalesce(p_afk, 0)) / p_total) end;
+$$;
+revoke all on function public.match_elo_weight(numeric, numeric, numeric, text, numeric) from public;
+grant execute on function public.match_elo_weight(numeric, numeric, numeric, text, numeric) to anon, authenticated, service_role;
+-- Existing rows have no status, so their weights don't change.
+alter table public.player_matches alter column elo_weight set expression as
+  (public.match_elo_weight(score::numeric, time_in_lobby::numeric, total_match_time::numeric, status, afk_seconds));
 
 create table public.player_sessions (
   id uuid primary key default pg_catalog.gen_random_uuid(),
@@ -181,13 +199,30 @@ begin
     cross join lateral pg_catalog.jsonb_populate_record(null::public.player_matches, m.value) r
     join public.players p on p.name = r.player_name
     where r.performance_score is not null
-      and public.match_elo_weight(r.score::numeric, r.time_in_lobby::numeric, r.total_match_time::numeric) > 0;
+      and public.match_elo_weight(r.score::numeric, r.time_in_lobby::numeric, r.total_match_time::numeric,
+        r.status, r.afk_seconds) > 0;
   insert into public.audit_logs (action, admin_user, details) values ('EDGE_FUNCTION_CSV_UPLOAD', p_admin_user, coalesce(p_details,'') || pg_catalog.format(' Database skipped %s banned participation(s).', skipped_banned));
   update public.leaderboard_state set revision = revision + 1 where singleton;
 end;
 $$;
 revoke all on function public.apply_match_import(bigint, jsonb, jsonb, jsonb, jsonb, text, text, jsonb, jsonb) from public, anon, authenticated;
 grant execute on function public.apply_match_import(bigint, jsonb, jsonb, jsonb, jsonb, text, text, jsonb, jsonb) to service_role;
+
+-- Match details also return the status and AFK time, so the site shows v2 weights.
+create or replace function public.get_match_details(p_match_id uuid)
+returns jsonb language sql stable security definer set search_path = '' as $$
+  select coalesce(jsonb_agg(jsonb_build_object(
+    'player_name', m.player_name, 'logged_player_name', coalesce(m.logged_player_name, m.player_name),
+    'avatar_url', p.avatar_url, 'is_verified', coalesce(p.is_verified, false),
+    'score', m.score, 'deaths', m.deaths, 'accuracy', m.accuracy, 'kpm', m.kpm, 'kdr', m.kdr,
+    'crouches', m.crouches, 'time_in_lobby', m.time_in_lobby, 'total_match_time', m.total_match_time,
+    'performance_score', m.performance_score, 'played_at', m.played_at,
+    'status', m.status, 'afk_seconds', m.afk_seconds
+  ) order by m.score desc, m.time_in_lobby asc, coalesce(m.logged_player_name, m.player_name) collate "C"), '[]'::jsonb)
+  from public.player_matches m left join public.players p on p.name = m.player_name where m.match_id = p_match_id;
+$$;
+revoke all on function public.get_match_details(uuid) from public;
+grant execute on function public.get_match_details(uuid) to anon, authenticated, service_role;
 
 notify pgrst, 'reload schema';
 commit;

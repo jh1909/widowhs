@@ -97,6 +97,10 @@ written to the log once, at match end; nothing is sent during the round.
 - **Parser:** accept v1 and v2. v2 `#P` rows map onto the existing fields
   (`time_in_lobby = end − start`, accuracy from hits/shots, K/D and kills/min
   derived), so existing stats keep working.
+- **ELO weight:** v2 rounds weigh each player's active time (time present
+  minus AFK) as a share of the round, and kills per minute uses active time.
+  Leavers, late joiners and rejoiners count partially; fully AFK sessions
+  count for nothing ([ranking](../ranking.md#rating)).
 - **Storage:** new tables for raw logs (text, hash, filename, host,
   uploaded at), player sessions and kill pairs.
 - **Merging:** sessions with the same name and non-overlapping times in one

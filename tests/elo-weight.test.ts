@@ -12,6 +12,23 @@ const cases: [number,number,number|null,number][] = [
   [14,60,300,14/35], [1,60,300,1/3], [34,179,300,179/180],
   [35,1,300,1], [1,180,300,1], [50,45,300,1], [0,0,null,1],
 ];
+test('v2 rounds weigh active play: time present minus AFK, as a share of the round',()=>{
+  const v2=(time_in_lobby:number,afk_seconds:number,total_match_time:number|null=300,status='present',score=0)=>
+    scoreWeight({score,time_in_lobby,total_match_time,status,afk_seconds});
+  assert.equal(v2(300,0),1);
+  assert.equal(v2(290,0),1); // the same 10 s grace as a v1 late join
+  assert.equal(v2(289,0),289/300);
+  assert.equal(v2(150,0,300,'left'),0.5); // leavers count by their time present
+  assert.equal(v2(300,150),0.5); // AFK periods are discounted
+  assert.equal(v2(30,0),30/300);
+  assert.equal(v2(29,0,300,'present',50),0); // under 30 s active counts for nothing, whatever the kills
+  assert.equal(v2(76,60.54,136,'kicked'),0); // an AFK kick: about 15 s idle, then 60 s AFK
+  assert.equal(v2(240,60,300,'kicked'),0.6); // played, then went AFK and was kicked
+  assert.equal(v2(100,0,null),1);
+  assert.equal(scoreWeight({score:0,time_in_lobby:76,total_match_time:136,status:null,afk_seconds:null}),
+    scoreWeight({score:0,time_in_lobby:76,total_match_time:136})); // v1 rows keep the old rule
+});
+
 test('participation thresholds include exactly 10s, 15 kills, 60s, 35 kills and 180s',()=>{
   for(const [score,time_in_lobby,total_match_time,expected] of cases)
     assert.equal(scoreWeight({score,time_in_lobby,total_match_time}),expected);

@@ -6,6 +6,7 @@ import Papa from 'papaparse';
 import { isV2Log, normalizeMatchLog, parseV2Rows } from '../supabase/functions/upload-csv/parser.ts';
 import { mergeSessions, prepareRound, type MatchSource, type PreparedRound } from '../supabase/functions/_shared/log-ingest.ts';
 import { buildMatchImport, type ImportPlayer } from '../supabase/functions/_shared/import-stats.ts';
+import { scoreWeight } from '../supabase/functions/_shared/elo-weight.ts';
 
 // A v2 round as the Workshop writes it: Bob leaves and rejoins, Carol is
 // kicked, and the last #K line is padded with zeros.
@@ -45,7 +46,7 @@ test('a rejoin merges into one participation; same-name overlaps stay apart', ()
   const bob = matches.find(m => m.player_name === 'Bob')!;
   assert.equal(matches.length, 3);
   assert.deepEqual({ ...bob, session_rows: bob.session_rows!.map(s => s.session_no) }, {
-    player_name: 'Bob', score: 18, deaths: 25, accuracy: 26.67, kpm: 4.29, kdr: 0.72, crouches: 5,
+    player_name: 'Bob', score: 18, deaths: 25, accuracy: 26.67, kpm: 4.52, kdr: 0.72, crouches: 5,
     time_in_lobby: 251, total_match_time: 301, sessions: 2, status: 'present', shots: 120, hits: 32,
     afk_seconds: 12.5, session_rows: [2, 4],
   });
@@ -135,15 +136,15 @@ test('ingest stores raw logs once, v2 sessions and kill pairs', async t => {
     await t.test('a v2 round imports into the right tables, with the rejoin merged', async () => {
       await upload([round]);
       const matches = (await db.query<any>(`select id, player_name, score, deaths, time_in_lobby::float, total_match_time,
-        sessions, status, shots, hits, afk_seconds::float, elo_weight is not null as weighted
+        sessions, status, shots, hits, afk_seconds::float, round(elo_weight, 4)::float as weight
         from public.player_matches order by player_name`)).rows;
       assert.deepEqual(matches.map(({ id, ...match }) => match), [
         { player_name: 'Alice', score: 50, deaths: 20, time_in_lobby: 301, total_match_time: 301, sessions: 1,
-          status: 'present', shots: 120, hits: 60, afk_seconds: 0, weighted: true },
+          status: 'present', shots: 120, hits: 60, afk_seconds: 0, weight: 1 },
         { player_name: 'Bob', score: 18, deaths: 25, time_in_lobby: 251, total_match_time: 301, sessions: 2,
-          status: 'present', shots: 120, hits: 32, afk_seconds: 12.5, weighted: true },
+          status: 'present', shots: 120, hits: 32, afk_seconds: 12.5, weight: 0.7924 },
         { player_name: 'Carol', score: 5, deaths: 12, time_in_lobby: 189, total_match_time: 301, sessions: 1,
-          status: 'kicked', shots: 30, hits: 8, afk_seconds: 75, weighted: true },
+          status: 'kicked', shots: 30, hits: 8, afk_seconds: 75, weight: 0.3787 },
       ]);
       const ids = Object.fromEntries(matches.map(match => [match.player_name, match.id]));
       const sessions = (await db.query<any>(`select session_no, participation_id, logged_name, status, start_s::float, end_s::float
@@ -213,6 +214,37 @@ test('ingest stores raw logs once, v2 sessions and kill pairs', async t => {
       assert.equal((await db.query<any>('select count(*)::int as n from public.player_sessions')).rows[0].n, 0);
       assert.equal((await db.query<any>('select count(*)::int as n from public.round_kill_pairs')).rows[0].n, 0);
       assert.equal((await db.query<any>('select count(*)::int as n from public.raw_logs')).rows[0].n, 3);
+    });
+
+    await t.test('a fully AFK session counts for nothing in ELO; match details show status and AFK time', async () => {
+      // Dan idles from the start: 15 s until the AFK state, then the kick 60 s later.
+      const text = `#V,2,3.5.0
+#R,136.02,Erin
+#P,1,Dan,1,0,76.55,2,0,0,0,0,0,60.54
+#P,2,Erin,0,0,136.02,0,15,1,20,15,8,31.44`;
+      const afk = await prepareRound(source(text, 'Log-2026-11-04-02-41-19.txt'), rows(text));
+      await upload([afk]);
+      const weights = (await db.query<any>(`select player_name, round(elo_weight, 4)::float as weight, kpm::float
+        from public.player_matches where match_id = $1 order by player_name`, [afk.raw_log.match_id])).rows;
+      // Erin was AFK for 31.44 s of 136: weight and kills per minute count only the active seconds.
+      assert.deepEqual(weights, [{ player_name: 'Dan', weight: 0, kpm: 0 },
+        { player_name: 'Erin', weight: 0.7688, kpm: 8.61 }]);
+      const history = (await db.query<any>("select player_name from public.player_history where player_name in ('Dan', 'Erin')")).rows;
+      assert.deepEqual(history.map(h => h.player_name), ['Erin']);
+      const details = (await db.query<any>('select public.get_match_details($1) as d', [afk.raw_log.match_id])).rows[0].d;
+      assert.deepEqual(details.map((p: any) => [p.player_name, p.status, Number(p.afk_seconds)]),
+        [['Erin', 'present', 31.44], ['Dan', 'kicked', 60.54]]);
+    });
+
+    await t.test('the SQL weight rule matches scoreWeight for v1 and v2 rows', async () => {
+      for (const status of [null, 'present', 'left', 'kicked']) for (const total of [null, 136, 300])
+        for (const time of [0, 29, 30, 76, 120, 179, 180, 289, 290, 300]) for (const afk of [0, 0.5, 60.54, 150])
+          for (const score of [0, 14, 15, 35]) {
+            const sql = Number((await db.query<any>('select public.match_elo_weight($1, $2, $3, $4, $5) as w',
+              [score, time, total, status, status ? afk : null])).rows[0].w);
+            const ts = scoreWeight({ score, time_in_lobby: time, total_match_time: total, status, afk_seconds: status ? afk : null });
+            assert.ok(Math.abs(sql - ts) < 1e-12, `${status} ${score} ${time} ${total} ${afk}: SQL ${sql}, TS ${ts}`);
+          }
     });
 
     await t.test('browsers cannot read raw logs, sessions or kill pairs', async () => {

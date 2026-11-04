@@ -47,11 +47,13 @@ export function mergeSessions(round: LogRound): SessionMatch[] {
     const deaths = sum("deaths");
     const shots = sum("shots");
     const hits = sum("hits");
-    // The same derivations the Workshop used for v1 rows.
+    // Kills per minute counts active minutes only, so AFK time doesn't lower it.
+    const active = Math.max(0, time - sum("afk_seconds"));
+    // Otherwise the same derivations the Workshop used for v1 rows.
     return {
       player_name: sessions[0].logged_name, score, deaths,
       accuracy: shots ? round2(hits / shots * 100) : 0,
-      kpm: time ? round2(score / (time / 60)) : 0,
+      kpm: active ? round2(score / (active / 60)) : 0,
       kdr: round2(score / Math.max(deaths, 1)),
       crouches: sum("crouches"), time_in_lobby: Math.floor(time),
       total_match_time: Math.floor(round.round_length),

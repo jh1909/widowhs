@@ -21,10 +21,23 @@ minute, 25% accuracy, 10% K/D, each capped (`supabase/functions/_shared/rating.t
 A player's ELO applies the same formula to their averages over their last 100
 eligible rounds.
 
-Late joiners count less: a round counts fully if the player joined within its
-first 10 seconds or played long or well enough, and not at all if they
-joined late and barely played. The rule is `match_elo_weight` in
-`supabase/migrations/20261013233000_weighted_elo_participation.sql`.
+Partial rounds count less. Each round has a weight from 0 to 1:
+
+- **v2 rounds** (script v3.5.0 on) weigh active play: time present minus AFK
+  time, as a share of the round. Late joiners, leavers and rejoiners count by
+  their active time. Under 30 seconds of active play counts for nothing,
+  which drops fully AFK sessions, including the AFK kick. Within 10 seconds
+  of the whole round counts fully. Kills per minute is also worked out from
+  active time, so AFK periods don't lower it.
+- **v1 rounds** only list players present at the end. A round counts fully
+  if the player joined within its first 10 seconds or played long or well
+  enough, and not at all if they joined late and barely played.
+
+The rule is `match_elo_weight` in
+`supabase/migrations/20261103120000_log_ingest.sql` (v2) and
+`20261013233000_weighted_elo_participation.sql` (v1), mirrored by
+`supabase/functions/_shared/elo-weight.ts`. Only fully counted rounds count
+as placements.
 
 A player needs 10 fully counted rounds to appear on the leaderboard. The
 leaderboard sorts by ELO, then PB, then name, and ranks are computed over all
