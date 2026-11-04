@@ -170,7 +170,7 @@ test('ingest stores raw logs once, v2 sessions and kill pairs', async t => {
 
     await t.test('the same file uploaded twice changes nothing', async () => {
       const before = await snapshot();
-      await assert.rejects(upload([await prepareRound(source(v2Log), rows(v2Log))]), (error: any) => error.code === '40001');
+      await assert.rejects(upload([await prepareRound(source(v2Log), rows(v2Log))]), (error: any) => error.code === 'PT409');
       assert.deepEqual(await snapshot(), before);
     });
 

@@ -98,9 +98,10 @@ serve(async (req) => {
     const hashes = new Set<string>();
     const unique = rounds.filter((round) => !hashes.has(round.raw_log.sha256) && hashes.add(round.raw_log.sha256));
 
-    // Retry optimistic concurrency conflicts (SQLSTATE 40001) when another
+    // Retry optimistic concurrency conflicts (SQLSTATE PT409) when another
     // upload, profile claim, or moderation action changed the leaderboard
-    // while players were being read and calculated.
+    // while players were being read and calculated. PT409, not 40001:
+    // PostgREST would retry 40001 itself, resending the same stale revision.
     const maxAttempts = 5;
     let imported!: ReturnType<typeof buildMatchImport>;
     let fresh: PreparedRound[] = [];
@@ -140,7 +141,7 @@ serve(async (req) => {
         p_kill_pairs: fresh.flatMap((round) => round.kill_pairs),
       });
       if (!importErr) break;
-      if (importErr.code === "40001") {
+      if (importErr.code === "PT409") {
         if (attempt < maxAttempts) {
           await new Promise((resolve) => setTimeout(resolve, 100 * attempt));
           continue;

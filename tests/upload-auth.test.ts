@@ -92,13 +92,13 @@ test("upload endpoint requires an automation key or a validated admin session", 
   await t.test("CORS preflight stays available without authentication", async () => {
     assert.equal((await handler(new Request("https://example.test/upload", { method: "OPTIONS" }))).status, 200);
   });
-  await t.test("concurrent revision conflicts (40001) are retried automatically before succeeding", async () => {
+  await t.test("concurrent revision conflicts (PT409) are retried automatically before succeeding", async () => {
     key = "test-key"; written = null;
     let attempts = 0;
     const origRpc = client.rpc;
     client.rpc = async (name: string, payload: unknown) => {
       attempts++;
-      if (attempts < 3) return { error: { code: "40001", message: "Leaderboard changed during upload. Please import the files again." } };
+      if (attempts < 3) return { error: { code: "PT409", message: "Leaderboard changed during upload. Please import the files again." } };
       return origRpc(name, payload);
     };
     try {

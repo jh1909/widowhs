@@ -50,6 +50,10 @@ call the real functions; they never connect to Supabase.
 - Functions that change leaderboard data take the shared lock
   (`pg_advisory_xact_lock(1909, 1)`) and bump the leaderboard revision, so
   imports prepared earlier are rejected. Follow the existing functions.
+- Raise conflicts the caller has to resolve (a stale revision, a profile that
+  no longer exists) with SQLSTATE `PT409`, which PostgREST returns as HTTP
+  409. Never use `40001`: PostgREST retries it by itself, so a stale request
+  loops until the gateway times out.
 - Migrations are applied by hand in the Supabase SQL editor (or
   `supabase db push`), on staging and then production, before deploying code
   that needs them.
