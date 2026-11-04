@@ -67,8 +67,11 @@ export function glickoG(uncertainty: number, d: number): number {
 }
 
 // The uncertainty reached after `rounds` full-weight rounds at even odds
-// (E = 0.5) against established opponents (uncertainty rdMin).
-export function derivePlacementUncertainty(p: Pick<SrParams, "d"> & { settings: Pick<SrSettings, "m" | "rd0" | "rdMin"> }, rounds = 10): number {
+// (E = 0.5) against established opponents (uncertainty rdMin). Real rounds
+// carry less information, so PLACEMENT_ROUNDS ideal rounds is calibrated by
+// the backtest to place a typical player after about 10 rated rounds.
+export const PLACEMENT_ROUNDS = 6;
+export function derivePlacementUncertainty(p: Pick<SrParams, "d"> & { settings: Pick<SrSettings, "m" | "rd0" | "rdMin"> }, rounds = PLACEMENT_ROUNDS): number {
   const q = glickoQ(p.d), g = glickoG(p.settings.rdMin, p.d);
   let rd = p.settings.rd0;
   for (let i = 0; i < rounds; i++) {

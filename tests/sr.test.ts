@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  DEFAULT_SR_PARAMS as P, applyRound, cautiousSr, compareNames, compareRounds, derivePlacementUncertainty, isPlaced, rateRound, replay, timeKey,
+  DEFAULT_SR_PARAMS as P, PLACEMENT_ROUNDS, applyRound, cautiousSr, compareNames, compareRounds, derivePlacementUncertainty, isPlaced, rateRound, replay, timeKey,
   type SrParams, type SrParticipant, type SrPlayer, type SrRound, type SrState,
 } from "../supabase/functions/_shared/sr.ts";
 
@@ -57,11 +57,13 @@ test("golden: the prototype's settings, a new winner against an established play
   assert.equal(result.pairs[0].surpriseA, 0.25);
 });
 
-test("defaults: placement is the uncertainty after ten full rounds; cautious SR is SR minus twice it", () => {
+test("defaults: placement is the uncertainty after six ideal rounds; cautious SR is SR minus twice it", () => {
   assert.equal(P.settings.placementUncertainty, derivePlacementUncertainty(P));
-  near(P.settings.placementUncertainty, 50); // the floor, reached after 9 ideal rounds
-  assert.ok(derivePlacementUncertainty(P, 8) > 50);
-  assert.ok(derivePlacementUncertainty(withSettings({ m: 2 })) > 50); // a slower setting places later
+  assert.equal(PLACEMENT_ROUNDS, 6); // calibrated so a typical player places after about 10 real rounds
+  near(P.settings.placementUncertainty, 59.603631692242665);
+  assert.ok(derivePlacementUncertainty(P, 5) > P.settings.placementUncertainty);
+  assert.equal(derivePlacementUncertainty(P, 9), P.settings.rdMin); // the floor comes later
+  assert.ok(derivePlacementUncertainty(withSettings({ m: 2 })) > P.settings.placementUncertainty); // a slower setting places later
   const player = established(1600, 60);
   assert.equal(cautiousSr(player, P), 1480);
   assert.equal(isPlaced(player, P), false);
@@ -101,7 +103,7 @@ test("a strong player in a weak lobby gains almost nothing for winning", () => {
     change(rateRound(lobby(ratings), round([v1("S", 50), ...weak.map((n) => v1(n, others))], "S"), P)).S;
   const evenGain = result({ S: 1500, ...Object.fromEntries(weak.map((n) => [n, 1500])) }, 20);
   // About the 99th against the 10th percentile of placed players in the backtest.
-  const weakLobby = { S: 1715, ...Object.fromEntries(weak.map((n) => [n, 1440])) };
+  const weakLobby = { S: 1715, ...Object.fromEntries(weak.map((n) => [n, 1435])) };
   assert.ok(evenGain > 10);
   assert.ok(result(weakLobby, 20) < 1);
   assert.ok(result(weakLobby, 45) < 0); // a narrow win costs rating there

@@ -150,7 +150,7 @@ profiles, time present capped at the round length).
 - **Stability (held out):** an established player's 20-round range has
   median 18 SR (90th percentile 31). The worst 8-round fall has median 5 and
   90th percentile 23 (largest 44, against 50 for the prototype). In a
-  typical week 13 placed players (9.0%) cross the median, against 11.4% for
+  typical week 16 placed players (7.3%) cross the median, against 7.6% for
   the prototype. The best predictor overall (D = 500, m = 12, floor 70)
   gains 0.0019 but more than doubles the range (51/79), so it was rejected.
 - **Cap:** dropping the ±0.25 cap would gain 0.0004 in log-loss. It is kept
@@ -162,17 +162,24 @@ profiles, time present capped at the round length).
   start, with uncertainty 100. A two-pass start does the same but uses the
   future. The gain is too small to justify a frozen seed table and a
   mapping from the formula's scale, so the default start is used.
+- **Placement:** a player is placed once their uncertainty is no more than
+  it would be after 6 ideal rounds (full weight, even odds, established
+  opponents; 59.6). Real rounds carry less information, so on the tuning
+  period this places a typical player after 10 rated rounds (10th to 90th
+  percentile 8 to 13), as the brief intends; requiring the floor (50) took
+  14.
 - **Strong player in a weak lobby:** at the 99th against the 10th percentile
-  of placed SR (1,717 against 1,437), winning 50 to 10 gains under 1 SR and
+  of placed SR (1,713 against 1,434), winning 50 to 10 gains under 1 SR and
   50 to 20 costs about 7 SR.
-- **Impact:** placed players' SR runs from 1,345 to 1,717 (1st to 99th
-  percentile). Players place after a median of 14 rated rounds (10th to 90th
-  percentile 12 to 17), so 105 formula-placed players are not yet placed.
-  Rank correlation with the current leaderboard is 0.97 across 291 placed
-  players. Four of the top five and 8 of the top 10 stay. The 30 biggest
-  risers have many rounds (median 48 placements against 23 overall). The 30
-  biggest fallers lean on accuracy (39% against 33%) and kills per minute
-  (7.1 against 5.9), which the formula rewards but which did not win them a
+- **Impact:** placed players' SR runs from 1,332 to 1,713 (1st to 99th
+  percentile). Over all history players place after a median of 10 rated
+  rounds (8 to 13), and 6 formula-placed players are not yet placed. Rank
+  correlation with the current leaderboard is 0.97 across 390 placed
+  players. Two of the top five and 7 of the top 10 stay. The 30 biggest
+  risers have many rounds (median 48 placements against 18 overall). The 30
+  biggest fallers have few (median 12), so a wide range lowers their
+  cautious SR, and lean on accuracy (36% against 32%) and kills per minute
+  (6.8 against 5.5), which the formula rewards but which did not win them a
   larger share of the kills. The mean SR of active players settles near
   1,492 and rose 0.9 SR over the last two weeks.
 

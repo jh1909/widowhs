@@ -14,7 +14,7 @@ import { spawnSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
-  DEFAULT_SR_PARAMS, applyRound, cautiousSr, compareNames, compareRounds, derivePlacementUncertainty, isPlaced, rateRound, timeKey,
+  DEFAULT_SR_PARAMS, PLACEMENT_ROUNDS, applyRound, cautiousSr, compareNames, compareRounds, derivePlacementUncertainty, isPlaced, rateRound, timeKey,
   type SrParams, type SrRound, type SrSeed, type SrState,
 } from "../supabase/functions/_shared/sr.ts";
 
@@ -513,6 +513,18 @@ say(`\nseed: formula ELO from player_history before ${splitTime}, ${seed.size} p
 say(header);
 for (const e of [reference, chosenDefault, ...starts, twoPass]) say(line(e));
 const chosen = chosenDefault;
+
+// Placement: the threshold is the uncertainty after n ideal rounds
+// (derivePlacementUncertainty). Calibrated on the tuning period so that a
+// typical player places after about 10 rated rounds; ratings don't change.
+say("\nPLACEMENT CALIBRATION (tuning period; rated rounds to placement)");
+const tuningOnly = { rounds: data.rounds.slice(0, split), extra: data.extra };
+for (let n = 3; n <= 10; n++) {
+  const threshold = derivePlacementUncertainty(chosen.params, n);
+  const out = run(tuningOnly, { ...chosen.params, settings: { ...chosen.params.settings, placementUncertainty: threshold } });
+  const xs = [...out.placedAfter.values()];
+  say(`${n} ideal rounds: threshold ${f(threshold, 2)}; median ${quantile(xs, 0.5)}, p10 ${quantile(xs, 0.1)}, p90 ${quantile(xs, 0.9)} (${xs.length} players)${n === PLACEMENT_ROUNDS ? "  <- engine default" : ""}`);
+}
 
 // ---- held-out evaluation, once, after the choice is frozen ----
 const runnerPicks = top(all.filter((e) => admissible(e) && describe(e.params) !== describe(chosen.params) && e.params.settings.start === "default"), 3);
