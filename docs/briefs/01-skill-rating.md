@@ -118,57 +118,63 @@ rounds from 11 October to 4 November, assembled as the database does (one
 malformed batch round skipped, Battle.net-name rows re-pointed to their
 profiles, time present capped at the round length).
 
-- **Method:** settings were chosen on the first 70% of rounds and scored on
-  the last 30% (from 28 October; 9,054 pairs). Ratings run through the
-  split. Scored pairs are those where both players had 10 earlier rated
-  rounds and 5 formula scores. The score is the weighted log-loss of the
-  predicted pairwise share against the actual pro-rated kill share, without
-  the winner's bonus. Each model's prediction goes through a logistic scale
-  fitted on the tuning rounds, so raw and logistic curves and the formula
-  ELO (mean of the last 100 round scores) compare fairly. Stability is
-  measured on established players: SR range over their last 20 rounds,
-  worst fall over 8 rounds, and how many placed players change side of the
-  median cautious SR in a week.
-- **Chosen:** raw kill share, β = 0.05, D = 300, m = 12, uncertainty 160 for
-  a new player with a floor of 30, cap ±0.25, default start (values in
+- **Method:** settings are chosen on the first 70% of rounds only. The
+  last 30% (from 28 October; 9,054 pairs) is scored once, after the choice
+  is frozen. Ratings run through the split. Scored pairs are those where
+  both players had 10 earlier rated rounds and 5 formula scores. The score
+  is the weighted log-loss of the predicted pairwise share against the
+  actual pro-rated kill share, without the winner's bonus. Each model's
+  prediction goes through a logistic scale fitted on the tuning rounds, so
+  raw and logistic curves and the formula ELO (mean of the last 100 round
+  scores) compare fairly. Stability is measured on established players: SR
+  range over their last 20 rounds, worst fall over 8 rounds, and how many
+  placed players change side of the median cautious SR in a week. For the
+  choice it is measured on the second half of the tuning period (from
+  19 October; the first half is warm-up).
+- **Chosen:** raw kill share, β = 0.05, D = 400, m = 5, uncertainty 160 for
+  a new player with a floor of 50, cap ±0.25, default start (values in
   `DEFAULT_SR_PARAMS`, `supabase/functions/_shared/sr.ts`). This is the best
-  predictor whose stability is no worse than the prototype setting (D = 400,
-  m = 5, 350/50). The raw curve beat every logistic scale. β = 0 predicted
-  marginally better, so β sits at the 0.05 floor. A low floor with a large
-  m lets new players find their level within about 10 rounds while keeping
-  established players calm.
-- **Prediction (held out):** log-loss 0.6540 against 0.6564 for the formula
-  ELO (paired bootstrap over rounds: −0.0024, 95% interval −0.0033 to
-  −0.0019) and 0.6546 for the prototype setting. Kill order is right 82.5%
-  of the time, against 81.9% for the formula ELO and 82.1% for the prototype.
-- **Stability:** an established player's 20-round range has median 18 SR
-  (90th percentile 30). The worst 8-round fall has median 7 and 90th
-  percentile 22 (largest 38, against 50 for the prototype). In a typical
-  week 16 placed players (7.7%) cross the median, against 11.4% for the
-  prototype. The best predictor overall (D = 500, m = 12, floor 70) gains
-  only 0.0012 but triples the range, so it was rejected.
+  tuning-period predictor whose stability there is no worse than the
+  prototype setting's (D = 400, m = 5, 350/50, 90th percentiles within 5%).
+  The raw curve beat every logistic scale. β = 0 predicted marginally
+  better, so β sits at the 0.05 floor. The choice is in effect the
+  prototype with a lower starting uncertainty, a smaller bonus and the cap.
+  A faster family (D = 300, m = 12, floor 30) predicted better on the tuning
+  period but missed the stability gate narrowly (8-round fall, 90th
+  percentile 19.2 against a limit of 18.8).
+- **Prediction (held out):** log-loss 0.6547 against 0.6564 for the formula
+  ELO (paired bootstrap over rounds: −0.0017, 95% interval −0.0027 to
+  −0.0012), and level with the prototype setting (0.6546; +0.0000, −0.0002
+  to +0.0002). Kill order is right 82.3% of the time, against 81.9% for the
+  formula ELO and 82.1% for the prototype.
+- **Stability (held out):** an established player's 20-round range has
+  median 18 SR (90th percentile 31). The worst 8-round fall has median 5 and
+  90th percentile 23 (largest 44, against 50 for the prototype). In a
+  typical week 13 placed players (9.0%) cross the median, against 11.4% for
+  the prototype. The best predictor overall (D = 500, m = 12, floor 70)
+  gains 0.0019 but more than doubles the range (51/79), so it was rejected.
 - **Cap:** dropping the ±0.25 cap would gain 0.0004 in log-loss. It is kept
   as the guard against freak rounds, which are too rare to show in the
   score; it also bounds one round's move for an established player to about
-  20 SR.
+  17 SR.
 - **Start:** a seed from the formula ELO as of 28 October (`player_history`,
-  so nothing from the scored period) predicts 0.0004 better than the default
+  so nothing from the scored period) predicts 0.0007 better than the default
   start, with uncertainty 100. A two-pass start does the same but uses the
   future. The gain is too small to justify a frozen seed table and a
   mapping from the formula's scale, so the default start is used.
 - **Strong player in a weak lobby:** at the 99th against the 10th percentile
-  of placed SR (1,674 against 1,455), winning 50 to 10 changes nothing and
-  50 to 20 costs about 9 SR.
-- **Impact:** placed players' SR runs from 1,367 to 1,674 (1st to 99th
-  percentile); players place after a median of 11 rated rounds. Rank
-  correlation with the current leaderboard is 0.96 across 376 placed
-  players. The top five are the same, 7 of the top 10 stay in it, and 20
-  formula-placed players are not yet placed. The 30 biggest risers have
-  many rounds (median 46 placements against 19 overall) with average
-  accuracy. The 30 biggest fallers lean on accuracy (37% against 32%) and
-  kills per minute (7.0 against 5.6), which the formula rewards but which
-  did not win them a larger share of the kills. The mean SR of active
-  players settles near 1,488 and rose 1.3 SR over the last two weeks.
+  of placed SR (1,717 against 1,437), winning 50 to 10 gains under 1 SR and
+  50 to 20 costs about 7 SR.
+- **Impact:** placed players' SR runs from 1,345 to 1,717 (1st to 99th
+  percentile). Players place after a median of 14 rated rounds (10th to 90th
+  percentile 12 to 17), so 105 formula-placed players are not yet placed.
+  Rank correlation with the current leaderboard is 0.97 across 291 placed
+  players. Four of the top five and 8 of the top 10 stay. The 30 biggest
+  risers have many rounds (median 48 placements against 23 overall). The 30
+  biggest fallers lean on accuracy (39% against 33%) and kills per minute
+  (7.1 against 5.9), which the formula rewards but which did not win them a
+  larger share of the kills. The mean SR of active players settles near
+  1,492 and rose 0.9 SR over the last two weeks.
 
 ## Engineering
 

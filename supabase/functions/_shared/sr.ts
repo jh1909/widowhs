@@ -80,7 +80,7 @@ export function derivePlacementUncertainty(p: Pick<SrParams, "d"> & { settings: 
 
 // Chosen by scripts/sr-backtest.ts (brief 01, "Backtest").
 const baseSettings = {
-  shareCurve: "raw", logisticScale: 10, m: 12, rd0: 160, rdMin: 30, surpriseCap: 0.25,
+  shareCurve: "raw", logisticScale: 10, m: 5, rd0: 160, rdMin: 50, surpriseCap: 0.25,
   start: "default", startSr: 1500, seedUncertainty: 150,
   minActiveSeconds: 30,
   // An active Widowmaker fires every few seconds; AFK time is already
@@ -90,8 +90,8 @@ const baseSettings = {
   fullRoundGraceSeconds: 10, cautiousFactor: 2,
 } as const;
 export const DEFAULT_SR_PARAMS: SrParams = {
-  version: 1, d: 300, beta: 0.05,
-  settings: { ...baseSettings, placementUncertainty: derivePlacementUncertainty({ d: 300, settings: baseSettings }) },
+  version: 1, d: 400, beta: 0.05,
+  settings: { ...baseSettings, placementUncertainty: derivePlacementUncertainty({ d: 400, settings: baseSettings }) },
 };
 
 export function cautiousSr(player: SrPlayer, params: SrParams): number {

@@ -5,8 +5,9 @@
 //
 //   node --import tsx scripts/sr-backtest.ts DUMP OUTDIR [sweep | eval JSON | trace JSON NAME...]
 //
-// sweep: coarse grid, then local refinement, then the start variants; writes
-// sweep.tsv, report.txt, chosen.json and names.tsv (the report's P1, P2...).
+// sweep: coarse grid, then local refinement, then the start variants, all
+// judged on the tuning period; then one held-out evaluation. Writes sweep.tsv,
+// heldout.tsv, report.txt, chosen.json and names.tsv (the report's P1, P2...).
 // eval: one parameter set, a partial rating_params object over the
 // prototype's settings, e.g. '{"d":300,"settings":{"m":12}}'. trace: round-by-round SR.
 import { spawnSync } from "node:child_process";
@@ -123,12 +124,16 @@ function assembleRounds(matches: Row[], profiles: Set<string>, aliases: Map<stri
 const ESTABLISHED = 10;    // a player is established after 10 earlier rated participations (setting-independent)
 const BASELINE_MIN = 5;    // the formula baseline needs 5 earlier performance scores
 const TUNE_SHARE = 0.7;
+// Stability for selection is measured on the second half of the tuning
+// period (the first half is warm-up, when nearly everyone is new).
+const VALIDATION_SHARE = 0.35;
 
 type PairSample = { r: number; y: number; w: number; x: number; e: number; base: number; up: number }; // up: +1/-1 kills order, 0 tie
 type Snapshot = { day: string; cautious: Map<string, number>; activeMean: number; active: number };
 type RunOut = {
   tune: PairSample[]; test: PairSample[];
-  series: Map<string, { idx: number; before: number; after: number }[]>; // established players' rated rounds in the test period
+  // Established players' rated rounds: in the validation slice of the tuning period, and in the test period.
+  series: { val: Map<string, { idx: number; before: number; after: number }[]>; test: Map<string, { idx: number; before: number; after: number }[]> };
   snapshots: Snapshot[]; state: SrState; split: number;
   placedAfter: Map<string, number>; // rated rounds when first placed
 };
@@ -141,7 +146,8 @@ function run(data: Data, params: SrParams, seed?: SrSeed, trace?: Map<string, st
   const prior = new Map<string, number>();
   const hist = new Map<string, number[]>();
   const tune: PairSample[] = [], test: PairSample[] = [];
-  const series: RunOut["series"] = new Map();
+  const series: RunOut["series"] = { val: new Map(), test: new Map() };
+  const valStart = Math.floor(rounds.length * VALIDATION_SHARE);
   const snapshots: Snapshot[] = [];
   const placedAfter = new Map<string, number>();
   let day = "";
@@ -182,11 +188,12 @@ function run(data: Data, params: SrParams, seed?: SrSeed, trace?: Map<string, st
         x: Math.log(pr.expectedA / (1 - pr.expectedA)), e: pr.expectedA, base: ba - bb, up: Math.sign(ka - kb),
       });
     }
-    if (idx >= split) {
+    if (idx >= valStart) {
+      const into = idx < split ? series.val : series.test;
       for (const e of result.events) {
         if ((prior.get(e.name) ?? 0) < ESTABLISHED) continue;
-        if (!series.has(e.name)) series.set(e.name, []);
-        series.get(e.name)!.push({ idx, before: e.srBefore, after: e.srAfter });
+        if (!into.has(e.name)) into.set(e.name, []);
+        into.get(e.name)!.push({ idx, before: e.srBefore, after: e.srAfter });
       }
     }
     if (trace) {
@@ -262,9 +269,9 @@ const quantile = (xs: number[], q: number) => {
 };
 
 type Stability = { range20Median: number; range20P90: number; drop8Median: number; drop8P90: number; drop8Max: number; weeklyCross: number; weeklyCrossShare: number; players: number };
-function stability(out: RunOut): Stability {
+function stability(out: RunOut, period: "val" | "test"): Stability {
   const ranges: number[] = [], drops: number[] = [];
-  for (const s of out.series.values()) {
+  for (const s of out.series[period].values()) {
     if (s.length >= 20) {
       const last = s.slice(-20).map((x) => x.after);
       ranges.push(Math.max(...last) - Math.min(...last));
@@ -275,15 +282,17 @@ function stability(out: RunOut): Stability {
       drops.push(worst);
     }
   }
-  // 7-day windows ending in the test period: placed players on both days who
-  // changed side of the median cautious SR.
-  const testStart = out.snapshots.findIndex((x) => x.day >= testDay);
+  // 7-day windows ending in the period: placed players on both days who
+  // changed side of the median cautious SR. Validation windows end before
+  // the test period's first day.
+  const inPeriod = (day: string) => period === "test" ? day >= testDay : day >= valDay && day < testDay;
   const crosses: number[] = [], shares: number[] = [];
   const side = (m: Map<string, number>) => {
     const med = quantile([...m.values()], 0.5);
     return (n: string) => m.get(n)! >= med;
   };
-  for (let j = Math.max(7, testStart); j < out.snapshots.length; j++) {
+  for (let j = 7; j < out.snapshots.length; j++) {
+    if (!inPeriod(out.snapshots[j].day)) continue;
     const a = out.snapshots[j - 7].cautious, b = out.snapshots[j].cautious;
     const sa = side(a), sb = side(b);
     let both = 0, flips = 0;
@@ -296,10 +305,12 @@ function stability(out: RunOut): Stability {
     weeklyCross: quantile(crosses, 0.5), weeklyCrossShare: quantile(shares, 0.5), players: ranges.length,
   };
 }
-let testDay = "";
+let testDay = "", valDay = "";
 
 type Score = { logLossE: number; logLoss: number; brier: number; accuracy: number; k: number };
-type Evaluation = { label: string; params: SrParams; tune: Score; test: Score; stability: Stability; out: RunOut };
+// stability: validation slice, the only one selection sees; held: test period, reported after the choice.
+// test and held stay empty (NaN) until heldOut is asked for, after the choice.
+type Evaluation = { label: string; params: SrParams; seed?: SrSeed; tune: Score; test: Score; stability: Stability; held: Stability; out: RunOut };
 function score(out: RunOut, x: (s: PairSample) => number, rawE?: (s: PairSample) => number): { tune: Score; test: Score } {
   const k = fitScale(out.tune, x);
   const one = (samples: PairSample[]): Score => ({
@@ -310,9 +321,13 @@ function score(out: RunOut, x: (s: PairSample) => number, rawE?: (s: PairSample)
   });
   return { tune: one(out.tune), test: one(out.test) };
 }
-function evaluate(data: Data, label: string, params: SrParams, seed?: SrSeed): Evaluation {
+const NO_SCORE: Score = { logLossE: NaN, logLoss: NaN, brier: NaN, accuracy: NaN, k: NaN };
+const NO_STABILITY: Stability = { range20Median: NaN, range20P90: NaN, drop8Median: NaN, drop8P90: NaN, drop8Max: NaN, weeklyCross: NaN, weeklyCrossShare: NaN, players: 0 };
+function evaluate(data: Data, label: string, params: SrParams, seed?: SrSeed, heldOut = false): Evaluation {
   const out = run(data, params, seed);
-  return { label, params, ...score(out, (s) => s.x, (s) => s.e), stability: stability(out), out };
+  const { tune, test } = score(out, (s) => s.x, (s) => s.e);
+  if (!heldOut) out.test.length = 0;
+  return { label, params, seed, tune, test: heldOut ? test : NO_SCORE, stability: stability(out, "val"), held: heldOut ? stability(out, "test") : NO_STABILITY, out };
 }
 
 // ---- parameters ----
@@ -354,10 +369,11 @@ function seedAtSplit(history: Row[], splitTime: string, scaleTo: Map<string, num
 // ---- report helpers ----
 
 const f = (x: number, d = 4) => (Number.isFinite(x) ? x.toFixed(d) : "-");
-const header = "label\tparams\ttune_ll\ttune_llE\ttune_acc\ttest_ll\ttest_llE\ttest_brier\ttest_acc\tk\trange20_med\trange20_p90\tdrop8_med\tdrop8_p90\tdrop8_max\tweekly_cross\tweekly_cross_share";
+const stabCols = (p: string) => ["range20_med", "range20_p90", "drop8_med", "drop8_p90", "drop8_max", "weekly_cross", "weekly_cross_share"].map((c) => `${p}_${c}`).join("\t");
+const header = `label\tparams\ttune_ll\ttune_llE\ttune_acc\ttest_ll\ttest_llE\ttest_brier\ttest_acc\tk\t${stabCols("val")}\t${stabCols("test")}`;
 const line = (e: Evaluation) => [e.label, describe(e.params), f(e.tune.logLoss), f(e.tune.logLossE), f(e.tune.accuracy), f(e.test.logLoss), f(e.test.logLossE),
-  f(e.test.brier), f(e.test.accuracy), f(e.tune.k, 3), f(e.stability.range20Median, 1), f(e.stability.range20P90, 1), f(e.stability.drop8Median, 1),
-  f(e.stability.drop8P90, 1), f(e.stability.drop8Max, 1), f(e.stability.weeklyCross, 1), f(e.stability.weeklyCrossShare, 3)].join("\t");
+  f(e.test.brier), f(e.test.accuracy), f(e.tune.k, 3), ...[e.stability, e.held].flatMap((st) => [f(st.range20Median, 1), f(st.range20P90, 1), f(st.drop8Median, 1),
+  f(st.drop8P90, 1), f(st.drop8Max, 1), f(st.weeklyCross, 1), f(st.weeklyCrossShare, 3)])].join("\t");
 
 function spearman(a: string[], b: string[]): number {
   const both = a.filter((n) => b.includes(n));
@@ -378,6 +394,7 @@ const banned = new Set(players.filter((p) => p.is_banned === "t").map((p) => p.n
 const data = assembleRounds(matches, new Set(players.map((p) => p.name!)), aliasMap(players), banned);
 const split = Math.floor(data.rounds.length * TUNE_SHARE);
 testDay = data.rounds[split].playedAt.slice(0, 10);
+valDay = data.rounds[Math.floor(data.rounds.length * VALIDATION_SHARE)].playedAt.slice(0, 10);
 const log: string[] = [];
 const say = (s = "") => { console.log(s); log.push(s); };
 say(`rounds ${data.rounds.length} (${data.rounds[0].playedAt.slice(0, 10)} to ${data.rounds.at(-1)!.playedAt.slice(0, 10)}); ` +
@@ -408,16 +425,14 @@ function tryParams(label: string, patch: Patch, seed?: SrSeed): Evaluation {
   const hit = seen.get(key);
   if (hit) return hit;
   const e = evaluate(data, label, p, seed);
-  e.out.series.clear(); e.out.snapshots.length = 0; e.out.tune.length = 0; e.out.test.length = 0; e.out.state.clear(); // keep memory flat
+  e.out.series.val.clear(); e.out.series.test.clear(); e.out.snapshots.length = 0; e.out.tune.length = 0; e.out.test.length = 0; e.out.state.clear(); // keep memory flat
   seen.set(key, e); all.push(e); tsv.push(line(e));
   return e;
 }
 
 // Baseline: the formula ELO as the mean of the previous <= 100 performance scores.
 const reference = evaluate(data, "prototype M=5", makeParams({ beta: 0.1, settings: { m: 5, surpriseCap: null } }));
-const baseline = score(reference.out, (s) => s.base);
-say(`established pairs: tuning ${reference.out.tune.length}, test ${reference.out.test.length}`);
-say(`baseline formula ELO: test log-loss ${f(baseline.test.logLoss)}, Brier ${f(baseline.test.brier)}, order ${f(baseline.test.accuracy)} (k ${f(baseline.tune.k, 5)})`);
+say(`established pairs in the tuning period: ${reference.out.tune.length}; stability validation from ${valDay}`);
 const refStab = reference.stability;
 tsv.push(line(reference));
 
@@ -481,8 +496,8 @@ say(`best by tuning log-loss (beta >= 0.05): ${describe(bestUnconstrained.params
 say(`best admissible: ${describe(current.params)} (tune ${f(current.tune.logLoss)}); with the brief's cap: ${f(withBriefCap.tune.logLoss)}`);
 say(`chosen (default start): ${describe(chosenDefault.params)}; placement uncertainty ${f(chosenDefault.params.settings.placementUncertainty, 2)}`);
 
-// 5. Start variants on the chosen settings, judged on the test period only:
-// the seed uses formula ELO snapshots from before the test period.
+// 5. Start variants on the chosen settings, for the held-out comparison: the
+// seed uses formula ELO snapshots from before the test period.
 const splitTime = data.rounds[split].playedAt;
 const atSplit = run({ rounds: data.rounds.slice(0, split), extra: data.extra }, chosenDefault.params);
 const scaleTo = new Map([...atSplit.state].filter(([, p]) => isPlaced(p, chosenDefault.params)).map(([n, p]) => [n, p.sr]));
@@ -499,9 +514,20 @@ say(header);
 for (const e of [reference, chosenDefault, ...starts, twoPass]) say(line(e));
 const chosen = chosenDefault;
 
+// ---- held-out evaluation, once, after the choice is frozen ----
+const runnerPicks = top(all.filter((e) => admissible(e) && describe(e.params) !== describe(chosen.params) && e.params.settings.start === "default"), 3);
+const once = (e: Evaluation) => evaluate(data, e.label, e.params, e.seed, true);
+const H = {
+  chosen: once(chosen), reference: once(reference), best: once(bestUnconstrained), uncapped: once(current),
+  seeded: once(seededBest), twoPass: once(twoPass), runners: runnerPicks.map(once),
+};
+const baseline = score(H.reference.out, (s) => s.base);
+writeFileSync(join(outDir, "heldout.tsv"), [header, ...[H.chosen, H.reference, ...H.runners, H.best, H.uncapped, H.seeded, H.twoPass].map(line)].join("\n") + "\n");
+say(`\nHELD OUT: ${H.reference.out.test.length} established pairs from ${splitTime}`);
+say(`baseline formula ELO: test log-loss ${f(baseline.test.logLoss)}, Brier ${f(baseline.test.brier)}, order ${f(baseline.test.accuracy)} (k ${f(baseline.tune.k, 5)})`);
+
 // Paired bootstrap over test rounds of the log-loss difference (negative:
 // the first predicts better), 2000 resamples, fixed seed.
-const fresh = (e: Evaluation, s?: SrSeed) => evaluate(data, e.label, e.params, s);
 const lossBy = (out: RunOut, x: (s: PairSample) => number) => {
   const k = fitScale(out.tune, x);
   return out.test.map((s) => { const q = Math.min(1 - 1e-12, Math.max(1e-12, sigmoid(k * x(s)))); return -(s.y * Math.log(q) + (1 - s.y) * Math.log(1 - q)); });
@@ -521,31 +547,35 @@ function bootstrap(a: number[], b: number[], samples: PairSample[]): string {
   const all = rows.reduce((t, r) => [t[0] + r[0], t[1] + r[1], t[2] + r[2]], [0, 0, 0]);
   return `${f((all[0] - all[1]) / all[2], 5)} [${f(quantile(diffs, 0.025), 5)}, ${f(quantile(diffs, 0.975), 5)}]`;
 }
-const chosenRun = fresh(chosen);
+const chosenRun = H.chosen;
 const chosenLoss = lossBy(chosenRun.out, (s) => s.x);
 const versus = (label: string, other: number[]) => say(`  chosen - ${label}: ${bootstrap(chosenLoss, other, chosenRun.out.test)}`);
 say("\nPAIRED BOOTSTRAP, test log-loss difference (95% interval)");
-versus("formula ELO", lossBy(reference.out, (s) => s.base));
-versus("prototype M=5", lossBy(reference.out, (s) => s.x));
-versus(`best unconstrained (${describe(bestUnconstrained.params)})`, lossBy(fresh(bestUnconstrained).out, (s) => s.x));
-if (chosen !== current) versus(`without the brief's cap (${describe(current.params)})`, lossBy(fresh(current).out, (s) => s.x));
-versus(`seeded (${describe(seededBest.params)})`, lossBy(fresh(seededBest, seed).out, (s) => s.x));
+versus("formula ELO", lossBy(H.reference.out, (s) => s.base));
+versus("prototype M=5", lossBy(H.reference.out, (s) => s.x));
+versus(`best unconstrained (${describe(bestUnconstrained.params)})`, lossBy(H.best.out, (s) => s.x));
+if (chosen !== current) versus(`without the brief's cap (${describe(current.params)})`, lossBy(H.uncapped.out, (s) => s.x));
+versus(`seeded (${describe(seededBest.params)})`, lossBy(H.seeded.out, (s) => s.x));
 
 // Headline: chosen vs baseline vs runner-ups on the test period.
-const distinct = (e: Evaluation) => describe(e.params) !== describe(chosen.params);
-const runners = top(all.filter((e) => admissible(e) && distinct(e) && e.params.settings.start === "default"), 3);
 say("\nHEADLINE (test period, established pairs)");
 say("variant\ttest log-loss\tBrier\torder accuracy\trange20 p50/p90\tdrop8 p50/p90/max\tweekly median crossings");
 const head = (label: string, sc: Score, st?: Stability) => say([label, f(sc.logLoss), f(sc.brier), f(sc.accuracy),
   st ? `${f(st.range20Median, 0)}/${f(st.range20P90, 0)}` : "-", st ? `${f(st.drop8Median, 0)}/${f(st.drop8P90, 0)}/${f(st.drop8Max, 0)}` : "-",
   st ? `${f(st.weeklyCross, 0)} (${f(100 * st.weeklyCrossShare, 1)}%)` : "-"].join("\t"));
-head(`chosen: ${describe(chosen.params)}`, chosen.test, chosen.stability);
+head(`chosen: ${describe(chosen.params)}`, H.chosen.test, H.chosen.held);
 head("formula ELO baseline", baseline.test);
-head(`prototype: ${describe(reference.params)}`, reference.test, reference.stability);
-for (const e of runners) head(`runner-up: ${describe(e.params)}`, e.test, e.stability);
-if (describe(bestUnconstrained.params) !== describe(chosen.params)) head(`best unconstrained: ${describe(bestUnconstrained.params)}`, bestUnconstrained.test, bestUnconstrained.stability);
-head(`seeded: ${describe(seededBest.params)}`, seededBest.test, seededBest.stability);
-head("two-pass (leaks, interest only)", twoPass.test, twoPass.stability);
+head(`prototype: ${describe(reference.params)}`, H.reference.test, H.reference.held);
+for (const e of H.runners) head(`runner-up: ${describe(e.params)}`, e.test, e.held);
+if (describe(bestUnconstrained.params) !== describe(chosen.params)) head(`best unconstrained: ${describe(bestUnconstrained.params)}`, H.best.test, H.best.held);
+if (chosen !== current) head(`without the brief's cap: ${describe(current.params)}`, H.uncapped.test, H.uncapped.held);
+head(`seeded: ${describe(seededBest.params)}`, H.seeded.test, H.seeded.held);
+head("two-pass (leaks, interest only)", H.twoPass.test, H.twoPass.held);
+say("\nSELECTION-TIME STABILITY (validation slice of the tuning period)");
+for (const [label, e] of [["chosen", chosen], ["prototype", reference], ["best unconstrained", bestUnconstrained]] as const) {
+  const st = e.stability;
+  say(`${label}: range20 ${f(st.range20Median, 0)}/${f(st.range20P90, 0)}, drop8 ${f(st.drop8Median, 0)}/${f(st.drop8P90, 0)}/${f(st.drop8Max, 0)}, weekly crossings ${f(st.weeklyCross, 0)} (${f(100 * st.weeklyCrossShare, 1)}%)`);
+}
 
 // Leaderboard impact against the current formula leaderboard.
 const final = run(data, chosen.params);

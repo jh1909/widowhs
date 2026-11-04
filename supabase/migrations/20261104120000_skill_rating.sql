@@ -150,10 +150,10 @@ grant select on public.rating_params, public.player_ratings, public.rating_event
 -- Version 1, chosen by the backtest of 4 November 2026
 -- (docs/briefs/01-skill-rating.md, "Backtest"); the same values as
 -- DEFAULT_SR_PARAMS in supabase/functions/_shared/sr.ts.
-insert into public.rating_params (version, d, beta, settings, active, note) values (1, 300, 0.05,
-  '{"shareCurve": "raw", "logisticScale": 10, "m": 12, "rd0": 160, "rdMin": 30, "surpriseCap": 0.25,
+insert into public.rating_params (version, d, beta, settings, active, note) values (1, 400, 0.05,
+  '{"shareCurve": "raw", "logisticScale": 10, "m": 5, "rd0": 160, "rdMin": 50, "surpriseCap": 0.25,
     "start": "default", "startSr": 1500, "seedUncertainty": 150, "minActiveSeconds": 30,
-    "minShotsPerMinute": 2, "fullRoundGraceSeconds": 10, "cautiousFactor": 2, "placementUncertainty": 30}',
+    "minShotsPerMinute": 2, "fullRoundGraceSeconds": 10, "cautiousFactor": 2, "placementUncertainty": 50}',
   true, 'Chosen by the backtest of 4 November 2026 (docs/briefs/01-skill-rating.md, Backtest)');
 
 -- Input assembly: stored rounds from p_from on, in rating order (round time,
