@@ -119,6 +119,23 @@ written to the log once, at match end; nothing is sent during the round.
   the host's local config, never in the repository.
 - Retries with backoff when offline; never deletes logs.
 
+## Readings
+
+Server load for v3.5.0, measured the same way as
+[07's readings](07-workshop-performance.md#readings): Necropolis, 12 players
+(11 bots and the host), Ranked off, by eye from the host's load display.
+
+| Version | Server | Average | Peak |
+|---|---|---|---|
+| v3.5.0 | 30 ms | 30–50 | Mostly 60–90; about 122 a couple of times |
+
+Within the targets except for those spikes, which came less often than in
+earlier tests. Session and kill tracking adds no visible load: v3.4.2 read
+30–50 with peaks up to about 110 on a 115 ms server, and higher on 60 ms
+servers. Load varies more between servers than between versions, so this
+rules out a large regression rather than measuring a small one. Ranked mode,
+which writes the log at the win, is still to be measured with real players.
+
 ## Out of scope
 
 - Real-time streaming from the game. Workshop logs are only available as
