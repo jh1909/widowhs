@@ -16,7 +16,7 @@ type Player = { session: number; startTime: number; score: number; playerTime?: 
 // Evaluate the arithmetic actually used by the Workshop, rather than a second
 // implementation of its timer. This does not validate Workshop syntax/scheduling.
 function translate(source: string): string {
-  return source.replaceAll('Global.sessionAfkStart', 'state.open')
+  return source.replace(/Modify Global Variable\([^;]+;/g, '').replaceAll('Global.sessionAfkStart', 'state.open')
     .replaceAll('Global.sessionAfk', 'state.closed')
     .replaceAll('Global.gameComplete', 'state.complete')
     .replaceAll('Global.endTime', 'state.end')
@@ -84,4 +84,25 @@ test('final KPM ranks by exact active time, independent of the last timer tick a
       assert.equal(evaluate(key, clock, player), evaluate(kpm, clock, player));
     }
   }
+});
+
+test('existing return, leave and win actions preserve every AFK break before clearing its open timestamp', () => {
+  const captured: { session: number[]; start: number[]; end: number[]; terminal: number[] } =
+    {session:[],start:[],end:[],terminal:[]};
+  const state: Clock = {now:100,end:180,complete:false,open:[0,60],closed:[0,0]};
+  const player: Player = {session:1,startTime:0,score:0};
+  const close = (name: string) => {
+    const block = rule(name).match(/Modify Global Variable\(afkTerminal,[\s\S]*?Global\.sessionAfkStart\[[^\]]+\] = 0;/)![0];
+    const code = block.replace(/Modify Global Variable\((afkTerminal|afkSessions|afkStarts|afkEnds), Append To Array, ([^;]+)\);/g,
+      (_, key, value) => `captured.${({afkTerminal:'terminal',afkSessions:'session',afkStarts:'start',afkEnds:'end'} as Record<string,string>)[key]}.push(${value});`)
+      .replaceAll('Global.roundStart','0').replaceAll('Global.logSession','player.session');
+    new Function('state','player','captured',translate(code))(state,player,captured);
+  };
+  close('AFK return');
+  assert.equal(state.closed[1],40); assert.equal(state.open[1],0);
+  state.open[1]=110; state.now=130; close('Player leaves');
+  state.open[1]=170; state.complete=true; close('Match log');
+  assert.deepEqual(captured,{session:[1,1,1],start:[60,110,170],end:[100,130,180],terminal:[0,1,1]});
+  assert.equal(state.closed[1],70);
+  assert.ok(rule('AFK enter').includes('Global.sessionStatus[Event Player.session] = 2;'));
 });

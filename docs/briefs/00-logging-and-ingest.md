@@ -166,3 +166,7 @@ which writes the log at the win, is still to be measured with real players.
   script version that introduced it.
 
 Size: **medium**. Workshop work plus a parser, three tables and a small script.
+
+Format v4 (Workshop v3.7.0) also captures exact AFK breaks through existing
+event rules, including terminal closure after leave/kick/win. Older interval
+timing remains unknown. See [the contract](../workshop-log-format.md#v4).

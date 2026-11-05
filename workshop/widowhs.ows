@@ -2,7 +2,7 @@ settings
 {
 	main
 	{
-		Description: "WIDOWHS.COM\n\r\n\rChange HP in Workshop Settings.\n\rCustom spawns and no damage falloff.\n\rCompatible with every map.\n\rEnd scene on Castillo, Château Guillard, and Necropolis.\n\r\n\rv3.6.0 - more info on workshop.codes/widowhs\n\rCode: TCG2W"
+		Description: "WIDOWHS.COM\n\r\n\rChange HP in Workshop Settings.\n\rCustom spawns and no damage falloff.\n\rCompatible with every map.\n\rEnd scene on Castillo, Château Guillard, and Necropolis.\n\r\n\rv3.7.0 - more info on workshop.codes/widowhs\n\rCode: TCG2W"
 		Mode Name: "Widow HS 2.0"
 	}
 
@@ -127,6 +127,10 @@ variables
 		52: scoreSessions
 		53: scoreTimes
 		54: scoreValues
+		55: afkSessions
+		56: afkStarts
+		57: afkEnds
+		58: afkTerminal
 
 	player:
 		0: startTime
@@ -203,6 +207,10 @@ rule("Global init")
 		Global.scoreSessions = Empty Array;
 		Global.scoreTimes = Empty Array;
 		Global.scoreValues = Empty Array;
+		Global.afkSessions = Empty Array;
+		Global.afkStarts = Empty Array;
+		Global.afkEnds = Empty Array;
+		Global.afkTerminal = Empty Array;
 		"testing only: bots are never added to a ranked match"
 		Global.testBots = !Global.ranked && Workshop Setting Toggle(Custom String("Testing"), Custom String(
 			"Fill empty slots with bots"), False, 1);
@@ -670,6 +678,10 @@ rule("AFK return")
 		Destroy HUD Text(First Of(Event Player.afkHUD));
 		Destroy HUD Text(Event Player.afkHUD[1]);
 		Event Player.afk = False;
+		Modify Global Variable(afkTerminal, Append To Array, 0);
+		Modify Global Variable(afkSessions, Append To Array, Event Player.session);
+		Modify Global Variable(afkStarts, Append To Array, Global.sessionAfkStart[Event Player.session] - Global.roundStart);
+		Modify Global Variable(afkEnds, Append To Array, Total Time Elapsed - Global.roundStart);
 		Global.sessionAfk[Event Player.session] += Total Time Elapsed - Global.sessionAfkStart[Event Player.session];
 		Global.sessionAfkStart[Event Player.session] = 0;
 		Event Player.afkReturn = True;
@@ -760,6 +772,10 @@ rule("Player leaves")
 				"1: left, unless the AFK kick marked it 2: kicked"
 				Global.sessionStatus[Global.logSession] = Max(Global.sessionStatus[Global.logSession], 1);
 				If(Global.sessionAfkStart[Global.logSession]);
+					Modify Global Variable(afkTerminal, Append To Array, 1);
+					Modify Global Variable(afkSessions, Append To Array, Global.logSession);
+					Modify Global Variable(afkStarts, Append To Array, Global.sessionAfkStart[Global.logSession] - Global.roundStart);
+					Modify Global Variable(afkEnds, Append To Array, Total Time Elapsed - Global.roundStart);
 					Global.sessionAfk[Global.logSession] += Total Time Elapsed - Global.sessionAfkStart[Global.logSession];
 					Global.sessionAfkStart[Global.logSession] = 0;
 				End;
@@ -838,15 +854,19 @@ rule("Match log")
 
 	actions
 	{
-		"v2 log, docs/workshop-log-format.md: written once, after the winning kill's stats as in Final top stats"
+		"v4 log, docs/workshop-log-format.md: written once, after the winning kill's stats as in Final top stats"
 		Wait(0.048, Ignore Condition);
-		Log To Inspector(Custom String("#V,3,3.6.0"));
+		Log To Inspector(Custom String("#V,4,3.7.0"));
 		Log To Inspector(Custom String("#R,{0},{1}", Global.endTime - Global.roundStart, Global.sessionName[Global.winnerSession]));
 		For Global Variable(logIndex, 1, Global.sessionCount + 1, 1);
 			"sessions still open were present at the end"
 			If(Global.sessionPlayer[Global.logIndex] != Null);
 				Global.sessionEnd[Global.logIndex] = Global.endTime - Global.roundStart;
 				If(Global.sessionAfkStart[Global.logIndex]);
+					Modify Global Variable(afkTerminal, Append To Array, 1);
+					Modify Global Variable(afkSessions, Append To Array, Global.logIndex);
+					Modify Global Variable(afkStarts, Append To Array, Global.sessionAfkStart[Global.logIndex] - Global.roundStart);
+					Modify Global Variable(afkEnds, Append To Array, Global.endTime - Global.roundStart);
 					Global.sessionAfk[Global.logIndex] += Global.endTime - Global.sessionAfkStart[Global.logIndex];
 					Global.sessionAfkStart[Global.logIndex] = 0;
 				End;
@@ -857,6 +877,11 @@ rule("Match log")
 				"{0},{1},{2}", Global.sessionKills[Global.logIndex], Global.sessionDeaths[Global.logIndex], Global.sessionShots[Global.logIndex]),
 				Custom String("{0},{1},{2}", Global.sessionHits[Global.logIndex], Global.sessionCrouches[Global.logIndex],
 				Global.sessionAfk[Global.logIndex]))));
+		End;
+		"one AFK break per line; no padding; globals retain leavers' final periods"
+		For Global Variable(logIndex, 0, Count Of(Global.afkSessions), 1);
+			Log To Inspector(Custom String("#A,{0},{1},{2}", Global.afkSessions[Global.logIndex], Global.afkStarts[Global.logIndex],
+				Custom String("{0},{1}", Global.afkEnds[Global.logIndex], Global.afkTerminal[Global.logIndex])));
 		End;
 		"ten codes per line; pad with 0, which is never a real code"
 		While(Count Of(Global.killCodes) % 10);

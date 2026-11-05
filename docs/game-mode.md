@@ -12,7 +12,8 @@ The in-game **Active time** timer pauses in the AFK state, and displayed
 kills per minute uses that active time, including the final top-KPM panel.
 Both freeze at the winning event. AFK players have their visibility and
 gravity restored for the end scene. Session boundaries and AFK duration are
-still logged separately; the log format and SR calculation are unchanged.
+logged separately. Format v4 additionally records each AFK break for exact
+competition timing.
 PBs also exclude AFK time and use the actual winning session, rather than
 combining kills and time across rejoins. Older logs without AFK measurements
 retain their recorded playing time.
@@ -36,6 +37,7 @@ it records the round's length and winner, every player session
 victim session. Older files (v1) have one line per player still in the
 lobby. Script v3.6.0 adds exact times of score gains and losses (format v3),
 so rolling-lobby SR can follow actual competition rather than the lobby's age.
+Script v3.7.0 adds AFK start/end records (format v4).
 [Workshop log format](workshop-log-format.md) describes all versions.
 
 The script keeps each session's stats in global arrays, written in the

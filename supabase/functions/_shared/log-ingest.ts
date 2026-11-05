@@ -6,7 +6,7 @@ export type SessionMatch = MatchData & { session_rows?: LogSession[] };
 export type PreparedRound = {
   name: string;
   raw_log: {
-    sha256: string; filename: string | null; host_name: string | null; format_version: 1 | 2 | 3;
+    sha256: string; filename: string | null; host_name: string | null; format_version: 1 | 2 | 3 | 4;
     script_version: string | null; match_id: string; round_length: number | null; winner_name: string | null; text: string;
   };
   matches: (SessionMatch & { played_at: string | null; match_id: string })[];

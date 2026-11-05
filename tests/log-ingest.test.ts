@@ -68,7 +68,7 @@ test('malformed v2 logs are rejected with the offending record', () => {
   const head = '#V,2,3.5.0\n#R,300,Alice\n';
   const alice = '#P,1,Alice,0,0,300,0,50,10,100,50,0,0\n';
   reject(`#R,300,Alice\n#V,2,3.5.0\n${alice}`, /Record 2: #V must be the first line/);
-  reject(`#V,4,4.0.0\n#R,300,Alice\n${alice}`, /unsupported log version 4/);
+  reject(`#V,5,5.0.0\n#R,300,Alice\n${alice}`, /unsupported log version 5/);
   reject(`#V,2,3.5.0\n${alice}`, /Missing #R line/);
   reject(head, /No match records found/);
   reject(`${head}${alice}${alice}`, /Record 4: session 1 appears twice/);
@@ -362,6 +362,10 @@ test('ingest stores raw logs once, v2 sessions and kill pairs', async t => {
       const srBefore = hasSr ? (await db.query('select * from public.rating_events order by match_id, player_name')).rows : null;
       const statsBefore = (await db.query('select id, score, time_in_lobby, afk_seconds, kpm, elo_weight from public.player_matches order by id')).rows;
       await db.exec(await migration(activePbMigration));
+      // The fixture deliberately delayed PBs to exercise their legacy backfill.
+      // Apply the actual v4 helper extension after that prerequisite, as deployed.
+      const afkMigration = await migration('20261105130000_afk_intervals.sql');
+      await db.exec(afkMigration.slice(afkMigration.indexOf('-- Extend all PR #2'), afkMigration.indexOf("notify pgrst")));
       assert.equal(await pb('PBFast'), 150);
       assert.equal(await pb('PBFalse'), null);
       assert.equal(await pb('PBRejoin'), 200); // Only the final 0–50 session, minus its AFK.
@@ -424,6 +428,27 @@ test('ingest stores raw logs once, v2 sessions and kill pairs', async t => {
       }
     });
 
+    await t.test('v4 intervals persist through the importer and database validation rejects inconsistent corrections', async () => {
+      const text = `#V,4,3.7.0
+#R,180,AFKStored
+#P,1,AFKStored,0,0,180,0,50,0,50,50,0,40
+#P,2,AFKEmpty,1,0,180,0,0,0,20,0,0,0
+#A,1,60,100,0` + '\n' + Array.from({length:50},(_,i)=>`#S,1,${101+i},${i+1}`).join('\n');
+      const prepared = await prepareRound(source(text), rows(text));
+      await upload([prepared]);
+      assert.equal(await pb('AFKStored'),140);
+      assert.equal((await db.query<any>('select public._round_winning_session($1) as n',[prepared.raw_log.match_id])).rows[0].n,1);
+      const periods = (await db.query<any>('select afk_intervals from public.player_sessions where match_id=$1 order by session_no',
+        [prepared.raw_log.match_id])).rows;
+      assert.deepEqual(periods.map(s => s.afk_intervals), [[{start_s:60,end_s:100,terminal:false}],[]]);
+      for (const invalid of [[], [{start_s:50,end_s:90,terminal:true}],
+        [{start_s:60,end_s:100,terminal:false},{start_s:90,end_s:100,terminal:false}],
+        [{start_s:-1,end_s:39,terminal:false}], [{start_s:60,end_s:100}], {start_s:60,end_s:100}]) {
+        await assert.rejects(db.query('update public.player_sessions set afk_intervals=$1 where match_id=$2 and session_no=1',
+          [JSON.stringify(invalid),prepared.raw_log.match_id]), /valid_afk_intervals/);
+      }
+    });
+
     await t.test('zero active duration and ambiguous winners cannot create PBs; fast wins need no SR eligibility', async () => {
       for (const [name, duration, afk, duplicate, expected] of [
         ['PBZero', 100, 100, false, null], ['PBAmbiguous', 100, 0, true, null], ['PBMonster', 29, 0, false, 29],
@@ -437,4 +462,34 @@ test('ingest stores raw logs once, v2 sessions and kill pairs', async t => {
   } finally {
     await db.close();
   }
+});
+
+test('v4 AFK breaks retain repeats, leavers, kicks and known empty versus legacy unknown', () => {
+  const log = `#V,4,3.7.0
+#R,180,Alice
+#P,1,Alice,0,0,180,0,0,0,20,0,0,50
+#P,2,Bob,1,0,100,1,0,0,20,0,0,40
+#P,3,Carol,2,0,105,2,0,0,20,0,0,60
+#P,4,Bob,1,110,180,0,0,0,20,0,0,0
+#A,1,60,100,0
+#A,1,170,180,1
+#A,2,60,100,1
+#A,3,45,105,1`;
+  const parsed = parseV2Rows(rows(log));
+  assert.equal(parsed.format_version, 4);
+  assert.deepEqual(parsed.sessions.map(s => s.afk_intervals), [
+    [{ start_s: 60, end_s: 100, terminal: false }, { start_s: 170, end_s: 180, terminal: true }],
+    [{ start_s: 60, end_s: 100, terminal: true }], [{ start_s: 45, end_s: 105, terminal: true }], [],
+  ]);
+  assert.equal(mergeSessions(parsed).find(p => p.player_name === 'Bob')!.afk_seconds, 40);
+  assert.equal(parseV2Rows(rows(v2Log)).sessions[0].afk_intervals, undefined);
+  for (const [from, to] of [
+    ['#A,1,170,180,1', '#A,1,90,180,1'], ['#A,2,60,100,1', '#A,2,60,101,1'],
+    ['#A,3,45,105,1', '#A,3,106,105,1'], ['#A,3,45,105,1', '#A,9,45,105,1'],
+    ['#A,3,45,105,1', '#A,3,NaN,105,1'], ['#A,3,45,105,1', '#A,3,45,104,1'],
+    ['#A,3,45,105,1', '#A,3,45,105,1,0'],
+  ]) assert.throws(() => parseV2Rows(rows(log.replace(from, to))), /AFK|number|columns/);
+  assert.throws(() => parseV2Rows(rows(log.replace('#V,4', '#V,3'))), /#A requires/);
+  assert.throws(() => parseV2Rows(rows(log.replace('#R,180', '#R,179'))), /outside the round/);
+  assert.doesNotThrow(() => parseV2Rows(rows(log.replace(',0,0,50\n', ',0,0,50.01\n'))));
 });

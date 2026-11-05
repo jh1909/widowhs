@@ -10,9 +10,30 @@ time of day (`[20:15:09] `), to `Log-YYYY-MM-DD-HH-MM-SS.txt` in the Workshop
 log folder. The site reads the round's date from the file name as Berlin time
 and strips the prefixes.
 
+**v4** (Workshop v3.7.0) adds exact AFK breaks.
 **v3** (Workshop v3.6.0) adds timestamped score changes for rolling-lobby SR.
 **v2** was introduced by Workshop v3.5.0. Files whose first line is `#V`
 declare their format version; other files are read as v1. All are supported.
+
+## v4
+
+Uses the v3 records with `#V,4,3.7.0` and one `#A,session,start,end,terminal`
+line per AFK break. Times are round-relative seconds. `terminal` is `0` for
+an actual return and `1` for closure by leave, kick or winning event. Returns
+exclude `[start,end)` from competition; terminal closures exclude both
+endpoints, including the winning event. Zero-length terminal closures retain
+that distinction. There is no padding. Records for each session are ordered
+and nonoverlapping, and terminal closure must end at the session boundary.
+
+Every v4 session has `afk_intervals`, including `[]` for no AFK. Earlier logs
+keep NULL (unknown); their AFK durations are retained. The parser and database
+validate bounds, order and the summed AFK duration. Inspector rounds endpoints
+and totals independently to hundredths, so the permitted discrepancy is
+`(number of breaks + 1) × 0.01 seconds`; endpoints are never shifted. Raw AFK
+duration still drives active timers/KPM/PBs. Capture uses existing event rules
+and globals, so a destroyed player object cannot lose its final AFK break.
+All records are written only at round end. Deploy the migration and parser
+before publishing the new script.
 
 ## v3
 
