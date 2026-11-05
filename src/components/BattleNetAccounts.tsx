@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ExternalLink, LoaderCircle, X } from "lucide-react";
+import { AlertTriangle, ExternalLink, LoaderCircle, X } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import VerifiedBadge from "./VerifiedBadge";
@@ -124,7 +124,7 @@ export default function BattleNetAccounts({ playerName, accounts, isOwner, onCha
   };
 
   return (
-    <section className="flex flex-col gap-3 mt-4">
+    <section id="battlenet-accounts" className="flex flex-col gap-3 mt-4 scroll-mt-24 rounded-2xl transition-all duration-300">
       <h3 className="font-sans text-[24px] font-semibold text-on-surface uppercase tracking-tight">Battle.net Accounts</h3>
       <div className="panel p-6 flex flex-col gap-4">
         <p className="text-zinc-400 text-sm leading-relaxed">
@@ -132,6 +132,17 @@ export default function BattleNetAccounts({ playerName, accounts, isOwner, onCha
           Workshop logs use player names. Verified accounts take priority over unverified names.
           A name already verified through another Battle.net account cannot be linked.
         </p>
+        <div className="rounded-lg border border-amber-500/25 bg-amber-500/10 p-4 text-xs text-zinc-300 flex items-start gap-3">
+          <AlertTriangle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+          <div className="leading-relaxed space-y-1">
+            <p className="font-semibold text-amber-300 text-sm">
+              Important: Use a unique BattleTag / in-game name
+            </p>
+            <p className="text-zinc-400">
+              Overwatch Workshop match logs only record player display names without numeric tags (e.g. <span className="font-mono text-zinc-300">prx</span> instead of <span className="font-mono text-zinc-300">prx#21675</span>). Because identical names cannot be distinguished in raw match files, we strongly recommend choosing a unique BattleTag and in-game name to prevent your match stats from being shared or clashing with another player.
+            </p>
+          </div>
+        </div>
         {isOwner && result && outcomes[result] && (
           <div role="status" className={`rounded-lg border p-3 text-sm flex items-start justify-between gap-3 ${result === "success" ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-200" : "border-amber-500/30 bg-amber-500/10 text-amber-200"}`}>
             <span>{outcomes[result]}</span>

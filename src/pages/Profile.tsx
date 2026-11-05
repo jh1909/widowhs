@@ -8,6 +8,7 @@ import {
   Trophy,
   Timer,
   AlertTriangle,
+  ShieldAlert,
   Edit2,
   Check,
   X,
@@ -63,6 +64,7 @@ export default function Profile() {
   const [isEditingName, setIsEditingName] = useState(false);
   const [editNameValue, setEditNameValue] = useState("");
   const [editLoading, setEditLoading] = useState(false);
+  const [editNameError, setEditNameError] = useState<string | null>(null);
 
   const [historyData, setHistoryData] = useState<{ elo: number; created_at: string; matches?: number }[]>([]);
   const [historyTotalDays, setHistoryTotalDays] = useState(0);
@@ -324,9 +326,11 @@ export default function Profile() {
   const handleUpdateName = async () => {
     if (!editNameValue.trim() || editNameValue.trim() === player.name) {
       setIsEditingName(false);
+      setEditNameError(null);
       return;
     }
     setEditLoading(true);
+    setEditNameError(null);
     try {
       const { data: renamedPlayer, error } = await supabase.rpc("rename_player", {
         p_current_name: player.name,
@@ -341,12 +345,31 @@ export default function Profile() {
         setUser((previous) => previous ? { ...previous, username: renamedPlayer.name } : null);
       }
       setIsEditingName(false);
+      setEditNameError(null);
       navigate(`/profile/${encodeURIComponent(renamedPlayer.name)}`, { replace: true });
     } catch (err: any) {
       console.error("Error updating name:", err);
-      alert(err.message || "Failed to update name.");
+      const isNameTaken =
+        err?.code === "23505" ||
+        /already linked|already taken/i.test(err?.message || "");
+      const message = isNameTaken
+        ? "This name is already taken. If it's your account name, please verify via Battle.net."
+        : (err?.message || "Failed to update name.");
+      setEditNameError(message);
+      alert(message);
     } finally {
       setEditLoading(false);
+    }
+  };
+
+  const scrollToBattleNet = () => {
+    const section = document.getElementById("battlenet-accounts");
+    if (section) {
+      section.scrollIntoView({ behavior: "smooth" });
+      section.classList.add("ring-2", "ring-toxic-purple", "shadow-[0_0_30px_rgba(157,78,221,0.4)]");
+      setTimeout(() => {
+        section.classList.remove("ring-2", "ring-toxic-purple", "shadow-[0_0_30px_rgba(157,78,221,0.4)]");
+      }, 2500);
     }
   };
 
@@ -431,31 +454,44 @@ export default function Profile() {
               />
 
               {isEditingName ? (
-                <div className="flex items-center gap-2">
-                  <input
-                    type="text"
-                    value={editNameValue}
-                    onChange={(e) => setEditNameValue(e.target.value)}
-                    className="bg-surface-container/50 border border-toxic-purple/50 rounded px-3 py-1 font-sans text-[32px] md:text-[48px] font-bold text-white tracking-tighter w-[300px] focus:outline-none focus:border-toxic-purple"
-                    autoFocus
-                    disabled={editLoading}
-                  />
-                  <button
-                    onClick={handleUpdateName}
-                    disabled={editLoading}
-                    className="p-2 bg-green-500/20 text-green-400 hover:bg-green-500/30 rounded transition-colors disabled:opacity-50"
-                    title="Save Name"
-                  >
-                    <Check className="w-6 h-6" />
-                  </button>
-                  <button
-                    onClick={() => setIsEditingName(false)}
-                    disabled={editLoading}
-                    className="p-2 bg-red-500/20 text-red-400 hover:bg-red-500/30 rounded transition-colors disabled:opacity-50"
-                    title="Cancel"
-                  >
-                    <X className="w-6 h-6" />
-                  </button>
+                <div className="flex flex-col gap-2">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={editNameValue}
+                      onChange={(e) => {
+                        setEditNameValue(e.target.value);
+                        if (editNameError) setEditNameError(null);
+                      }}
+                      className="bg-surface-container/50 border border-toxic-purple/50 rounded px-3 py-1 font-sans text-[32px] md:text-[48px] font-bold text-white tracking-tighter w-[300px] focus:outline-none focus:border-toxic-purple"
+                      autoFocus
+                      disabled={editLoading}
+                    />
+                    <button
+                      onClick={handleUpdateName}
+                      disabled={editLoading}
+                      className="p-2 bg-green-500/20 text-green-400 hover:bg-green-500/30 rounded transition-colors disabled:opacity-50"
+                      title="Save Name"
+                    >
+                      <Check className="w-6 h-6" />
+                    </button>
+                    <button
+                      onClick={() => {
+                        setIsEditingName(false);
+                        setEditNameError(null);
+                      }}
+                      disabled={editLoading}
+                      className="p-2 bg-red-500/20 text-red-400 hover:bg-red-500/30 rounded transition-colors disabled:opacity-50"
+                      title="Cancel"
+                    >
+                      <X className="w-6 h-6" />
+                    </button>
+                  </div>
+                  {editNameError && (
+                    <p className="text-xs text-amber-300 font-sans max-w-md leading-relaxed bg-amber-500/10 border border-amber-500/30 rounded px-3 py-1.5">
+                      {editNameError}
+                    </p>
+                  )}
                 </div>
               ) : (
                 <>
@@ -470,6 +506,7 @@ export default function Profile() {
                     <button
                       onClick={() => {
                         setEditNameValue(player.name);
+                        setEditNameError(null);
                         setIsEditingName(true);
                       }}
                       className="p-2 ml-2 bg-surface-container hover:bg-surface-container-high rounded text-zinc-400 hover:text-toxic-purple transition-colors cursor-pointer"
@@ -525,6 +562,61 @@ export default function Profile() {
           </div>
         </div>
       </header>
+
+      {/* Unverified Battle.net Banner for Profile Owner */}
+      {!!user && user.id === player.user_id && !player.is_verified && (
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={scrollToBattleNet}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              scrollToBattleNet();
+            }
+          }}
+          className="group panel p-5 sm:p-6 bg-gradient-to-r from-toxic-purple/20 via-surface-container/60 to-surface-container/40 border border-toxic-purple/40 hover:border-toxic-purple cursor-pointer transition-all duration-300 shadow-[0_0_25px_rgba(157,78,221,0.15)] hover:shadow-[0_0_35px_rgba(157,78,221,0.3)] flex flex-col sm:flex-row items-center justify-between gap-5 select-none"
+          title="Click to scroll to Battle.net setup"
+        >
+          <div className="flex items-center gap-4 text-left">
+            <div className="p-3 rounded-xl bg-toxic-purple/15 text-toxic-purple border border-toxic-purple/30 group-hover:scale-105 transition-transform shrink-0">
+              <ShieldAlert className="w-7 h-7 sm:w-8 sm:h-8" />
+            </div>
+            <div className="flex flex-col gap-1">
+              <div className="flex items-center gap-2">
+                <span className="font-sans font-bold text-lg sm:text-xl text-white tracking-tight">
+                  Battle.net Account Not Linked
+                </span>
+                <span className="text-[11px] font-mono uppercase tracking-wider px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 font-semibold">
+                  Unverified
+                </span>
+              </div>
+              <p className="text-zinc-400 text-sm leading-relaxed max-w-2xl">
+                Link your Battle.net account below to verify your identity, protect your nickname and claim your match stats. For accurate tracking, a unique in-game name is recommended.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex flex-col items-center justify-center gap-1 shrink-0 pt-2 sm:pt-0">
+            <svg
+              className="w-10 h-7 text-toxic-purple group-hover:text-purple-300 transition-all duration-300 group-hover:translate-y-1.5 animate-bounce"
+              viewBox="0 0 32 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="3.2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M4 5 L16 13 L28 5" />
+              <path d="M4 13 L16 21 L28 13" />
+            </svg>
+            <span className="font-mono text-[11px] font-bold uppercase tracking-wider text-zinc-400 group-hover:text-zinc-200 transition-colors">
+              Link Below
+            </span>
+          </div>
+        </div>
+      )}
 
       <ProfileDetails key={`${player.name}-${user?.id ?? 'guest'}`} playerName={player.name} isOwner={!!user && user.id === player.user_id} isAdmin={!!user?.isAdmin && !!player.user_id} />
 
