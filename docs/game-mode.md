@@ -8,6 +8,15 @@ full health, and the script removes damage falloff at long range. Players
 idle for 15 seconds are moved to an AFK state; in Ranked mode they are
 removed after a further 60 seconds.
 
+The in-game **Active time** timer pauses in the AFK state, and displayed
+kills per minute uses that active time, including the final top-KPM panel.
+Both freeze at the winning event. AFK players have their visibility and
+gravity restored for the end scene. Session boundaries and AFK duration are
+still logged separately; the log format and SR calculation are unchanged.
+PBs also exclude AFK time and use the actual winning session, rather than
+combining kills and time across rejoins. Older logs without AFK measurements
+retain their recorded playing time.
+
 The script is published on Workshop.codes as
 [Widow HS 2.0](https://workshop.codes/widowhs), share code `TCG2W`.
 Workshop.codes is its canonical home; changes are published there by its

@@ -340,14 +340,17 @@ rule("Per player timer")
 
 	actions
 	{
-		Event Player.playerTime = (Global.gameComplete ? Global.endTime : Total Time Elapsed) - Event Player.startTime;
+		"active time: completed AFK periods plus the open period, frozen at the winning event"
+		Event Player.playerTime = Max(0, (Global.sessionAfkStart[Event Player.session] ? Min(
+			Global.sessionAfkStart[Event Player.session], Global.gameComplete ? Global.endTime : Total Time Elapsed) : (
+			Global.gameComplete ? Global.endTime : Total Time Elapsed)) - Event Player.startTime - Global.sessionAfk[Event Player.session]);
 		Event Player.playerTimeMinutes = Round To Integer(Event Player.playerTime / 60, Down);
 		Event Player.playerTimeSeconds = Round To Integer(Event Player.playerTime % 60, Down);
 		Event Player.playerTimeSecondsFormatted = Event Player.playerTimeSeconds >= 10 ? Event Player.playerTimeSeconds : Custom String(
 			"0{0}", Event Player.playerTimeSeconds);
-		Event Player.KPM = Score Of(Event Player) / (Event Player.playerTime / 60);
+		Event Player.KPM = Event Player.playerTime > 0 ? Score Of(Event Player) / (Event Player.playerTime / 60) : 0;
 		If(!Global.gameComplete);
-			Wait(1 - Event Player.playerTime % 1, Ignore Condition);
+			Wait(Event Player.afk ? 1 : 1 - Event Player.playerTime % 1, Ignore Condition);
 			Loop;
 	}
 }
@@ -363,6 +366,7 @@ rule("Crouch counter")
 
 	conditions
 	{
+		Global.gameComplete == False;
 		Is Crouching(Event Player) == True;
 	}
 
@@ -446,10 +450,14 @@ rule("Final top stats")
 		Global.topAccPlayer = Last Of(Sorted Array(Filtered Array(All Players(All Teams), Current Array Element.acc > 0),
 			Current Array Element.acc));
 		Global.topAcc = Global.topAccPlayer.acc;
-		"kills per minute from the end time, the same value each player's timer logs"
+		"exact active KPM at the win, even before the player's next timer tick or after the log closes AFK"
 		Global.topKPMPlayer = Last Of(Sorted Array(Filtered Array(All Players(All Teams), Score Of(Current Array Element) > 0), Score Of(
-			Current Array Element) / ((Global.endTime - Current Array Element.startTime) / 60)));
-		Global.topKPM = Score Of(Global.topKPMPlayer) / ((Global.endTime - Global.topKPMPlayer.startTime) / 60);
+			Current Array Element) / (Max(0.001, (Global.sessionAfkStart[Current Array Element.session] ? Min(
+			Global.sessionAfkStart[Current Array Element.session], Global.endTime) : Global.endTime) - Current Array Element.startTime
+			- Global.sessionAfk[Current Array Element.session]) / 60)));
+		Global.topKPM = Score Of(Global.topKPMPlayer) / (Max(0.001, (Global.sessionAfkStart[Global.topKPMPlayer.session] ? Min(
+			Global.sessionAfkStart[Global.topKPMPlayer.session], Global.endTime) : Global.endTime) - Global.topKPMPlayer.startTime
+			- Global.sessionAfk[Global.topKPMPlayer.session]) / 60);
 		Global.topAccName = Custom String("{0}", Global.topAccPlayer);
 		Global.topKPMName = Custom String("{0}", Global.topKPMPlayer);
 	}
@@ -601,6 +609,10 @@ rule("AFK enter")
 	{
 		Wait(15, Abort When False);
 		Wait Until(Has Spawned(Event Player) && Is Alive(Event Player), 5);
+		"the spawn wait must not start AFK after the win or after activity resumes"
+		If(Global.gameComplete || Is Firing Secondary(Event Player) || Magnitude Of(Throttle Of(Event Player)) > 0);
+			Abort;
+		End;
 		Event Player.afk = True;
 		Global.sessionAfkStart[Event Player.session] = Total Time Elapsed;
 		Set Status(Event Player, Null, Phased Out, 9999);
@@ -623,9 +635,12 @@ rule("AFK enter")
 		"until the player returns, the round ends or, in Ranked, the kick deadline passes"
 		Wait Until(!Event Player.afk || Global.gameComplete || Global.ranked && Total Time Elapsed >= Event Player.afkDeadline, 99999);
 		If(Event Player.afk && Global.gameComplete);
-			"AFK return stops at the win, so clear the warning here before the end scene"
+			"restore the player for the end scene; Match log closes AFK timing at the winning event"
 			Destroy HUD Text(First Of(Event Player.afkHUD));
 			Destroy HUD Text(Event Player.afkHUD[1]);
+			Set Gravity(Event Player, 100);
+			Clear Status(Event Player, Phased Out);
+			Set Invisible(Event Player, None);
 		Else If(Event Player.afk && Global.ranked);
 			"2: kicked, kept when Player leaves closes the session"
 			Global.sessionStatus[Event Player.session] = 2;
@@ -746,6 +761,7 @@ rule("Player leaves")
 				Global.sessionStatus[Global.logSession] = Max(Global.sessionStatus[Global.logSession], 1);
 				If(Global.sessionAfkStart[Global.logSession]);
 					Global.sessionAfk[Global.logSession] += Total Time Elapsed - Global.sessionAfkStart[Global.logSession];
+					Global.sessionAfkStart[Global.logSession] = 0;
 				End;
 				Global.sessionPlayer[Global.logSession] = Null;
 			End;
@@ -793,7 +809,7 @@ rule("Match completion")
 			Set Facing(Event Player, Direction Towards(Eye Position(Event Player), Global.posCamera), To World);
 			Start Camera(All Players(All Teams), Global.posCamera, Eye Position(Event Player), 4);
 			Disable Game Mode HUD(All Players(All Teams));
-			Create HUD Text(All Players(All Teams), Custom String("Time: {0} min - {1} sec", Event Player.playerTimeMinutes,
+			Create HUD Text(All Players(All Teams), Custom String("Active time: {0} min - {1} sec", Event Player.playerTimeMinutes,
 				Event Player.playerTimeSeconds), Null, Null, Top, 0, Color(Sky Blue), Null, Null, String, Default Visibility);
 			Create In-World Text(All Players(All Teams), Custom String("{0} wins!", Event Player), Global.posText, 3, Clip Against Surfaces,
 				Visible To Position and String, Color(Orange), Default Visibility);
@@ -832,6 +848,7 @@ rule("Match log")
 				Global.sessionEnd[Global.logIndex] = Global.endTime - Global.roundStart;
 				If(Global.sessionAfkStart[Global.logIndex]);
 					Global.sessionAfk[Global.logIndex] += Global.endTime - Global.sessionAfkStart[Global.logIndex];
+					Global.sessionAfkStart[Global.logIndex] = 0;
 				End;
 			End;
 			Log To Inspector(Custom String("#P,{0},{1},{2}", Custom String("{0},{1},{2}", Global.logIndex, Global.sessionName[Global.logIndex],
@@ -1063,7 +1080,7 @@ rule("Small HUD")
 		Create HUD Text(Event Player, Null, Custom String("widowhs.com"), Null, Top, 1, Null, Color(Sky Blue), Null, None,
 			Default Visibility);
 		Event Player.hudID[0] = Last Text ID;
-		Create HUD Text(Event Player, Null, Custom String("\n\nYour Time:　{0}:{1}\nKills / min:   {2}", Event Player.playerTimeMinutes,
+		Create HUD Text(Event Player, Null, Custom String("\n\nActive time:　{0}:{1}\nKills / min:   {2}", Event Player.playerTimeMinutes,
 			Event Player.playerTimeSecondsFormatted, Custom String("{0}\n\nAccuracy:　{1}%\nKillstreak:    {2}", Event Player.KPM,
 			Event Player.acc, Custom String("{0}\nK/D:　　　　{1}{2}", Event Player.currentKS, Event Player.KD,
 			!Global.crouchToggle ? Custom String("\nCrouched:    {0}", Event Player.crouched) : Custom String("")))), Null, Left, False,
@@ -1094,7 +1111,7 @@ rule("Big HUD")
 		Create HUD Text(Event Player, Null, Custom String("widowhs.com"), Null, Top, 1, Null, Color(Green), Null, None,
 			Default Visibility);
 		Event Player.hudID[0] = Last Text ID;
-		Create HUD Text(Event Player, Null, Null, Custom String("\n\nYour Time:　{0}:{1}\nKills / min:   {2}",
+		Create HUD Text(Event Player, Null, Null, Custom String("\n\nActive time:　{0}:{1}\nKills / min:   {2}",
 			Event Player.playerTimeMinutes, Event Player.playerTimeSecondsFormatted, Custom String(
 			"{0}\n\nAccuracy:　{1}%\nKillstreak:    {2}", Event Player.KPM, Event Player.acc, Custom String("{0}\nK/D:　　　　{1}{2}",
 			Event Player.currentKS, Event Player.KD, !Global.crouchToggle ? Custom String("\nCrouched:    {0}", Event Player.crouched)

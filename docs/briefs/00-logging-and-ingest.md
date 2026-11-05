@@ -18,6 +18,12 @@ displays results ([target data flow](../architecture.md#proposed)).
 
 ## Decisions
 
+- **Active-time display and PBs.** The HUD timer and KPM pause during AFK,
+  and AFK players are restored for the end scene. The v3 log contract stays
+  intact. PBs use the actual winning session minus its AFK time, so summed
+  rejoin scores cannot create false wins. Legacy PBs retain recorded time.
+  `20261105120000_active_time_personal_bests.sql` backfills the database;
+  [deployment and in-game checks](../development.md#deployment) remain required.
 - **Timestamped scoring (v3).** Workshop v3.6.0 adds cumulative score changes
   per session, including environmental losses. See [the v3 contract](../workshop-log-format.md#v3).
   This lets SR compare actual shared scoring in a rolling lobby without

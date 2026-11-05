@@ -67,6 +67,14 @@ logs remain supported. The separate rolling-SR migration belongs to PR #3.
 The added Workshop recording uses existing event rules and writes only at
 round end; validate syntax and server load in game before publishing v3.6.0.
 
+Apply `20261105120000_active_time_personal_bests.sql` on staging and then
+production before deploying the website changes. It recalculates PBs from
+actual winning sessions minus AFK time; legacy logs retain their recorded
+times, and public match results expose the actual winning session. The
+Workshop's active-time HUD uses the existing AFK measurements and
+does not change the log format. In-game checks must include AFK pause/return,
+an AFK player at the win, final KPM rankings, leaving/rejoining and server load.
+
 - **Website:** every push to `main` builds and deploys to GitHub Pages
   (`.github/workflows/deploy.yml`). Put `[skip ci]` in docs-only commit
   messages.

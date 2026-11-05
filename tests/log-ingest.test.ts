@@ -86,6 +86,7 @@ test('a malformed file is still rejected whole, naming the record', async () => 
 });
 
 const migration = (name: string) => readFile(new URL(`../supabase/migrations/${name}`, import.meta.url), 'utf8');
+const activePbMigration = '20261105120000_active_time_personal_bests.sql';
 
 const v3Log = `#V,3,3.6.0
 #R,300,Alice
@@ -155,7 +156,9 @@ test('ingest stores raw logs once, v2 sessions and kill pairs', async t => {
       create table public.audit_logs(id bigint generated always as identity primary key,action text,admin_user text,details text);
     `);
     for (const name of (await readdir(new URL('../supabase/migrations/', import.meta.url))).sort()) {
-      await db.exec(await migration(name));
+      // Exercise the PB migration's backfill below, after importing old-format
+      // and session logs through the deployed importer.
+      if (name !== activePbMigration) await db.exec(await migration(name));
     }
 
     const revision = async () => (await db.query<any>('select revision from public.leaderboard_state')).rows[0].revision;
@@ -321,6 +324,114 @@ test('ingest stores raw logs once, v2 sessions and kill pairs', async t => {
         } finally {
           await db.exec('reset role');
         }
+      }
+    });
+
+    const pb = async (name: string) => {
+      const value = (await db.query<any>('select personal_best_time from public.players where name = $1', [name])).rows[0]?.personal_best_time;
+      return value == null ? null : Number(value);
+    };
+    const publicResults = async (match: string) => {
+      await db.exec('set role anon');
+      try {
+        const list = (await db.query<any>('select public.get_global_matches(100, 0) as data')).rows[0].data;
+        const details = (await db.query<any>('select public.get_match_details($1) as data', [match])).rows[0].data;
+        return { winner: list.matches.find((r: any) => r.match_id === match)?.winner, details };
+      } finally { await db.exec('reset role'); }
+    };
+    const timedWinText = `#V,2,3.5.0
+#R,600,PBFast
+#P,1,PBFast,0,100,600,0,50,10,100,50,0,350
+#P,2,PBFalse,1,0,200,1,30,10,100,30,0,0
+#P,3,PBFalse,1,300,600,0,30,10,100,30,0,0`;
+    const timedWin = await prepareRound(source(timedWinText), rows(timedWinText));
+
+    await t.test('active PB migration backfills real winning sessions and preserves legacy times and SR', async () => {
+      const rejoinText = `#V,2,3.5.0
+#R,700,PBRejoin
+#P,1,PBRejoin,0,0,100,1,40,10,100,40,0,10
+#P,2,PBRejoin,0,400,700,0,50,10,100,50,0,100
+#P,3,PBOpp,1,0,700,0,40,10,100,40,0,0`;
+      const legacyText = 'PBLegacy,50,10,50,16.67,5,0,180,600';
+      await upload([timedWin, await prepareRound(source(rejoinText), rows(rejoinText)),
+        await prepareRound(source(legacyText), rows(legacyText))]);
+      assert.equal(await pb('PBFast'), 500);
+      assert.equal(await pb('PBFalse'), 500); // The old summed-score rule falsely awards this loss.
+      assert.equal(await pb('PBRejoin'), 400);
+      const hasSr = (await db.query<any>("select to_regclass('public.rating_events') is not null as present")).rows[0].present;
+      const srBefore = hasSr ? (await db.query('select * from public.rating_events order by match_id, player_name')).rows : null;
+      const statsBefore = (await db.query('select id, score, time_in_lobby, afk_seconds, kpm, elo_weight from public.player_matches order by id')).rows;
+      await db.exec(await migration(activePbMigration));
+      assert.equal(await pb('PBFast'), 150);
+      assert.equal(await pb('PBFalse'), null);
+      assert.equal(await pb('PBRejoin'), 200); // Only the final 0–50 session, minus its AFK.
+      assert.equal(await pb('PBLegacy'), 180);
+      if (hasSr) assert.deepEqual((await db.query('select * from public.rating_events order by match_id, player_name')).rows, srBefore);
+      assert.deepEqual((await db.query('select id, score, time_in_lobby, afk_seconds, kpm, elo_weight from public.player_matches order by id')).rows, statsBefore);
+    });
+
+    await t.test('public results identify the logged winner instead of a losing summed rejoin score', async () => {
+      const result = await publicResults(timedWin.raw_log.match_id);
+      assert.equal(result.winner, 'PBFast');
+      assert.deepEqual(result.details.map((p: any) => [p.player_name, p.score, p.is_winner]),
+        [['PBFast', 50, true], ['PBFalse', 60, false]]);
+      for (const p of result.details) for (const key of ['session_rows', 'score_events', 'user_id', 'bnet_accounts'])
+        assert.equal(key in p, false);
+      const legacy = (await db.query<any>("select match_id from public.player_matches where player_name = 'PBLegacy'")).rows[0].match_id;
+      assert.equal((await publicResults(legacy)).winner, 'PBLegacy');
+      assert.equal((await publicResults(legacy)).details[0].is_winner, true);
+    });
+
+    await t.test('PB follows session/round corrections, deletions and later imports', async () => {
+      const match = timedWin.raw_log.match_id;
+      await db.query('update public.player_sessions set afk_seconds = 250 where match_id = $1 and session_no = 1', [match]);
+      assert.equal(await pb('PBFast'), 250);
+      await db.query('update public.player_sessions set start_s = 150 where match_id = $1 and session_no = 1', [match]);
+      assert.equal(await pb('PBFast'), 200);
+      await db.query("update public.raw_logs set winner_name = 'PBFalse' where match_id = $1", [match]);
+      assert.equal(await pb('PBFast'), null);
+      assert.equal(await pb('PBFalse'), null); // Neither of the two 30-kill sessions won.
+      assert.equal((await publicResults(match)).winner, null);
+      assert.ok((await publicResults(match)).details.every((p: any) => !p.is_winner));
+      await db.query("update public.raw_logs set winner_name = 'PBFast' where match_id = $1", [match]);
+      assert.equal(await pb('PBFast'), 200);
+      await db.query('delete from public.player_sessions where match_id = $1 and session_no = 1', [match]);
+      assert.equal(await pb('PBFast'), null);
+      const text = `#V,2,3.5.0\n#R,200,PBFast\n#P,1,PBFast,0,0,200,0,50,10,100,50,0,75`;
+      const round = await prepareRound(source(text), rows(text));
+      await upload([round]);
+      assert.equal(await pb('PBFast'), 125);
+      await db.query('delete from public.raw_logs where match_id = $1', [round.raw_log.match_id]);
+      assert.equal(await pb('PBFast'), null); // No fallback to a session row's elapsed time.
+      assert.equal((await publicResults(round.raw_log.match_id)).winner, null);
+      assert.ok((await publicResults(round.raw_log.match_id)).details.every((p: any) => !p.is_winner));
+    });
+
+    await t.test('session PBs survive profile transfers and cannot be forged by clients', async () => {
+      await db.query("update public.player_matches set player_name = 'PBLegacy' where player_name = 'PBRejoin'");
+      assert.equal(await pb('PBRejoin'), null);
+      assert.equal(await pb('PBLegacy'), 180);
+      await db.query("update public.player_matches set player_name = 'PBRejoin' where logged_player_name = 'PBRejoin'");
+      assert.equal(await pb('PBRejoin'), 200);
+      await db.query("update public.players set personal_best_time = 1 where name = 'PBRejoin'");
+      assert.equal(await pb('PBRejoin'), 200);
+      for (const role of ['anon', 'authenticated', 'service_role']) {
+        await db.exec(`set role ${role}`);
+        try {
+          await assert.rejects(db.query("select public._player_personal_best('PBRejoin')"), /permission denied/);
+          await assert.rejects(db.query('select public._round_winning_session($1)', [timedWin.raw_log.match_id]), /permission denied/);
+        } finally { await db.exec('reset role'); }
+      }
+    });
+
+    await t.test('zero active duration and ambiguous winners cannot create PBs; fast wins need no SR eligibility', async () => {
+      for (const [name, duration, afk, duplicate, expected] of [
+        ['PBZero', 100, 100, false, null], ['PBAmbiguous', 100, 0, true, null], ['PBMonster', 29, 0, false, 29],
+      ] as const) {
+        const text = `#V,2,3.5.0\n#R,${duration},${name}\n#P,1,${name},0,0,${duration},0,50,0,50,50,0,${afk}` +
+          (duplicate ? `\n#P,2,${name},1,0,${duration},0,50,0,50,50,0,0` : '');
+        await upload([await prepareRound(source(text), rows(text))]);
+        assert.equal(await pb(name), expected);
       }
     });
   } finally {

@@ -14,6 +14,10 @@ The match history (`#/matches`) lists rounds newest first; opening one shows
 every participant. Each result keeps the name used in the log, so renames
 don't rewrite history.
 
+Session logs identify the winner from the logged winning session. Match
+lists and result trophies use that result, even if another player accumulated
+more kills across rejoins. Legacy logs retain their score-based fallback.
+
 ## Rating
 
 Every round gets a performance score from a fixed formula: 65% kills per
@@ -43,8 +47,11 @@ A player needs 10 fully counted rounds to appear on the leaderboard. The
 leaderboard sorts by ELO, then PB, then name, and ranks are computed over all
 qualified players before any search or paging. Banned players are left out.
 
-**PB** is a player's fastest time from joining to 50 kills. The **record
-holder** is the fastest PB among all players.
+**PB** is a player's fastest active time from joining to 50 kills, excluding
+AFK time. Session logs use the actual winning session, so earlier sessions
+in a rejoin do not add to the time, and an accumulated score above 50 does
+not establish a win. Legacy logs without AFK data retain their recorded
+playing time. The **record holder** is the fastest PB among all players.
 
 **ELO history** has one point per Berlin calendar day: the average
 performance score of that day's eligible rounds. Profiles show it in 30-day
