@@ -48,3 +48,8 @@ flowchart LR
   values; Auth handles Discord login; Edge Functions (Deno) handle log
   uploads and Battle.net OAuth.
 - **Game:** an Overwatch Workshop script, published on Workshop.codes.
+
+Format v4 stores raw session AFK breaks alongside score histories. Postgres
+removes those periods when deriving SR competition, and session duration facts
+remain authoritative after corrections. Old NULL timelines stay unknown;
+`[]` explicitly means no AFK breaks in a v4 session.

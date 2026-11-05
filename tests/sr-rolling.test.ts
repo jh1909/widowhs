@@ -144,3 +144,19 @@ test('old logs have an explicit time fallback, and a higher cutoff leaves small 
   const params = { ...P, settings: { ...P.settings, lobbySize: { ...P.settings.lobbySize!, minPlayers: 3 } } };
   assert.deepEqual(rate(parts(2), 300, params).events, []);
 });
+
+test('exact AFK intervals exclude entry and terminal win but include actual return, without losing session score history', () => {
+  const baseline = [player('A', 4, 0, 180), player('B', 3, 0, 180), player('C', 0, 0, 180)];
+  baseline[0].scoreEvents = [60, 80, 100, 180].map(at => ({ at, delta: 1 }));
+  baseline[1].scoreEvents = [50, 110, 170].map(at => ({ at, delta: 1 }));
+  const people = baseline.map(p => p.name === 'C' ? { ...p, afk: 40,
+    afkIntervals: [{ start: 60, end: 100, terminal: false }, { start: 180, end: 180, terminal: true }] } : p);
+  const result = rate(people, 180);
+  const ab = result.pairs.find(p => p.a === 'A' && p.b === 'B')!;
+  const ac = result.pairs.find(p => p.a === 'A' && p.b === 'C')!;
+  assert.ok(ab.weight > ac.weight); // C misses entry, mid-break and winning event.
+  const removeTerminal = people.map(p => p.name === 'C' ? { ...p, afkIntervals: p.afkIntervals!.slice(0,1) } : p);
+  assert.ok(rate(removeTerminal, 180).pairs.find(p => p.b === 'C')!.weight > ac.weight);
+  // No ongoing interval subtraction from eligibility: total active remains 140.
+  assert.equal(result.excluded.length, 0);
+});

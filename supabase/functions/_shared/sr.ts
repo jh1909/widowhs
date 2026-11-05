@@ -11,6 +11,7 @@ export type SrParticipant = {
   afk: number;                   // AFK seconds (v2), 0 for v1
   shots: number | null;          // v2 only
   intervals: [number, number][]; // round-relative [start, end]; v1: [[length - present, length]]
+  afkIntervals?: { start: number; end: number; terminal: boolean }[]; // v4, undefined means legacy unknown
   scoreEvents?: { at: number; delta: number }[]; // v3: exact session score gains/losses, merged by profile
 };
 export type SrRound = { id: string; playedAt: string; length: number; winner: string | null; participants: SrParticipant[] };
@@ -163,6 +164,23 @@ export function normaliseIntervals(intervals: [number, number][]): [number, numb
   return out;
 }
 
+// AFK starts exclude the event at entry. Only an actual return includes
+// the event at its end; terminal closures remain AFK through leave/kick/win.
+export function isActiveAt(p: Pick<SrParticipant, 'intervals' | 'afkIntervals'>, at: number): boolean {
+  return p.intervals.some(([a, b]) => a <= at && at <= b) &&
+    !p.afkIntervals?.some(b => b.start <= at && (at < b.end || b.terminal && at === b.end));
+}
+
+export function activeIntervals(p: Pick<SrParticipant, 'intervals' | 'afkIntervals'>): [number, number][] {
+  let out = normaliseIntervals(p.intervals);
+  for (const period of p.afkIntervals ?? []) {
+    out = out.flatMap(([a, b]): [number, number][] => period.end <= a || period.start >= b ? [[a, b]] :
+      [...(period.start > a ? [[a, period.start] as [number, number]] : []),
+        ...(period.end < b ? [[period.end, b] as [number, number]] : [])]);
+  }
+  return out;
+}
+
 function overlap(x: [number, number][], y: [number, number][]): number {
   let total = 0;
   for (const [xs, xe] of x) for (const [ys, ye] of y) total += Math.max(0, Math.min(xe, ye) - Math.max(xs, ys));
@@ -173,6 +191,7 @@ type Entry = {
   name: string; kills: number; weight: number; active: number; intervals: [number, number][]; span: number;
   ratedWeight: number;
   scoreEvents?: SrParticipant['scoreEvents'];
+  afkIntervals?: SrParticipant['afkIntervals'];
   sr: number; uncertainty: number; g: number;
   s1: number; s2: number; sw: number; ss: number; se: number; pairs: number;
 };
@@ -198,8 +217,9 @@ function scoringPairs(entries: Entry[], params: SrParams): Map<string, { ka: num
   const events = entries.flatMap((e, actor) => e.scoreEvents!.map((event, order) => ({ ...event, actor, order })))
     .sort((a, b) => a.at - b.at || a.actor - b.actor || a.order - b.order);
   for (const event of events) {
-    const present = entries.map((e, i) => e.intervals.some(([a, b]) => a <= event.at && event.at <= b) ? i : -1)
+    const present = entries.map((e, i) => isActiveAt(e, event.at) ? i : -1)
       .filter(i => i >= 0);
+    if (!present.includes(event.actor)) continue;
     const quality = lobbySizeWeight(present.length, params.settings.lobbySize);
     if (quality === 0) continue;
     const unit = 1 / (present.length - 1);
@@ -279,14 +299,14 @@ export function rateRound(state: ReadonlyMap<string, SrPlayer>, round: SrRound, 
     const active = Math.max(0, p.present - p.afk);
     const reason = srParticipationExclusion(p, s, timed);
     if (reason) { excluded.push({ name: p.name, reason }); continue; }
-    const intervals = normaliseIntervals(p.intervals);
+    const intervals = timed ? normaliseIntervals(p.intervals) : activeIntervals(p);
     let span = 0;
     for (const [a, b] of intervals) span += b - a;
     const player = state.get(p.name) ?? startingPlayer(p.name, params, seed);
     const uncertainty = preRoundUncertainty(player, round.playedAt, params);
     entries.push({
       name: p.name, kills: p.kills, weight: Math.min(1, active / round.length), active, intervals, span,
-      sr: player.sr, uncertainty, g: glickoG(uncertainty, params.d), ratedWeight: 0, scoreEvents: p.scoreEvents,
+      sr: player.sr, uncertainty, g: glickoG(uncertainty, params.d), ratedWeight: 0, scoreEvents: p.scoreEvents, afkIntervals: p.afkIntervals,
       s1: 0, s2: 0, sw: 0, ss: 0, se: 0, pairs: 0,
     });
   }
@@ -296,8 +316,8 @@ export function rateRound(state: ReadonlyMap<string, SrPlayer>, round: SrRound, 
   const scoring = timed ? scoringPairs(entries, params) : null;
   // Integrate the curve over concurrent sessions, not over the average size
   // or the total names in the round. Normalising each period separately also
-  // keeps replacements from diluting a player's evidence. AFK timestamps are
-  // unavailable: keep the existing pairwise active-time cap below.
+  // keeps replacements from diluting a player's evidence. Known AFK periods
+  // are removed; the active-time cap remains for legacy unknown timing.
   const pairWeights = entries.map(() => entries.map(() => 0));
   if (s.lobbySize !== undefined && scoring === null) {
     const boundaries = [...new Set([0, round.length, ...entries.flatMap(e => e.intervals.flat())])]

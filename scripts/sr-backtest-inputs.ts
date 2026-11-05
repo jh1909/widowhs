@@ -1,18 +1,18 @@
-import { compareRounds, normaliseIntervals, srParticipationExclusion, timeKey, type SrParams, type SrRound } from "../supabase/functions/_shared/sr.ts";
+import { activeIntervals, isActiveAt, compareRounds, normaliseIntervals, srParticipationExclusion, timeKey, type SrParams, type SrRound } from "../supabase/functions/_shared/sr.ts";
 export type Row = Record<string, string | null>;
 const num = (v: string | null | undefined) => (v == null || v === "" ? null : Number(v));
 
 export function meanConcurrentSize(round: SrRound, params: SrParams): number {
   const timed = params.settings.rollingEvidenceKills !== undefined && round.participants.some(p => p.scoreEvents !== undefined);
   const people = round.participants.filter(p => srParticipationExclusion(p, params.settings, timed) === null);
-  const at = (time: number) => people.filter(p => p.intervals.some(([a, b]) => a <= time && time <= b)).length;
+  const at = (time: number) => people.filter(p => isActiveAt(p, time)).length;
   let total = 0, denominator = 0;
   if (timed) {
-    for (const p of people) for (const e of p.scoreEvents!) if (e.delta > 0) {
+    for (const p of people) for (const e of p.scoreEvents!) if (e.delta > 0 && isActiveAt(p, e.at)) {
       const n = at(e.at); if (n >= 2) { total += n; denominator++; }
     }
   } else {
-    const bounds = [...new Set(people.flatMap(p => p.intervals.flat()))].sort((a, b) => a - b);
+    const bounds = [...new Set(people.flatMap(p => activeIntervals(p).flat()))].sort((a, b) => a - b);
     for (let i = 1; i < bounds.length; i++) {
       const n = at((bounds[i - 1] + bounds[i]) / 2), duration = bounds[i] - bounds[i - 1];
       if (n >= 2) { total += n * duration; denominator += duration; }
@@ -101,7 +101,7 @@ export function assembleRounds(matches: Row[], profiles: Set<string>, aliases: M
         : [[length - Math.min(m.present, length), length]] as [number, number][];
       const present = intervals.reduce((sum, [a, b]) => sum + b - a, 0);
       let scoreEvents: SrRound['participants'][number]['scoreEvents'];
-      if (Number(log?.format_version) === 3) {
+      if (Number(log?.format_version) >= 3) {
         if (!m.sessions.length || m.sessions.some(s => s.score_events == null)) throw new Error(`Incomplete v3 histories in ${id}`);
         scoreEvents = m.sessions.sort((a, b) => Number(a.session_no) - Number(b.session_no)).flatMap(s => {
           let previous = 0;
@@ -111,8 +111,14 @@ export function assembleRounds(matches: Row[], profiles: Set<string>, aliases: M
           });
         }).sort((a, b) => a.at - b.at);
       }
-      return { name, kills: m.kills, present, afk: structured ? m.afk : 0, shots: structured ? m.shots : null,
-        intervals, ...(scoreEvents === undefined ? {} : { scoreEvents }) };
+      let afkIntervals: SrRound['participants'][number]['afkIntervals'];
+      if (Number(log?.format_version) === 4) {
+        if (!m.sessions.length || m.sessions.some(s => s.afk_intervals == null)) throw new Error(`Incomplete v4 AFK intervals in ${id}`);
+        afkIntervals = m.sessions.flatMap(s => (JSON.parse(s.afk_intervals!) as
+          { start_s: number; end_s: number; terminal: boolean }[]).map(b => ({ start: b.start_s, end: b.end_s, terminal: b.terminal })));
+      }
+      return { name, kills: m.kills, present, afk: Number(log?.format_version) === 4 ? m.sessions.reduce((sum,s) => sum + Number(s.afk_seconds),0) : structured ? m.afk : 0, shots: structured ? m.shots : null,
+        intervals, ...(afkIntervals === undefined ? {} : { afkIntervals }), ...(scoreEvents === undefined ? {} : { scoreEvents }) };
     });
     if (!participants.length) continue;
     const top = Math.max(...participants.map((p) => p.kills));

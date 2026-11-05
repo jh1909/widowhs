@@ -80,3 +80,10 @@ ranked 1–3 get a podium frame on their profile.
 
 All of these are currently computed in the browser;
 [brief 05](briefs/05-badges.md) moves them to the server and adds more.
+
+Format v4 records exact AFK breaks. An AFK player is excluded as an opponent
+and from concurrent lobby size during those breaks; their earlier and later
+scores and eligibility remain intact. An actual return includes the event at
+its timestamp. Closure by leave, kick or the winning event remains AFK at that
+endpoint. The time fallback also uses active spans. Older logs retain unknown
+AFK timing and their previous duration-based behavior.

@@ -172,3 +172,9 @@ the session-wide shot-rate floor for timestamped logs, keeping prior waiting
 from changing eligibility. Old logs retain their existing effort checks.
 Use a new parameter version and switch active versions in one transaction,
 as for curve tuning. The replay hooks cover corrections to score histories.
+
+After the v4 data migration, apply `20261105140000_afk_skill_rating.sql` for
+SR, on staging and then production. It replays history and excludes known AFK
+breaks from scoring comparisons and concurrent size, including the configured
+time fallback. Older logs keep their prior results; old timestamps are not
+reconstructed. No website or parameter change is needed for this SR layer.

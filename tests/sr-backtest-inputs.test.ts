@@ -56,3 +56,22 @@ test('size reports retain low-shot scoring and genuine scoreless residents after
   round.participants[1].shots = 0; // actual idle/no-effort participant is excluded
   assert.equal(meanConcurrentSize(round, DEFAULT_SR_PARAMS), 7);
 });
+
+test('backtest v4 keeps raw attendance and AFK totals across rejoins with explicit terminal endpoints', () => {
+  const ss = sessions.map((s,i) => ({ ...s, afk_seconds: String(i === 0 ? 10 : i === 1 ? 20 : 0), afk_intervals: JSON.stringify(i === 0 ?
+    [{ start_s: 90, end_s: 100, terminal: true }] : i === 1 ? [{ start_s: 200, end_s: 220, terminal: false }] : []) }));
+  const round = assemble(matches, [{ ...logs[0], format_version: '4' }], ss).rounds[0];
+  const a = round.participants[0];
+  assert.equal(a.present, 250); assert.equal(a.afk, 30);
+  assert.deepEqual(a.afkIntervals, [{ start: 90, end: 100, terminal: true }, { start: 200, end: 220, terminal: false }]);
+  assert.equal(a.scoreEvents!.length, 3);
+  assert.throws(() => assemble(matches, [{ ...logs[0], format_version: '4' }], sessions), /Incomplete v4 AFK/);
+});
+
+test('backtest concurrent-size reporting skips scoring actors at AFK entry just like the engine', () => {
+  const p = (name: string) => ({name,kills:1,present:180,afk:0,shots:100,intervals:[[0,180]] as [number,number][],scoreEvents:[{at:100,delta:1}]});
+  const r: SrRound = {id:'entry',playedAt:'2026-11-05T00:00:00Z',length:180,winner:null,participants:[
+    {...p('A'),afk:40,afkIntervals:[{start:60,end:100,terminal:false}],scoreEvents:[{at:60,delta:1}]},p('B'),p('C'),
+  ]};
+  assert.equal(meanConcurrentSize(r,DEFAULT_SR_PARAMS),3);
+});

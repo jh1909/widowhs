@@ -952,3 +952,70 @@ test('replays agree with sr.ts on a random history; incremental and relabelled r
     await db.close();
   }
 });
+
+test('v4 log import makes phased AFK equivalent to leaving in SQL and reference, with replay and fallback intact', async () => {
+  const s = await setup();
+  const { db, round: prepare, upload, inputs, assertMatchesScratch, versions, roundsRewritten } = s;
+  try {
+    const log = (afk: boolean) => {
+      const ps = ['DuelA','DuelB',...Array.from({length:6},(_,i)=>`Resident${i}`)];
+      const events = ps.slice(0,2).flatMap((_,i) => Array.from({length:i?40:50},(_,j) =>
+        ({session:i+1,at:(j+1)*105/(i?41:50),score:j+1}))).sort((a,b)=>a.at-b.at||a.session-b.session);
+      return '#V,4,3.7.0\n#R,105,DuelA\n'+ps.map((name,i)=>
+        `#P,${i+1},${name},${i},0,${i<2||afk?105:45},${i<2||afk?0:1},${i===0?50:i===1?40:0},0,100,0,0,${i>=2&&afk?60:0}`).join('\n')+
+        '\n'+events.map(e=>`#S,${e.session},${e.at},${e.score}`).join('\n')+
+        (afk?'\n'+ps.slice(2).map((_,i)=>`#A,${i+3},45,105,1`).join('\n'):'');
+    };
+    const ids = await upload(await prepare(log(false),'2026-11-03T00:00:00'),await prepare(log(true),'2026-11-04T00:00:00'));
+    const rounds = (await inputs()).filter(r=>ids.includes(r.match_id)).map(r=>r.round as SrRound);
+    const pure = [];
+    for (const r of rounds) {
+      const result = (await db.query<any>(`select public._sr_rate_round_json(${PARAMS_SQL},$5,'{}') as r`,[...paramsRow(P),JSON.stringify(r)])).rows[0].r;
+      assertSameRound(rateRound(new Map(),r,P),result,'v4 import'); pure.push(result);
+    }
+    assert.deepEqual(pure[0],pure[1]);
+    assert.equal(rounds[1].participants[2].present,105);
+    assert.equal(rounds[1].participants[2].afk,60);
+    assert.deepEqual(rounds[1].participants[2].afkIntervals,[{start:45,end:105,terminal:true}]);
+    // Exact winning timestamp: terminal AFK points exclude the player, while
+    // zero-duration actual returns are empty and retain the winning event.
+    const boundaries: any[] = [];
+    for (const terminal of [false,true]) {
+      const boundary: SrRound = structuredClone(rounds[0]);
+      boundary.participants[2].intervals=[[0,105]]; boundary.participants[2].present=105;
+      boundary.participants[2].afkIntervals=[{start:105,end:105,terminal}];
+      const actual = (await db.query<any>(`select public._sr_rate_round_json(${PARAMS_SQL},$5,'{}') as r`,
+        [...paramsRow(P),JSON.stringify(boundary)])).rows[0].r;
+      assertSameRound(rateRound(new Map(),boundary,P),actual,'terminal point');
+      boundaries.push(actual);
+    }
+    assert.ok(boundaries[0].events[0].weight > boundaries[1].events[0].weight);
+    const pb = (await db.query<any>("select personal_best_time::float as pb from public.players where name='DuelA'")).rows[0].pb;
+    assert.equal(pb,105);
+    assert.equal((await db.query<any>('select public._round_winning_session($1) as n',[ids[1]])).rows[0].n,1);
+    await assertMatchesScratch();
+    // Move one break while keeping its total; all later ratings replay.
+    const before = await versions();
+    await db.query(`update public.player_sessions set afk_intervals='[{"start_s":30,"end_s":90,"terminal":false}]'
+      where match_id=$1 and session_no=3`,[ids[1]]);
+    assert.ok((await roundsRewritten(before)).has(ids[1]));
+    await assertMatchesScratch();
+    await assert.rejects(db.query(`update public.player_sessions set afk_intervals='[]' where match_id=$1 and session_no=3`,[ids[1]]),/valid_afk_intervals/);
+    await db.query(`update public.player_sessions set afk_intervals='[]',afk_seconds=0 where match_id=$1 and session_no=3`,[ids[1]]);
+    await assertMatchesScratch();
+    const corrected = (await inputs()).find(r=>r.match_id===ids[1]).round as SrRound;
+    assert.equal(corrected.participants[2].present,105);
+    assert.equal(corrected.participants[2].afk,0); // participation cache still says 60
+    assert.deepEqual(corrected.participants[2].afkIntervals,[]);
+    assert.equal(rateRound(new Map(),corrected,P).excluded.some(e=>e.name==='Resident0'),false);
+    // Configured time fallback consumes active spans without a second AFK subtraction.
+    await db.exec("update public.rating_params set settings=settings-'rollingEvidenceKills'-'rollingMinShots' where active");
+    await assertMatchesScratch();
+    await db.exec("update public.players set name='Resident renamed' where name='Resident0'");
+    await assertMatchesScratch();
+    await db.exec("update public.players set is_banned=true where name='Resident1'");
+    await assertMatchesScratch();
+    await db.query('delete from public.player_matches where match_id=$1',[ids[1]]);
+    await assertMatchesScratch();
+  } finally { await db.close(); }
+});

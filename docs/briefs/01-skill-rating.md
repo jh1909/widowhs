@@ -303,3 +303,22 @@ observation target remain independent, versioned settings.
   closed and labelled.
 
 Size: **large**.
+
+### Exact AFK intervals (v4 logs)
+
+Format v4 removes phased AFK periods from each event's opponents and eligible
+lobby size, preserving shared scoring before and after every break. Active
+eligibility still subtracts raw AFK duration once. V4 duration comes from the
+session facts, so correcting or removing a break also corrects eligibility;
+legacy attendance assembly is unchanged. Returns include their endpoint;
+terminal closures remain AFK through their endpoint, including zero-duration
+AFK at the win. No timestamp epsilon is used.
+
+The configured time-model fallback integrates the complements of known AFK
+periods. Historical NULL timing retains its existing cap rather than inventing
+intervals. Backtests carry v4 breaks explicitly and use the same endpoint
+policy. The new SR migration follows the v4 data migration; no rating parameter
+version or scoring formula changes. Local regressions cover actual
+log/import/SQL/reference equivalence between leaving and remaining AFK, replay,
+terminal endpoints and fallback. Workshop syntax, scheduling races and load
+remain pending in-game checks.
