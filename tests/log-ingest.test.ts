@@ -518,6 +518,14 @@ test('standalone v4 completeness survives omitted data, corrections, association
       '20261104220000_rolling_skill_rating.sql','20261105140000_afk_skill_rating.sql'];
     const installed = (await readdir(new URL('../supabase/migrations/', import.meta.url))).sort();
     for (const name of installed) if (!srMigrations.includes(name)) await db.exec(await migration(name));
+    for (const periods of [[],[{start_s:20,end_s:40,terminal:false}]]) {
+      for (let missing=0;missing<3;missing++) {
+        const bounds: (number|null)[]=[0,100,periods.length ? 20 : 0]; bounds[missing]=null;
+        assert.equal((await db.query<any>('select public._valid_afk_intervals($1,$2,$3,$4) as valid',
+          [JSON.stringify(periods),...bounds])).rows[0].valid,false);
+      }
+    }
+    assert.equal((await db.query<any>('select public._valid_afk_intervals(null,null,null,null) as valid')).rows[0].valid,true);
     const revision = async () => (await db.query<any>('select revision from public.leaderboard_state')).rows[0].revision;
     let sequence = 0;
     const prepared = async (version = 4) => {
