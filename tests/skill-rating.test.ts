@@ -994,6 +994,29 @@ test('v4 log import makes phased AFK equivalent to leaving in SQL and reference,
     assert.equal(pb,105);
     assert.equal((await db.query<any>('select public._round_winning_session($1) as n',[ids[1]])).rows[0].n,1);
     await assertMatchesScratch();
+    // A format correction retains stored nonempty breaks but v3 must ignore
+    // them consistently in real replay, SQL JSON inputs and the TS reference.
+    for (const format of [3,4]) {
+      await db.query('update public.raw_logs set format_version=$1 where match_id=$2',[format,ids[1]]);
+      const assembled = (await inputs()).map(i=>i.round as SrRound);
+      const changed = assembled.find(r=>r.id===ids[1])!;
+      assert.deepEqual(changed.participants[2].afkIntervals,format===4 ? [{start:45,end:105,terminal:true}] : undefined);
+      assert.deepEqual((await db.query<any>("select public._sr_afk_intervals($1,array['Resident0']) as periods",[ids[1]])).rows[0].periods,
+        format===4 ? [[{start:45,end:105,terminal:true}]] : [[]]);
+      const expected = replay(assembled,P).results;
+      const actual = await s.read('select * from public.rating_events');
+      expected.forEach((result,i)=> {
+        for (const e of result.events) {
+          const stored = actual.find(r=>r.match_id===assembled[i].id && r.player_name===e.name);
+          assert.ok(stored);
+          near(stored.sr_after,e.srAfter,'format-correction replay SR');
+          near(stored.weight,e.weight,'format-correction replay weight');
+          near(stored.actual_share,e.actualShare,'format-correction replay share');
+        }
+      });
+      assert.equal(actual.length,expected.reduce((n,r)=>n+r.events.length,0));
+      await assertMatchesScratch();
+    }
     // Move one break while keeping its total; all later ratings replay.
     const before = await versions();
     await db.query(`update public.player_sessions set afk_intervals='[{"start_s":30,"end_s":90,"terminal":false}]'
