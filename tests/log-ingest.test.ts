@@ -493,3 +493,95 @@ test('v4 AFK breaks retain repeats, leavers, kicks and known empty versus legacy
   assert.throws(() => parseV2Rows(rows(log.replace('#R,180', '#R,179'))), /outside the round/);
   assert.doesNotThrow(() => parseV2Rows(rows(log.replace(',0,0,50\n', ',0,0,50.01\n'))));
 });
+
+
+test('standalone v4 completeness survives omitted data, corrections, associations and later SR installation', async () => {
+  const db = new PGlite();
+  try {
+    await db.exec(`
+      create role anon; create role authenticated; create role service_role bypassrls;
+      create schema auth; grant usage on schema auth to anon,authenticated,service_role;
+      create function auth.uid() returns uuid language sql stable as $$select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid$$;
+      create table auth.users(id uuid primary key);
+      create table auth.identities(user_id uuid,provider text);
+      create table public.players(name text primary key,user_id uuid,is_admin boolean default false,
+        bnet_accounts jsonb default '[]',matches integer,score integer,deaths integer,
+        kdr text,accuracy text,kpm text,crouches integer,time_in_lobby numeric,elo text,rank integer,tag text);
+      create table public.player_matches(id bigint generated always as identity primary key,player_name text,
+        score integer,deaths integer,accuracy numeric,kpm numeric,kdr numeric,crouches integer,time_in_lobby numeric,
+        performance_score integer,created_at timestamptz default now());
+      create table public.player_history(id uuid default gen_random_uuid() primary key,
+        player_name text,elo integer,rank integer,created_at timestamptz default now());
+      create table public.audit_logs(id bigint generated always as identity primary key,action text,admin_user text,details text);
+    `);
+    const srMigrations = ['20261104120000_skill_rating.sql','20261104200000_sr_lobby_size.sql',
+      '20261104220000_rolling_skill_rating.sql','20261105140000_afk_skill_rating.sql'];
+    const installed = (await readdir(new URL('../supabase/migrations/', import.meta.url))).sort();
+    for (const name of installed) if (!srMigrations.includes(name)) await db.exec(await migration(name));
+    const revision = async () => (await db.query<any>('select revision from public.leaderboard_state')).rows[0].revision;
+    let sequence = 0;
+    const prepared = async (version = 4) => {
+      sequence++;
+      const text = `#V,${version},test-${sequence}\n#R,100,Complete${sequence}\n#P,1,Complete${sequence},0,0,100,0,0,0,20,0,0,0`;
+      return prepareRound(source(text),rows(text));
+    };
+    const upload = async (round: PreparedRound) => {
+      const players = (await db.query<ImportPlayer>('select * from public.players')).rows;
+      const payload = buildMatchImport(players,round.matches);
+      await db.exec('set role service_role');
+      try {
+        await db.query("select public.apply_match_import($1,$2,$3,$4,$5,'TEST','complete',$6,$7)",
+          [await revision(),...[payload.players,payload.ranks,payload.history,payload.matches,[round.raw_log],round.kill_pairs].map(v=>JSON.stringify(v))]);
+      } finally { await db.exec('reset role'); }
+    };
+    for (const missing of ['omitted','null']) {
+      const round = await prepared();
+      if (missing === 'omitted') delete round.matches[0].session_rows![0].afk_intervals;
+      else (round.matches[0].session_rows![0] as any).afk_intervals=null;
+      const before = await revision();
+      await assert.rejects(upload(round),/v4 sessions require known AFK intervals/);
+      assert.equal(await revision(),before);
+      assert.equal((await db.query<any>('select count(*)::int as n from public.raw_logs')).rows[0].n,0);
+    }
+    const known = await prepared(), legacy = await prepared(3);
+    await upload(known); await upload(legacy);
+    const knownId = known.raw_log.match_id, legacyId = legacy.raw_log.match_id;
+    const session = async (id: string) => (await db.query<any>('select * from public.player_sessions where match_id=$1',[id])).rows[0];
+    assert.deepEqual((await session(knownId)).afk_intervals,[]);
+    assert.equal((await session(legacyId)).afk_intervals,null);
+    await assert.rejects(db.query('update public.player_sessions set afk_intervals=null where match_id=$1',[knownId]),/v4 sessions require/);
+    await assert.rejects(db.query('update public.raw_logs set format_version=4 where match_id=$1',[legacyId]),/v4 sessions require/);
+    // Both session-owned and participation-owned round associations require data.
+    await assert.rejects(db.query('update public.player_sessions set match_id=$1,session_no=2 where match_id=$2',[knownId,legacyId]),/v4 sessions require/);
+    await assert.rejects(db.query('update public.player_sessions set participation_id=$1 where match_id=$2',
+      [(await session(knownId)).participation_id,legacyId]),/v4 sessions require/);
+    await assert.rejects(db.query('update public.player_matches set match_id=$1 where match_id=$2',[knownId,legacyId]),/v4 sessions require/);
+    // A session linked through a different round must still block its log upgrade.
+    const detached = await prepared(3); await upload(detached);
+    await db.query('update public.player_sessions set match_id=$1,session_no=2 where match_id=$2',[detached.raw_log.match_id,legacyId]);
+    await assert.rejects(db.query('update public.raw_logs set format_version=4 where match_id=$1',[detached.raw_log.match_id]),/v4 sessions require/);
+    await db.query('update public.player_sessions set match_id=$1,session_no=1 where participation_id=$2',
+      [legacyId,(await db.query<any>('select id from public.player_matches where match_id=$1',[legacyId])).rows[0].id]);
+    // Deferred checks allow either ordering within an atomic correction.
+    for (const reverse of [false,true]) {
+      await db.exec('begin');
+      await db.query('update public.raw_logs set format_version=3 where match_id=$1',[legacyId]);
+      await db.query('update public.player_sessions set afk_intervals=null where match_id=$1',[legacyId]);
+      await db.exec('commit');
+      await db.exec('begin');
+      const format = () => db.query('update public.raw_logs set format_version=4 where match_id=$1',[legacyId]);
+      const intervals = () => db.query("update public.player_sessions set afk_intervals='[]' where match_id=$1",[legacyId]);
+      if (reverse) { await intervals(); await format(); } else { await format(); await intervals(); }
+      await db.exec('commit');
+    }
+    const acl = (await db.query<any>(`select has_function_privilege('service_role','public._require_v4_afk_intervals()','execute') as allowed`)).rows[0];
+    assert.equal(acl.allowed,false);
+    // Deploying PR #3 after independently installed PR #2 must replay valid data.
+    for (const name of srMigrations) if (installed.includes(name)) await db.exec(await migration(name));
+    if (installed.includes(srMigrations[0])) {
+      await db.exec('select public.replay_ratings()');
+      const inputs = (await db.query<any>('select * from public._sr_round_inputs()')).rows;
+      assert.deepEqual(inputs.find(r=>r.match_id===knownId).round.participants[0].afkIntervals,[]);
+    }
+  } finally { await db.close(); }
+});

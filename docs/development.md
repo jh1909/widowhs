@@ -61,7 +61,8 @@ call the real functions; they never connect to Supabase.
 ## Deployment
 
 For Workshop v3.7.0 / format v4, apply `20261105130000_afk_intervals.sql`
-after the timed-score and active-time PB migrations, deploy `upload-csv`,
+after the timed-score and active-time PB migrations, then apply
+`20261105133000_require_v4_afk_intervals.sql`, deploy `upload-csv`,
 then publish the Workshop script. Old importer calls/logs remain valid.
 Validate repeated AFK returns, leave/kick while AFK, AFK at the winning event,
 return/win races and full-lobby server load in Overwatch before publication;

@@ -25,7 +25,10 @@ endpoints, including the winning event. Zero-length terminal closures retain
 that distinction. There is no padding. Records for each session are ordered
 and nonoverlapping, and terminal closure must end at the session boundary.
 
-Every v4 session has `afk_intervals`, including `[]` for no AFK. Earlier logs
+Every v4 session has `afk_intervals`, including `[]` for no AFK. Database
+checks enforce this independently of SR through both session and participation
+round associations. Deferred checks allow atomic corrections in either order,
+but incomplete v4 data cannot commit or enter a later SR replay. Earlier logs
 keep NULL (unknown); their AFK durations are retained. The parser and database
 validate bounds, order and the summed AFK duration. Inspector rounds endpoints
 and totals independently to hundredths, so the permitted discrepancy is
