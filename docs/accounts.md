@@ -38,3 +38,11 @@ Optional profile text: a bio and gear and settings fields. The owner and
 admins can edit them; admin edits to other profiles are audited. They are
 shown as plain text, stored privately per login, and deleted with the
 player's last profile.
+
+## Primary region
+
+Owners and admins can optionally select EU or NA in the profile editor. The
+preference follows the login through renames and Battle.net profile merges,
+like bio/setup; clearing bio/setup preserves it. Admin region changes are
+audited. Unset profiles appear in All regions only. Region is self-selected,
+not inferred from a player's location or their games.

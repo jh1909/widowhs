@@ -60,6 +60,11 @@ call the real functions; they never connect to Supabase.
 
 ## Deployment
 
+Apply `20261106120000_primary_regions.sql` on staging, then production, before
+deploying the region controls. Existing profile saves preserve the preference,
+and existing leaderboard calls continue to return global standings. No Workshop,
+uploader, Edge Function or SR deployment is required for region selection.
+
 For Workshop v3.7.0 / format v4, apply `20261105130000_afk_intervals.sql`
 after the timed-score and active-time PB migrations, then apply
 `20261105133000_require_v4_afk_intervals.sql` and

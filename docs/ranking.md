@@ -47,6 +47,13 @@ A player needs 10 fully counted rounds to appear on the leaderboard. The
 leaderboard sorts by ELO, then PB, then name, and ranks are computed over all
 qualified players before any search or paging. Banned players are left out.
 
+The All regions / EU / NA control changes the table in place. EU and NA rank
+qualified players with that primary region from #1, before search and paging.
+All games still count toward their rating. Unset profiles appear in All only.
+The region is recorded in the URL for sharing and browser navigation; switching
+regions preserves search and returns to page 1. Community metrics, the record
+holder, profile ranks, badges and podium decorations remain global.
+
 **PB** is a player's fastest active time from joining to 50 kills, excluding
 AFK time. Session logs use the actual winning session, so earlier sessions
 in a rejoin do not add to the time, and an accumulated score above 50 does
