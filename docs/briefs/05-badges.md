@@ -10,8 +10,8 @@ their profile header.
 
 Seven achievements (Slayer, Sharpshooter, Veteran, Squat Master, No Croucher,
 Top 10, Speedrunner) and the stat medals are computed in the browser
-(`src/lib/achievements.ts`, [stat medals](../stat-medals.md)). There is no
-list of all badges.
+(`src/lib/achievements.ts`, `src/lib/stat-medals.ts`; see
+[ranking](../ranking.md#badges-and-medals)). There is no list of all badges.
 
 ## Decisions
 

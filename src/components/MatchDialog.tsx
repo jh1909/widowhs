@@ -9,9 +9,9 @@ import { formatLobbyTime } from "../lib/profile-stats";
 import { formatMatchDate, type MatchSummary } from "../lib/match-history";
 
 type Participant = { player_name: string; logged_player_name: string; avatar_url?: string;
-  is_verified: boolean; score: number; deaths: number; accuracy: number; kpm: number;
+  is_verified: boolean; is_winner: boolean; score: number; deaths: number; accuracy: number; kpm: number;
   kdr: number; crouches: number; time_in_lobby: number; total_match_time: number | null;
-  performance_score: number; played_at?: string };
+  performance_score: number; played_at?: string; status?: string | null; afk_seconds?: number | null };
 function metric(value: number | null, digits = 0) { return value == null ? "—" : Number(value).toFixed(digits); }
 
 export default function MatchDialog({ match, onClose }: { match: MatchSummary; onClose: () => void }) {
@@ -61,10 +61,10 @@ export default function MatchDialog({ match, onClose }: { match: MatchSummary; o
           : !participants.length ? <p className="p-12 text-zinc-500">This match is no longer available.</p>
           : <><p className="sm:hidden text-[10px] text-zinc-500 px-5 py-3">Swipe to see all stats.</p><div className="overflow-x-auto">
             <table className="leaderboard-table match-results w-full text-left text-xs">
-              <caption className="sr-only">All participants ordered by kills. Winning score: 50 kills.</caption>
+              <caption className="sr-only">Winner first, then other participants ordered by kills.</caption>
               <thead><tr><th>#</th><th>Player</th><th>Kills</th><th>Deaths</th><th>Accuracy</th><th>KPM</th><th>K/D</th><th>Crouches</th><th>Time in lobby</th><th>Round rating</th></tr></thead>
-              <tbody>{participants.map((player, index) => <tr key={`${player.logged_player_name}-${index}`} className={player.score >= 50 ? "match-winner-row" : ""}>
-                <td>{player.score >= 50 ? <Trophy size={15} className="text-[#dbc18a]" aria-label="Winner" /> : index + 1}</td>
+              <tbody>{participants.map((player, index) => <tr key={`${player.logged_player_name}-${index}`} className={player.is_winner ? "match-winner-row" : ""}>
+                <td>{player.is_winner ? <Trophy size={15} className="text-[#dbc18a]" aria-label="Winner" /> : index + 1}</td>
                 <td><div className="flex items-center gap-2 whitespace-nowrap"><PlayerAvatar name={player.player_name} avatarUrl={player.avatar_url} className="player-avatar" />
                   <Link to={`/profile/${encodeURIComponent(player.player_name)}`} onClick={onClose} className="font-semibold hover:text-toxic-purple truncate max-w-44" title={player.logged_player_name}>{player.logged_player_name}</Link>
                   <VerifiedBadge verified={player.is_verified} compact /></div>

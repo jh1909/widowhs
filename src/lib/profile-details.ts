@@ -1,3 +1,5 @@
+import { parseRegion, type Region } from './regions';
+
 export const BIO_LIMIT = 500;
 export const setupFields = [
   { key: 'mouse', label: 'Mouse', placeholder: 'Mouse model', limit: 120 },
@@ -11,5 +13,10 @@ export const setupFields = [
   { key: 'settings', label: 'Other settings', placeholder: 'Graphics, keybinds or other settings', limit: 1000, multiline: true },
 ] as const;
 export type SetupKey = typeof setupFields[number]['key'];
-export type ProfileDetails = { bio: string; setup: Partial<Record<SetupKey, string>> };
-export const emptyProfileDetails = (): ProfileDetails => ({ bio: '', setup: {} });
+export type ProfileDetails = { bio: string; setup: Partial<Record<SetupKey, string>>; primary_region: Region | null };
+export const emptyProfileDetails = (): ProfileDetails => ({ bio: '', setup: {}, primary_region: null });
+export const parseProfileDetails = (data: any): ProfileDetails => ({
+  bio: typeof data?.bio === 'string' ? data.bio : '',
+  setup: data?.setup && typeof data.setup === 'object' ? data.setup : {},
+  primary_region: parseRegion(data?.primary_region),
+});

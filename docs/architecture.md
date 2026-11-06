@@ -13,11 +13,13 @@ flowchart LR
   DB --> WEB["Website on GitHub Pages<br/>also computes badges and medals"]
 ```
 
-- The [Workshop script](https://workshop.codes/widowhs) writes one record per
-  player still in the lobby when someone reaches the kill target. Players who
-  left earlier are not logged.
-- Nothing in this repository watches the host PC. The `upload-csv` API-key
-  path is commented as being for a Python caller, which is not in the repo.
+- The [Workshop script](https://workshop.codes/widowhs) writes every player
+  session, including leavers, and every kill pair when someone reaches the
+  kill target ([log format](workshop-log-format.md)).
+- The [uploader](admin.md#uploader-on-the-host-pc) on the host PC sends new
+  logs with the API key; admins can still upload by hand. The Edge Function
+  stores each file unchanged, skips files already imported and merges
+  rejoins.
 - Processing happens in four places: Workshop, Edge Function, database
   triggers and the browser.
 
@@ -37,3 +39,12 @@ flowchart LR
   be able to re-run processing.
 - Raw logs are stored unchanged so any processing change can be replayed.
 - Badges and medals move server-side; the website only displays results.
+
+## Technology
+
+- **Website:** React 19, Vite, Tailwind CSS and React Router (hash routes),
+  hosted on GitHub Pages.
+- **Backend:** Supabase. Postgres holds all data and computes all derived
+  values; Auth handles Discord login; Edge Functions (Deno) handle log
+  uploads and Battle.net OAuth.
+- **Game:** an Overwatch Workshop script, published on Workshop.codes.
