@@ -515,7 +515,8 @@ test('standalone v4 completeness survives omitted data, corrections, association
       create table public.audit_logs(id bigint generated always as identity primary key,action text,admin_user text,details text);
     `);
     const srMigrations = ['20261104120000_skill_rating.sql','20261104200000_sr_lobby_size.sql',
-      '20261104220000_rolling_skill_rating.sql','20261105140000_afk_skill_rating.sql'];
+      '20261104220000_rolling_skill_rating.sql','20261105140000_afk_skill_rating.sql',
+      '20261107120000_sr_size_neutral.sql'];
     const installed = (await readdir(new URL('../supabase/migrations/', import.meta.url))).sort();
     for (const name of installed) if (!srMigrations.includes(name)) await db.exec(await migration(name));
     for (const periods of [[],[{start_s:20,end_s:40,terminal:false}]]) {

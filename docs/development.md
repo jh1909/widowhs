@@ -118,7 +118,72 @@ an AFK player at the win, final KPM rankings, leaving/rejoining and server load.
 - A `__chromium_devtools_metrics_reporter` error comes from Chrome DevTools,
   not the site. Close DevTools and reload.
 
-## Prototypes
+## Backtests
 
-`scripts/sr-prototype.py` replays a production backup through the proposed
-skill rating; see [brief 01](briefs/01-skill-rating.md).
+`scripts/sr-backtest.ts` replays a production backup through the skill
+rating engine and scores its predictions against the formula ELO; usage is
+in its header, results in [brief 01](briefs/01-skill-rating.md#original-size-neutral-backtest-4-november-2026).
+Run it with `dev run --light -- node --import tsx scripts/sr-backtest.ts ...`
+and keep its output outside the repo.
+
+The `lobby` mode compares the original size-neutral model, time-based weighting
+and rolling scoring evidence. It assembles v1 logs, v2 sessions and exact v3
+histories; incomplete v3 histories fail rather than being guessed. Reports use
+mean concurrent size (scoring-weighted for v3, time-weighted otherwise).
+Historical v1/v2 data can validate the fallback, but cannot establish the
+predictive accuracy of the timestamped model.
+
+## SR lobby-size tuning
+
+After the original SR migration, apply
+`supabase/migrations/20261104200000_sr_lobby_size.sql`. It activates version 2
+and re-rates history at commit; no Workshop, Edge Function or website change
+is required. As with other migrations, apply it on staging before production.
+
+Retune the curve by copying the active `rating_params` row into a new version
+and changing `settings.lobbySize`: `minPlayers`, `minWeight`, `fullPlayers`,
+`fullWeight`. The lower weight is a curve anchor, not a clamp; the exponent is
+derived from the anchors. Player counts are integers, with `2 <= minPlayers < fullPlayers`,
+and weights must satisfy `0 < minWeight <= fullWeight <= 1`. Invalid configurations
+are rejected before they can change ratings.
+
+Deactivate the old version and activate the new one in the same transaction.
+The existing hooks replay all history once using the final active settings.
+Keep the placement uncertainty threshold fixed when changing lobby weights:
+small lobbies are intended to supply less placement evidence. Historical
+versions without `lobbySize` use the original size-neutral algorithm.
+
+**Version 4 (active) is size-neutral.** `20261107120000_sr_size_neutral.sql`
+copies version 3 with `minWeight` equal to `fullWeight` (1), which flattens the
+curve: every lobby of two or more players counts at full weight, so lobby size
+no longer scales SR changes. The curve code is unchanged. To restore it,
+deactivate version 4 and reactivate version 3 (5% at two players to full
+weight at eight) in one transaction, or add a version with a new curve; either
+replays history. Keep `lobbySize` present to stay on the current algorithm:
+removing it selects the original version 1 model.
+
+## Rolling-lobby SR
+
+After the timed-score migration from PR #2, apply
+`20261104220000_rolling_skill_rating.sql` (staging first). It activates version 3
+and replays history. Exact score histories use scoring-based evidence; older
+logs keep the previous time model. No historical timestamps are invented.
+
+`settings.rollingEvidenceKills` controls the observation target for a full
+round's evidence. It must be a positive safe integer. Each positive score
+change supplies observations against the opponents present; the lobby curve
+(flat in the active version 4) can discount small-lobby observations, and a symmetric cap bounds each player's
+round budget. Elapsed waiting time supplies no observations. Removing this
+setting explicitly selects the previous time model, including for v3 logs.
+`rollingMinShots` is a nonnegative safe integer: the minimum total shots for
+a scoreless v3 participant. Actual scoring also proves effort. This replaces
+the session-wide shot-rate floor for timestamped logs, keeping prior waiting
+from changing eligibility. Old logs retain their existing effort checks.
+Use a new parameter version and switch active versions in one transaction,
+as for curve tuning. The replay hooks cover corrections to score histories.
+
+After the v4 data migration, apply `20261105140000_afk_skill_rating.sql` for
+SR, on staging and then production. It replays history and excludes known AFK
+breaks from scoring comparisons and concurrent size, including the configured
+time fallback. Older logs keep their prior results; old timestamps are not
+reconstructed. No website or parameter change is needed for this SR layer.
