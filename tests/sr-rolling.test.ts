@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { DEFAULT_SR_PARAMS as P, rateRound, lobbySizeWeight,
+import { SIZE_CURVE_SR_PARAMS as P, rateRound, lobbySizeWeight,
   type SrParticipant, type SrParams, type SrRound, type SrState } from '../supabase/functions/_shared/sr.ts';
 
 const player = (name: string, kills: number, start = 0, end = 300): SrParticipant => ({

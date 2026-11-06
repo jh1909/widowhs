@@ -6,7 +6,7 @@ import Papa from 'papaparse';
 import { normalizeMatchLog } from '../supabase/functions/upload-csv/parser.ts';
 import { prepareRound, type PreparedRound } from '../supabase/functions/_shared/log-ingest.ts';
 import { buildMatchImport, type ImportPlayer } from '../supabase/functions/_shared/import-stats.ts';
-import { DEFAULT_SR_PARAMS, lobbySizeWeight, normaliseIntervals, rateRound, replay, timeKey, type SrParams, type SrPlayer, type SrRound } from '../supabase/functions/_shared/sr.ts';
+import { DEFAULT_SR_PARAMS, SIZE_CURVE_SR_PARAMS, lobbySizeWeight, normaliseIntervals, rateRound, replay, timeKey, type SrParams, type SrPlayer, type SrRound } from '../supabase/functions/_shared/sr.ts';
 
 const actor = '00000000-0000-0000-0000-000000000001';
 const other = '00000000-0000-0000-0000-000000000002';
@@ -143,9 +143,9 @@ test('SR tables are hidden from the site', async () => {
     }
     const params = (await db.query<any>('select version, d, beta, settings, active from public.rating_params where active')).rows;
     // The active version is shared with the reference engine; the original is retained.
-    assert.deepEqual(params, [{ version: 3, d: DEFAULT_SR_PARAMS.d, beta: DEFAULT_SR_PARAMS.beta,
+    assert.deepEqual(params, [{ version: DEFAULT_SR_PARAMS.version, d: DEFAULT_SR_PARAMS.d, beta: DEFAULT_SR_PARAMS.beta,
       settings: DEFAULT_SR_PARAMS.settings, active: true }]);
-    await assert.rejects(db.exec("insert into public.rating_params(version,d,beta,settings,active) values (4,400,0.1,'{}',true)"), /rating_params_one_active/);
+    await assert.rejects(db.exec("insert into public.rating_params(version,d,beta,settings,active) values (5,400,0.1,'{}',true)"), /rating_params_one_active/);
   } finally {
     await db.close();
   }
@@ -351,16 +351,16 @@ test('every history change replays from the right round', async t => {
     });
 
     await t.test('activating another parameter version replays everything with it', async () => {
-      await db.exec(`update public.rating_params set active = false where version = 3;
+      await db.exec(`update public.rating_params set active = false where version = 4;
         insert into public.rating_params (version, d, beta, settings, active)
-        select 4, 300, beta, settings || '{"m": 8, "surpriseCap": null}', true from public.rating_params where version = 3;`);
+        select 5, 300, beta, settings || '{"m": 8, "surpriseCap": null}', true from public.rating_params where version = 4;`);
       const r = await ratings();
-      assert.ok(r.events.length > 0 && r.events.every(e => e.params_version === 4));
-      assert.ok(r.rounds.every(x => x.params_version === 4));
+      assert.ok(r.events.length > 0 && r.events.every(e => e.params_version === 5));
+      assert.ok(r.rounds.every(x => x.params_version === 5));
       await assertMatchesScratch();
-      await db.exec('update public.rating_params set active = false where version = 4');
+      await db.exec('update public.rating_params set active = false where version = 5');
       assert.deepEqual(await ratings(), { events: [], players: [], rounds: [] });
-      await db.exec('update public.rating_params set active = true where version = 4');
+      await db.exec('update public.rating_params set active = true where version = 5');
       await assertMatchesScratch();
     });
 
@@ -702,6 +702,13 @@ test('lobby migration re-rates existing history; curve retunes replay and versio
     assert.ok(before.every(e => e.params_version === 1 && e.weight === 1));
   });
   try {
+    // Version 4 is size-neutral: the duel counts as fully as the legacy round.
+    const neutral = await read('select * from public.rating_events order by player_name');
+    assert.ok(neutral.length === 2 && neutral.every(e => e.params_version === 4));
+    near(neutral[0].weight, 1, 'size-neutral duel evidence');
+    await assertMatchesScratch();
+    // Reactivating version 3 restores the size curve.
+    await db.exec('update public.rating_params set active = false where active; update public.rating_params set active = true where version = 3;');
     const after = await read('select * from public.rating_events order by player_name');
     assert.equal(after.length, 2);
     assert.ok(after.every(e => e.params_version === 3));
@@ -732,7 +739,7 @@ test('lobby migration re-rates existing history; curve retunes replay and versio
 test('SQL curve matches the reference anchors, ceiling and validation', async () => {
   const { db } = await setup();
   try {
-    for (const curve of [P.settings.lobbySize!, { minPlayers: 3, minWeight: 0.1, fullPlayers: 6, fullWeight: 0.8 }]) {
+    for (const curve of [P.settings.lobbySize!, SIZE_CURVE_SR_PARAMS.settings.lobbySize!, { minPlayers: 3, minWeight: 0.1, fullPlayers: 6, fullWeight: 0.8 }]) {
       for (let n = 0; n <= 14; n++) {
         const rows = (await db.query<any>('select public._sr_lobby_size_weight($1, $2) as w', [n, JSON.stringify({ lobbySize: curve })])).rows;
         near(rows[0].w, lobbySizeWeight(n, curve), `curve ${n}`);
@@ -979,14 +986,16 @@ test('v4 log import makes phased AFK equivalent to leaving in SQL and reference,
     assert.deepEqual(rounds[1].participants[2].afkIntervals,[{start:45,end:105,terminal:true}]);
     // Exact winning timestamp: terminal AFK points exclude the player, while
     // zero-duration actual returns are empty and retain the winning event.
+    // The size curve makes the excluded third player visible in the weight.
+    const C = SIZE_CURVE_SR_PARAMS;
     const boundaries: any[] = [];
     for (const terminal of [false,true]) {
       const boundary: SrRound = structuredClone(rounds[0]);
       boundary.participants[2].intervals=[[0,105]]; boundary.participants[2].present=105;
       boundary.participants[2].afkIntervals=[{start:105,end:105,terminal}];
       const actual = (await db.query<any>(`select public._sr_rate_round_json(${PARAMS_SQL},$5,'{}') as r`,
-        [...paramsRow(P),JSON.stringify(boundary)])).rows[0].r;
-      assertSameRound(rateRound(new Map(),boundary,P),actual,'terminal point');
+        [...paramsRow(C),JSON.stringify(boundary)])).rows[0].r;
+      assertSameRound(rateRound(new Map(),boundary,C),actual,'terminal point');
       boundaries.push(actual);
     }
     assert.ok(boundaries[0].events[0].weight > boundaries[1].events[0].weight);

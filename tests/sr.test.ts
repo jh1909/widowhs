@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  DEFAULT_SR_PARAMS as P, PLACEMENT_ROUNDS, applyRound, cautiousSr, compareNames, compareRounds, derivePlacementUncertainty, isPlaced, lobbySizeWeight, rateRound, replay, timeKey,
+  SIZE_CURVE_SR_PARAMS as P, PLACEMENT_ROUNDS, applyRound, cautiousSr, compareNames, compareRounds, derivePlacementUncertainty, isPlaced, lobbySizeWeight, rateRound, replay, timeKey,
   type SrParams, type SrParticipant, type SrPlayer, type SrRound, type SrState,
 } from "../supabase/functions/_shared/sr.ts";
 

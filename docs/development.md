@@ -153,6 +153,15 @@ Keep the placement uncertainty threshold fixed when changing lobby weights:
 small lobbies are intended to supply less placement evidence. Historical
 versions without `lobbySize` use the original size-neutral algorithm.
 
+**Version 4 (active) is size-neutral.** `20261107120000_sr_size_neutral.sql`
+copies version 3 with `minWeight` equal to `fullWeight` (1), which flattens the
+curve: every lobby of two or more players counts at full weight, so lobby size
+no longer scales SR changes. The curve code is unchanged. To restore it,
+deactivate version 4 and reactivate version 3 (5% at two players to full
+weight at eight) in one transaction, or add a version with a new curve; either
+replays history. Keep `lobbySize` present to stay on the current algorithm:
+removing it selects the original version 1 model.
+
 ## Rolling-lobby SR
 
 After the timed-score migration from PR #2, apply
@@ -163,7 +172,7 @@ logs keep the previous time model. No historical timestamps are invented.
 `settings.rollingEvidenceKills` controls the observation target for a full
 round's evidence. It must be a positive safe integer. Each positive score
 change supplies observations against the opponents present; the lobby curve
-discounts small-lobby observations, and a symmetric cap bounds each player's
+(flat in the active version 4) can discount small-lobby observations, and a symmetric cap bounds each player's
 round budget. Elapsed waiting time supplies no observations. Removing this
 setting explicitly selects the previous time model, including for v3 logs.
 `rollingMinShots` is a nonnegative safe integer: the minimum total shots for

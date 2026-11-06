@@ -107,9 +107,17 @@ const baseSettings = {
   minShotsPerMinute: 2,
   fullRoundGraceSeconds: 10, cautiousFactor: 2,
 } as const;
-export const DEFAULT_SR_PARAMS: SrParams = {
+// Version 3: small lobbies discounted along the size curve. Kept for
+// reactivation, comparison and the curve's own tests.
+export const SIZE_CURVE_SR_PARAMS: SrParams = {
   version: 3, d: 400, beta: 0.05,
   settings: { ...baseSettings, placementUncertainty: derivePlacementUncertainty({ d: 400, settings: baseSettings }) },
+};
+// Active version 4: size-neutral. minWeight equal to fullWeight flattens the
+// curve, so every lobby of two or more players counts at full weight.
+export const DEFAULT_SR_PARAMS: SrParams = {
+  ...SIZE_CURVE_SR_PARAMS, version: 4,
+  settings: { ...SIZE_CURVE_SR_PARAMS.settings, lobbySize: { ...baseSettings.lobbySize, minWeight: 1 } },
 };
 
 // The exponent is derived from both endpoints, so moving either endpoint
