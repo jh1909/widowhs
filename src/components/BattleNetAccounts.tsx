@@ -10,7 +10,7 @@ const outcomes: Record<string, string> = {
   success: "Battle.net account connected and verified. Your matches are now linked to your profile.",
   cancelled: "Battle.net linking was cancelled. Your accounts have not changed.",
   claimed: "This Battle.net account or player name already has a verified claim. It cannot be linked to this profile.",
-  limit: "This account could not be linked. You can connect up to two Battle.net accounts.",
+  limit: "This account could not be linked. You can connect up to three Battle.net accounts.",
   failed: "Battle.net linking failed. Please try again from your profile.",
 };
 
@@ -128,7 +128,7 @@ export default function BattleNetAccounts({ playerName, accounts, isOwner, onCha
       <h3 className="font-sans text-[24px] font-semibold text-on-surface uppercase tracking-tight">Battle.net Accounts</h3>
       <div className="panel p-6 flex flex-col gap-4">
         <p className="text-zinc-400 text-sm leading-relaxed">
-          Connect up to two accounts through Battle.net to verify ownership and add their matches to your profile.
+          Connect up to three accounts through Battle.net to verify ownership and add their matches to your profile.
           Workshop logs use player names. Verified accounts take priority over unverified names.
           A name already verified through another Battle.net account cannot be linked.
         </p>

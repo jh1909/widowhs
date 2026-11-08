@@ -25,11 +25,13 @@ import {
   CheckCircle,
   XCircle,
   Loader2,
+  GitMerge,
 } from "lucide-react";
 import { cn } from "../lib/utils";
 import { validateMatchFile } from "../../supabase/functions/_shared/match-upload";
 import LeaderboardReset from "../components/LeaderboardReset";
 import ServerStatus from "../components/ServerStatus";
+import MergePlayersModal from "../components/MergePlayersModal";
 import { confirmPlayerModeration, type ModerationAction } from "../lib/player-moderation";
 
 export default function Admin() {
@@ -506,6 +508,15 @@ function Dashboard() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [listError, setListError] = useState<string | null>(null);
   const [pendingAction, setPendingAction] = useState(false);
+  const [mergeModalOpen, setMergeModalOpen] = useState(false);
+  const [mergeInitialSource, setMergeInitialSource] = useState<string | null>(null);
+  const [mergeInitialTarget, setMergeInitialTarget] = useState<string | null>(null);
+
+  const handleOpenMerge = (sourceName?: string, targetName?: string) => {
+    setMergeInitialSource(sourceName || null);
+    setMergeInitialTarget(targetName || null);
+    setMergeModalOpen(true);
+  };
   const actionInFlight = useRef(false);
   const PAGE_SIZE = 10;
 
@@ -710,19 +721,35 @@ function Dashboard() {
       </div>
 
       <div className="bg-[#111114] border border-surface-container-highest rounded-md flex flex-col">
-        <div className="p-6 border-b border-surface-container-highest sm:flex justify-between items-center space-y-4 sm:space-y-0">
-          <h3 className="font-sans text-[18px] font-bold text-white">
-            Player Management
-          </h3>
-          <div className="relative toxic-glow-focus rounded transition-all duration-200 bg-surface-container border border-surface-container-highest w-full sm:w-64">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500 w-[16px] h-[16px]" />
-            <input
-              type="text"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Search players..."
-              className="w-full bg-transparent border-none text-zinc-200 font-mono text-[13px] placeholder:text-zinc-600 py-2 pl-9 pr-4 focus:ring-0 focus:outline-none"
-            />
+        <div className="p-6 border-b border-surface-container-highest flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+          <div>
+            <h3 className="font-sans text-[18px] font-bold text-white">
+              Player Management
+            </h3>
+            <p className="font-sans text-xs text-zinc-500 mt-0.5">
+              Manage player accounts, bans, and combine unverified duplicates.
+            </p>
+          </div>
+          <div className="flex items-center gap-3 w-full sm:w-auto">
+            <button
+              type="button"
+              onClick={() => handleOpenMerge()}
+              className="inline-flex items-center gap-2 px-3.5 py-2 bg-toxic-purple/10 text-toxic-purple hover:bg-toxic-purple hover:text-black font-sans font-bold text-xs uppercase tracking-wider rounded border border-toxic-purple/30 transition-all shrink-0 cursor-pointer"
+              title="Merge unverified accounts"
+            >
+              <GitMerge className="w-4 h-4" />
+              <span>Merge Accounts</span>
+            </button>
+            <div className="relative toxic-glow-focus rounded transition-all duration-200 bg-surface-container border border-surface-container-highest w-full sm:w-64">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500 w-[16px] h-[16px]" />
+              <input
+                type="text"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                placeholder="Search players..."
+                className="w-full bg-transparent border-none text-zinc-200 font-mono text-[13px] placeholder:text-zinc-600 py-2 pl-9 pr-4 focus:ring-0 focus:outline-none"
+              />
+            </div>
           </div>
         </div>
         <div className="overflow-x-auto">
@@ -774,6 +801,8 @@ function Dashboard() {
                     onEdit={() => handleEdit(player)}
                     onBan={() => handleBan(player)}
                     onDelete={() => handleDelete(player.name)}
+                    onMerge={() => handleOpenMerge(player.name)}
+                    isUnverified={!player.is_verified && !player.user_id}
                     disabled={pendingAction}
                   />
                 ))
@@ -882,6 +911,16 @@ function Dashboard() {
         </div>
       )}
 
+      <MergePlayersModal
+        isOpen={mergeModalOpen}
+        onClose={() => setMergeModalOpen(false)}
+        onMerged={() => {
+          loadPlayers();
+        }}
+        initialSource={mergeInitialSource}
+        initialTarget={mergeInitialTarget}
+      />
+
       <div className="h-8"></div>
     </div>
   );
@@ -897,6 +936,8 @@ function ActivityRow({
   onEdit,
   onBan,
   onDelete,
+  onMerge,
+  isUnverified,
   disabled,
 }: any) {
   return (
@@ -930,6 +971,16 @@ function ActivityRow({
       <td className="py-3 px-6 text-zinc-500">{matches}</td>
       <td className="py-3 px-6 text-right">
         <div className="flex items-center justify-end space-x-2 opacity-0 group-hover:opacity-100 transition-opacity">
+          {isUnverified && onMerge && (
+            <button
+              onClick={onMerge}
+              disabled={disabled}
+              className="p-1 text-zinc-500 hover:text-toxic-purple transition-colors cursor-pointer"
+              title="Merge into another player"
+            >
+              <GitMerge className="w-4 h-4" />
+            </button>
+          )}
           <button
             onClick={onEdit}
             disabled={disabled}
