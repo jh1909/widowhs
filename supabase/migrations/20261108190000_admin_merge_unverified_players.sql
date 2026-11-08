@@ -7,26 +7,26 @@ lock table public.players, public.player_matches, public.player_history, public.
 create or replace function public.admin_merge_players(p_target_name text, p_source_name text)
 returns jsonb language plpgsql security definer set search_path = '' as $$
 declare
-  actor uuid := auth.uid();
+  v_actor uuid := auth.uid();
   target public.players%rowtype;
   source public.players%rowtype;
-  transferred_matches integer := 0;
-  total_matches integer := 0;
-  total_score integer := 0;
-  total_deaths integer := 0;
-  total_crouches integer := 0;
-  total_time numeric := 0;
-  kdr_sum numeric := 0;
-  acc_sum numeric := 0;
-  kpm_sum numeric := 0;
-  avg_kdr text;
-  avg_acc text;
-  avg_kpm text;
-  target_bnet_accounts jsonb;
-  all_aliases text[];
+  v_transferred_matches integer := 0;
+  v_total_matches integer := 0;
+  v_total_score integer := 0;
+  v_total_deaths integer := 0;
+  v_total_crouches integer := 0;
+  v_total_time numeric := 0;
+  v_kdr_sum numeric := 0;
+  v_acc_sum numeric := 0;
+  v_kpm_sum numeric := 0;
+  v_avg_kdr text;
+  v_avg_acc text;
+  v_avg_kpm text;
+  v_target_bnet_accounts jsonb;
+  v_all_aliases text[];
 begin
-  if actor is null or not exists (
-    select 1 from public.players where user_id = actor and is_admin is true
+  if v_actor is null or not exists (
+    select 1 from public.players where user_id = v_actor and is_admin is true
   ) then
     raise exception 'Only administrators may merge player profiles.' using errcode = '42501';
   end if;
@@ -65,14 +65,15 @@ begin
 
   -- 1. Move matches
   update public.player_matches set player_name = target.name where player_name = source.name;
-  get diagnostics transferred_matches = row_count;
+  get diagnostics v_transferred_matches = row_count;
 
   -- 2. Move history
   update public.player_history set player_name = target.name where player_name = source.name;
 
   -- 3. Move legacy ELO baseline if any
   insert into public.player_elo_legacy(player_name, weight, kpm_sum, accuracy_sum, kdr_sum)
-    select target.name, weight, kpm_sum, accuracy_sum, kdr_sum from public.player_elo_legacy where player_name = source.name
+    select target.name, l.weight, l.kpm_sum, l.accuracy_sum, l.kdr_sum
+    from public.player_elo_legacy l where l.player_name = source.name
     on conflict(player_name) do update set
       weight = public.player_elo_legacy.weight + excluded.weight,
       kpm_sum = public.player_elo_legacy.kpm_sum + excluded.kpm_sum,
@@ -81,7 +82,7 @@ begin
   delete from public.player_elo_legacy where player_name = source.name;
 
   -- 4. Build merged bnet_accounts (links source as unverified Battle.net account on target)
-  select coalesce(pg_catalog.jsonb_agg(a), '[]'::jsonb) into target_bnet_accounts
+  select coalesce(pg_catalog.jsonb_agg(a), '[]'::jsonb) into v_target_bnet_accounts
   from (
     select distinct a from (
       select a from pg_catalog.jsonb_array_elements_text(coalesce(pg_catalog.to_jsonb(target.bnet_accounts), '[]'::jsonb)) a
@@ -92,7 +93,7 @@ begin
     ) sub(a) where pg_catalog.lower(a) <> pg_catalog.lower(target.name) and a <> ''
   ) s;
 
-  if pg_catalog.jsonb_array_length(target_bnet_accounts) > 3 then
+  if pg_catalog.jsonb_array_length(v_target_bnet_accounts) > 3 then
     raise exception 'Target player would exceed the maximum of 3 Battle.net accounts.' using errcode = '22023';
   end if;
 
@@ -103,42 +104,42 @@ begin
       coalesce(source.previous_names, '{}'::text[]) ||
       array[source.name]
     ) a where pg_catalog.lower(a) <> pg_catalog.lower(target.name) and a <> ''
-  ) into all_aliases;
+  ) into v_all_aliases;
 
   -- 6. Delete source player
   delete from public.players where name = source.name;
 
   -- 7. Recalculate lifetime stats for target
   select count(*)::integer,
-         coalesce(sum(score), 0)::integer,
-         coalesce(sum(deaths), 0)::integer,
-         coalesce(sum(crouches), 0)::integer,
-         coalesce(sum(time_in_lobby), 0)::numeric,
-         coalesce(sum(kdr), 0)::numeric,
-         coalesce(sum(accuracy), 0)::numeric,
-         coalesce(sum(kpm), 0)::numeric
-    into total_matches, total_score, total_deaths, total_crouches, total_time,
-         kdr_sum, acc_sum, kpm_sum
-    from public.player_matches where player_name = target.name;
+         coalesce(sum(m.score), 0)::integer,
+         coalesce(sum(m.deaths), 0)::integer,
+         coalesce(sum(m.crouches), 0)::integer,
+         coalesce(sum(m.time_in_lobby), 0)::numeric,
+         coalesce(sum(m.kdr), 0)::numeric,
+         coalesce(sum(m.accuracy), 0)::numeric,
+         coalesce(sum(m.kpm), 0)::numeric
+    into v_total_matches, v_total_score, v_total_deaths, v_total_crouches, v_total_time,
+         v_kdr_sum, v_acc_sum, v_kpm_sum
+    from public.player_matches m where m.player_name = target.name;
 
-  avg_kdr := case when total_matches > 0 then round(kdr_sum / total_matches, 2)::text else '-' end;
-  avg_acc := case when total_matches > 0 then round(acc_sum / total_matches, 2)::text || '%' else '-' end;
-  avg_kpm := case when total_matches > 0 then round(kpm_sum / total_matches, 2)::text else '-' end;
+  v_avg_kdr := case when v_total_matches > 0 then round(v_kdr_sum / v_total_matches, 2)::text else '-' end;
+  v_avg_acc := case when v_total_matches > 0 then round(v_acc_sum / v_total_matches, 2)::text || '%' else '-' end;
+  v_avg_kpm := case when v_total_matches > 0 then round(v_kpm_sum / v_total_matches, 2)::text else '-' end;
 
-  -- 8. Update target player row (converts jsonb target_bnet_accounts into player column type)
-  target := pg_catalog.jsonb_populate_record(target, pg_catalog.jsonb_build_object('bnet_accounts', target_bnet_accounts));
+  -- 8. Update target player row (converts jsonb v_target_bnet_accounts into player column type)
+  target := pg_catalog.jsonb_populate_record(target, pg_catalog.jsonb_build_object('bnet_accounts', v_target_bnet_accounts));
 
   update public.players set
-    matches = total_matches,
-    score = total_score,
-    deaths = total_deaths,
-    crouches = total_crouches,
-    time_in_lobby = total_time,
-    kdr = avg_kdr,
-    accuracy = avg_acc,
-    kpm = avg_kpm,
+    matches = v_total_matches,
+    score = v_total_score,
+    deaths = v_total_deaths,
+    crouches = v_total_crouches,
+    time_in_lobby = v_total_time,
+    kdr = v_avg_kdr,
+    accuracy = v_avg_acc,
+    kpm = v_avg_kpm,
     bnet_accounts = target.bnet_accounts,
-    previous_names = all_aliases,
+    previous_names = v_all_aliases,
     elo = elo
   where name = target.name
   returning * into target;
@@ -150,15 +151,15 @@ begin
   -- 10. Audit log
   insert into public.audit_logs(action, admin_user, details) values (
     'MERGE_PLAYERS',
-    actor::text,
+    v_actor::text,
     pg_catalog.format('Merged unverified player %s as unverified Battle.net account into %s (%s matches transferred).',
-      source.name, target.name, transferred_matches)
+      source.name, target.name, v_transferred_matches)
   );
 
   return pg_catalog.jsonb_build_object(
     'target_name', target.name,
     'source_name', source.name,
-    'transferred_matches', transferred_matches,
+    'transferred_matches', v_transferred_matches,
     'matches', target.matches,
     'bnet_accounts', to_jsonb(target.bnet_accounts),
     'elo', target.elo,
