@@ -81,16 +81,19 @@ begin
       kdr_sum = public.player_elo_legacy.kdr_sum + excluded.kdr_sum;
   delete from public.player_elo_legacy where player_name = source.name;
 
-  -- 4. Build merged bnet_accounts (links source as unverified Battle.net account on target)
-  select coalesce(pg_catalog.jsonb_agg(a), '[]'::jsonb) into v_target_bnet_accounts
+  -- 4. Build merged bnet_accounts (links master + source as unverified Battle.net accounts on target)
+  select coalesce(pg_catalog.jsonb_agg(a order by case when pg_catalog.lower(a) = pg_catalog.lower(target.name) then 0 else 1 end, a), '[]'::jsonb)
+  into v_target_bnet_accounts
   from (
     select distinct a from (
+      select target.name as a
+      union all
       select a from pg_catalog.jsonb_array_elements_text(coalesce(pg_catalog.to_jsonb(target.bnet_accounts), '[]'::jsonb)) a
       union all
       select a from pg_catalog.jsonb_array_elements_text(coalesce(pg_catalog.to_jsonb(source.bnet_accounts), '[]'::jsonb)) a
       union all
-      select source.name
-    ) sub(a) where pg_catalog.lower(a) <> pg_catalog.lower(target.name) and a <> ''
+      select source.name as a
+    ) sub(a) where a is not null and pg_catalog.btrim(a) <> ''
   ) s;
 
   if pg_catalog.jsonb_array_length(v_target_bnet_accounts) > 3 then
@@ -169,5 +172,44 @@ end;
 $$;
 revoke all on function public.admin_merge_players(text, text) from public, anon, authenticated, service_role;
 grant execute on function public.admin_merge_players(text, text) to authenticated;
+
+create or replace function public.get_player_bnet_accounts(p_player_name text)
+returns jsonb language plpgsql security definer set search_path = '' as $$
+declare
+  v_player public.players%rowtype;
+  v_accounts jsonb;
+begin
+  select * into v_player from public.players where pg_catalog.lower(name) = pg_catalog.lower(pg_catalog.btrim(p_player_name));
+  if not found then
+    return '[]'::jsonb;
+  end if;
+
+  v_accounts := coalesce(pg_catalog.to_jsonb(v_player.bnet_accounts), '[]'::jsonb);
+
+  -- If player is unverified without a linked Discord account, ensure the master player name is included
+  if v_player.user_id is null and coalesce(v_player.is_verified, false) is false then
+    if not exists (
+      select 1 from pg_catalog.jsonb_array_elements_text(v_accounts) a
+      where pg_catalog.lower(a) = pg_catalog.lower(v_player.name)
+    ) then
+      v_accounts := pg_catalog.jsonb_build_array(v_player.name) || v_accounts;
+    end if;
+  end if;
+
+  return (
+    select coalesce(pg_catalog.jsonb_agg(
+      pg_catalog.jsonb_build_object(
+        'name', a.name,
+        'battletag', l.battletag,
+        'verified', l.account_id is not null
+      ) order by a.ordinality
+    ), '[]'::jsonb)
+    from pg_catalog.jsonb_array_elements_text(v_accounts) with ordinality a(name, ordinality)
+    left join public.battlenet_account_links l on l.user_id = v_player.user_id and pg_catalog.lower(l.log_name) = pg_catalog.lower(a.name)
+  );
+end;
+$$;
+revoke all on function public.get_player_bnet_accounts(text) from public;
+grant execute on function public.get_player_bnet_accounts(text) to anon, authenticated, service_role;
 
 commit;

@@ -11,6 +11,7 @@ type PlayerInfo = {
   is_verified?: boolean;
   user_id?: string | null;
   is_banned?: boolean;
+  bnet_accounts?: string[] | null;
 };
 
 interface MergePlayersModalProps {
@@ -81,7 +82,7 @@ export default function MergePlayersModal({
     try {
       const { data, error } = await supabase
         .from("players")
-        .select("name, rank, elo, matches, is_verified, user_id, is_banned")
+        .select("name, rank, elo, matches, is_verified, user_id, is_banned, bnet_accounts")
         .ilike("name", name.trim())
         .limit(1)
         .maybeSingle();
@@ -103,7 +104,7 @@ export default function MergePlayersModal({
       try {
         const { data } = await supabase
           .from("players")
-          .select("name, rank, elo, matches, is_verified, user_id, is_banned")
+          .select("name, rank, elo, matches, is_verified, user_id, is_banned, bnet_accounts")
           .ilike("name", `%${targetSearch.trim()}%`)
           .order("rank", { ascending: true })
           .limit(6);
@@ -128,7 +129,7 @@ export default function MergePlayersModal({
       try {
         const { data } = await supabase
           .from("players")
-          .select("name, rank, elo, matches, is_verified, user_id, is_banned")
+          .select("name, rank, elo, matches, is_verified, user_id, is_banned, bnet_accounts")
           .ilike("name", `%${sourceNameInput.trim()}%`)
           .order("rank", { ascending: true })
           .limit(6);
@@ -142,6 +143,22 @@ export default function MergePlayersModal({
     return () => clearTimeout(timer);
   }, [sourceNameInput]);
 
+  const getMergedAccountNames = (target: PlayerInfo | null, sources: PlayerInfo[]): string[] => {
+    if (!target) return [];
+    const set = new Set<string>();
+    set.add(target.name.toLowerCase());
+    if (target.bnet_accounts) {
+      target.bnet_accounts.forEach((a) => a && set.add(a.toLowerCase()));
+    }
+    for (const s of sources) {
+      set.add(s.name.toLowerCase());
+      if (s.bnet_accounts) {
+        s.bnet_accounts.forEach((a) => a && set.add(a.toLowerCase()));
+      }
+    }
+    return Array.from(set);
+  };
+
   const addSource = (source: PlayerInfo) => {
     if (source.is_verified || source.user_id) {
       setError(`Cannot merge '${source.name}' because this profile is verified.`);
@@ -153,6 +170,15 @@ export default function MergePlayersModal({
     }
     if (selectedSources.some((s) => s.name.toLowerCase() === source.name.toLowerCase())) {
       return;
+    }
+    if (targetPlayer) {
+      const projected = getMergedAccountNames(targetPlayer, [...selectedSources, source]);
+      if (projected.length > 3) {
+        setError(
+          `Cannot add '${source.name}': Target player would exceed the maximum of 3 Battle.net accounts (${projected.length} accounts: Master + sources).`,
+        );
+        return;
+      }
     }
     setError(null);
     setSelectedSources((prev) => [...prev, source]);
@@ -355,15 +381,18 @@ export default function MergePlayersModal({
                   );
                   const isTarget =
                     targetPlayer && targetPlayer.name.toLowerCase() === p.name.toLowerCase();
+                  const wouldExceedLimit = targetPlayer
+                    ? getMergedAccountNames(targetPlayer, [...selectedSources, p]).length > 3
+                    : false;
 
                   return (
                     <button
                       key={p.name}
                       type="button"
-                      disabled={isVerified || isAlreadySelected || !!isTarget}
+                      disabled={isVerified || isAlreadySelected || !!isTarget || wouldExceedLimit}
                       onClick={() => addSource(p)}
                       className={`w-full px-3 py-2 text-left flex items-center justify-between font-mono text-xs transition-colors ${
-                        isVerified || isAlreadySelected || isTarget
+                        isVerified || isAlreadySelected || isTarget || wouldExceedLimit
                           ? "opacity-40 cursor-not-allowed bg-black/20 text-zinc-500"
                           : "hover:bg-toxic-purple/10 text-zinc-200"
                       }`}
@@ -379,7 +408,9 @@ export default function MergePlayersModal({
                             ? "Current target"
                             : isAlreadySelected
                               ? "Already selected"
-                              : `Rank #${p.rank ?? "-"} • ${p.matches ?? 0} matches • ${p.elo ?? "-"} ELO`}
+                              : wouldExceedLimit
+                                ? "Exceeds 3 accounts limit (Master + sources)"
+                                : `Rank #${p.rank ?? "-"} • ${p.matches ?? 0} matches • ${p.elo ?? "-"} ELO`}
                       </span>
                     </button>
                   );
@@ -442,12 +473,11 @@ export default function MergePlayersModal({
                   will transfer to <strong className="text-zinc-200">{targetPlayer.name}</strong>.
                 </li>
                 <li>
-                  The names{" "}
+                  The master account (<strong className="text-zinc-200">{targetPlayer.name}</strong>) and the merged account{selectedSources.length > 1 ? "s" : ""} (
                   <strong className="text-zinc-200">
                     {selectedSources.map((s) => s.name).join(", ")}
-                  </strong>{" "}
-                  will be linked as <strong className="text-zinc-200">unverified Battle.net accounts</strong> (<code>bnet_accounts</code>) to{" "}
-                  <strong>{targetPlayer.name}</strong>. They will appear on their profile with status <span className="text-zinc-400 font-semibold">[Not verified]</span> and can be verified through Blizzard later if claimed.
+                  </strong>
+                  ) will be linked as <strong className="text-zinc-200">unverified Battle.net accounts</strong> (<code>bnet_accounts</code>, {getMergedAccountNames(targetPlayer, selectedSources).length}/3 accounts). All of them will appear under Battle.net Accounts with status <span className="text-zinc-400 font-semibold">[Not verified]</span> and can be verified through Blizzard later if claimed.
                 </li>
                 <li>
                   Future workshop uploads with those names will automatically credit to <strong>{targetPlayer.name}</strong>.

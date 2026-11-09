@@ -157,7 +157,7 @@ export default function BattleNetAccounts({ playerName, accounts, isOwner, onCha
               <span className="font-sans font-bold text-white text-lg break-all">{account.battletag ?? account.name}</span>
               {account.verified ? <VerifiedBadge verified /> : <span className="text-xs text-zinc-500">Not verified</span>}
             </div>
-            {isOwner && <button onClick={() => remove(account.name)} disabled={busy !== null}
+            {isOwner && account.name.toLowerCase() !== playerName.toLowerCase() && <button onClick={() => remove(account.name)} disabled={busy !== null}
               className="p-2 text-red-400 hover:text-red-300 disabled:opacity-50" aria-label={`Disconnect ${account.name}`}>
               {busy === account.name ? <LoaderCircle size={18} className="animate-spin" /> : <X size={18} />}
             </button>}

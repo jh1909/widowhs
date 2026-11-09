@@ -177,14 +177,19 @@ export default function Profile() {
             }
           }
 
+          let loadedBnet: string[] = [];
           if (
             mainPlayer.bnet_accounts &&
             Array.isArray(mainPlayer.bnet_accounts)
           ) {
-            setBnetAccounts(mainPlayer.bnet_accounts);
-          } else {
-            setBnetAccounts([]);
+            loadedBnet = [...mainPlayer.bnet_accounts];
           }
+          if (!mainPlayer.is_verified && !mainPlayer.user_id) {
+            if (!loadedBnet.some((a) => a.toLowerCase() === mainPlayer.name.toLowerCase())) {
+              loadedBnet.unshift(mainPlayer.name);
+            }
+          }
+          setBnetAccounts(loadedBnet);
 
           // Fetch personal best (use stored PB column if present, otherwise query player_matches)
           if (mainPlayer.personal_best_time != null && Number(mainPlayer.personal_best_time) > 0) {
