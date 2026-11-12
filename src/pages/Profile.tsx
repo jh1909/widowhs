@@ -1,5 +1,6 @@
 import {
   ArrowLeft,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Target,
@@ -16,7 +17,7 @@ import {
   PersonStanding,
 } from "lucide-react";
 import { Link, useParams, useNavigate } from "react-router-dom";
-import { useEffect, useState, useMemo } from "react";
+import { Fragment, useEffect, useState, useMemo } from "react";
 import { supabase } from "../lib/supabase";
 import { rankPlayers } from "../../supabase/functions/_shared/leaderboard";
 import { isQualified, placementMatches } from "../../supabase/functions/_shared/elo-weight";
@@ -30,7 +31,7 @@ import VerifiedBadge from "../components/VerifiedBadge";
 import BattleNetAccounts from "../components/BattleNetAccounts";
 import MatchDialog from "../components/MatchDialog";
 import ProfileDetails from "../components/ProfileDetails";
-import { formatMatchDate, type MatchSummary } from "../lib/match-history";
+import { byJoinTime, formatMatchDate, groupSessions, aggregateSessions, type MatchSummary } from "../lib/match-history";
 import ProfileRankBadge, { ProfileRankFrame, getPodiumRank, podiumThemes } from "../components/ProfileRankDecoration";
 import { getAchievements, type AchievementId } from "../lib/achievements";
 import { formatPlayerKdr } from "../lib/player-kdr";
@@ -81,6 +82,9 @@ export default function Profile() {
   const matchesPerPage = 10;
   const matchHistoryPages = Math.ceil(matchHistoryTotal / matchesPerPage);
   const visibleMatches = matchHistory;
+  // Several sessions in the same round are shown as one expandable row.
+  const matchGroups = groupSessions(visibleMatches, m => String(m.match_id ?? m.id));
+  const [openMatchGroups, setOpenMatchGroups] = useState<string[]>([]);
 
   const openMatch = (match: any) => {
     if (!match.match_id) return;
@@ -838,11 +842,11 @@ export default function Profile() {
           {matchHistoryTotal > 0 || visibleMatches.length > 0 ? (
             <>
             <div className="overflow-x-auto">
-              <table className="w-full table-fixed text-left border-collapse min-w-[1140px] whitespace-nowrap">
+              <table className="w-full table-fixed text-left border-collapse min-w-[1340px] whitespace-nowrap">
                 <colgroup>
                   <col className="w-[210px]" />
                   <col /><col /><col /><col /><col />
-                  <col className="w-[135px]" /><col className="w-[140px]" /><col className="w-[210px]" />
+                  <col className="w-[110px]" /><col className="w-[110px]" /><col className="w-[110px]" /><col className="w-[140px]" /><col className="w-[210px]" />
                 </colgroup>
                 <thead>
                   <tr className="border-b border-white/5 text-[10px] uppercase tracking-widest text-zinc-500 font-sans">
@@ -852,15 +856,21 @@ export default function Profile() {
                     <th className="py-3 px-4">KDR</th>
                     <th className="py-3 px-4">KPM</th>
                     <th className="py-3 px-4">Acc</th>
-                    <th className="py-3 px-4">Time in Lobby</th>
+                    <th className="py-3 px-4">Joined</th>
+                    <th className="py-3 px-4">Left</th>
+                    <th className="py-3 px-4">Active</th>
                     <th className="py-3 px-4">Total Lobby Time</th>
                     <th className="py-3 px-4">Perf. Score</th>
                   </tr>
                 </thead>
                 <tbody className="font-mono text-[13px] text-zinc-300">
-                  {visibleMatches.map((m, idx) => (
+                  {matchGroups.map((sessions, idx) => {
+                      const m = aggregateSessions(sessions);
+                      const key = String(m.match_id ?? m.id ?? idx);
+                      const expanded = openMatchGroups.includes(key);
+                      return (
+                      <Fragment key={key}>
                       <tr
-                        key={m.id || idx}
                         onClick={() => openMatch(m)}
                         className={`h-[72px] border-b border-white/5 transition-colors hover:bg-white/[0.02] ${m.match_id ? "cursor-pointer" : ""}`}
                       >
@@ -872,23 +882,27 @@ export default function Profile() {
                              className="hover:text-toxic-purple hover:underline focus-visible:outline focus-visible:outline-toxic-purple rounded-sm disabled:pointer-events-none">
                              {formatMatchDate(m.played_at ?? m.created_at)}
                            </button>
+                           {sessions.length > 1 && <button type="button" aria-expanded={expanded}
+                             onClick={event => { event.stopPropagation(); setOpenMatchGroups(keys => expanded ? keys.filter(k => k !== key) : [...keys, key]); }}
+                             className="flex items-center gap-1 text-[11px] text-toxic-purple mt-1 hover:underline">
+                             {sessions.length} sessions <ChevronDown size={12} className={expanded ? "rotate-180" : ""} />
+                           </button>}
                          </td>
-                         <td className="py-3 px-4 text-white font-bold">{m.score}</td>
-                         <td className="py-3 px-4">{m.deaths}</td>
-                         <td className="py-3 px-4 font-bold">{m.kdr?.toFixed(2) || "-"}</td>
-                         <td className="py-3 px-4">{m.kpm?.toFixed(2) || "-"}</td>
-                         <td className="py-3 px-4">{m.accuracy?.toFixed(1) || "-"}%</td>
-                         <td className="py-3 px-4 whitespace-nowrap">{formatLobbyTime(m.time_in_lobby)}</td>
-                         <td className="py-3 px-4 whitespace-nowrap">{formatLobbyTime(m.total_match_time)}</td>
-                         <td className="py-3 px-4 text-toxic-purple font-bold">
-                            {m.performance_score != null ? Math.round(m.performance_score) : "-"}
-                            <div className="h-5"><RatingWeight match={m} /></div>
-                         </td>
+                         <MatchStatCells m={m} />
                       </tr>
-                    ))}
-                  {matchHistoryPages > 1 && Array.from({ length: matchesPerPage - visibleMatches.length }, (_, index) => (
+                      {expanded && byJoinTime(sessions).map((session, sessionIndex) => (
+                        <tr key={session.id ?? sessionIndex} onClick={() => openMatch(session)}
+                          className="h-[72px] border-b border-white/5 transition-colors hover:bg-white/[0.02] cursor-pointer bg-white/[0.015]">
+                          <td className="py-3 px-4 pl-8 text-zinc-500 whitespace-nowrap">Session {sessionIndex + 1}</td>
+                          <MatchStatCells m={session} />
+                        </tr>
+                      ))}
+                      </Fragment>
+                      );
+                    })}
+                  {matchHistoryPages > 1 && Array.from({ length: Math.max(0, matchesPerPage - matchGroups.length) }, (_, index) => (
                     <tr key={`empty-${index}`} aria-hidden="true" className="h-[72px]">
-                      <td colSpan={9} />
+                      <td colSpan={11} />
                     </tr>
                   ))}
                 </tbody>
@@ -914,6 +928,27 @@ export default function Profile() {
         onClose={() => setSelectedMatch(null)} />}
     </main>
   );
+}
+
+function MatchStatCells({ m }: { m: any }) {
+  const kdr = typeof m.kdr === "number" ? m.kdr.toFixed(2) : (parseFloat(m.kdr) ? parseFloat(m.kdr).toFixed(2) : (m.kdr || "-"));
+  const kpm = typeof m.kpm === "number" ? m.kpm.toFixed(2) : (parseFloat(m.kpm) ? parseFloat(m.kpm).toFixed(2) : (m.kpm || "-"));
+  const acc = typeof m.accuracy === "number" ? m.accuracy.toFixed(1) : (parseFloat(m.accuracy) ? parseFloat(m.accuracy).toFixed(1) : (m.accuracy || "-"));
+  return <>
+    <td className="py-3 px-4 text-white font-bold">{m.score}</td>
+    <td className="py-3 px-4">{m.deaths}</td>
+    <td className="py-3 px-4 font-bold">{kdr}</td>
+    <td className="py-3 px-4">{kpm}</td>
+    <td className="py-3 px-4">{acc}%</td>
+    <td className="py-3 px-4 whitespace-nowrap">{formatLobbyTime(m.join_time)}</td>
+    <td className="py-3 px-4 whitespace-nowrap">{formatLobbyTime(m.end_time)}</td>
+    <td className="py-3 px-4 whitespace-nowrap">{formatLobbyTime(m.active_time ?? m.time_in_lobby)}</td>
+    <td className="py-3 px-4 whitespace-nowrap">{formatLobbyTime(m.total_match_time)}</td>
+    <td className="py-3 px-4 text-toxic-purple font-bold">
+      {m.performance_score != null ? Math.round(m.performance_score) : "-"}
+      <div className="h-5"><RatingWeight match={m} /></div>
+    </td>
+  </>;
 }
 
 function CrouchIcon({ className }: { className?: string }) {

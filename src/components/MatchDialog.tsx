@@ -1,12 +1,12 @@
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { Trophy, X } from "lucide-react";
+import { ChevronDown, Trophy, X } from "lucide-react";
 import { supabase } from "../lib/supabase";
 import PlayerAvatar from "./PlayerAvatar";
 import VerifiedBadge from "./VerifiedBadge";
 import RatingWeight from "./RatingWeight";
 import { formatLobbyTime } from "../lib/profile-stats";
-import { formatMatchDate, type MatchSummary } from "../lib/match-history";
+import { byJoinTime, formatMatchDate, groupSessions, aggregateSessions, type MatchSummary } from "../lib/match-history";
 
 type Participant = { player_name: string; logged_player_name: string; avatar_url?: string;
   is_verified: boolean; score: number; deaths: number; accuracy: number; kpm: number;
@@ -22,7 +22,10 @@ export default function MatchDialog({ match, onClose }: { match: MatchSummary; o
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [reload, setReload] = useState(0);
-  const playerCount = match.player_count ?? (!loading && !error ? participants.length : null);
+  const [open, setOpen] = useState<string[]>([]);
+  // Several sessions of one player in this round are shown once and can be expanded.
+  const groups = groupSessions(participants, player => player.player_name);
+  const playerCount = !loading && !error && participants.length ? groups.length : match.player_count ?? null;
   const lobbyTime = participants.reduce<number | null>((longest, player) =>
     player.total_match_time == null ? longest : Math.max(longest ?? 0, player.total_match_time), null
   ) ?? match.total_match_time;
@@ -64,16 +67,28 @@ export default function MatchDialog({ match, onClose }: { match: MatchSummary; o
           : <><p className="sm:hidden text-[10px] text-zinc-500 px-5 py-3">Swipe to see all stats.</p><div className="overflow-x-auto">
             <table className="leaderboard-table match-results w-full text-left text-xs">
               <caption className="sr-only">All participants ordered by kills. Winning score: 50 kills.</caption>
-              <thead><tr><th>#</th><th>Player</th><th>Kills</th><th>Deaths</th><th>Accuracy</th><th>KPM</th><th>K/D</th><th>Crouches</th><th>Time in lobby</th><th>Round rating</th></tr></thead>
-              <tbody>{participants.map((player, index) => <tr key={`${player.logged_player_name}-${index}`} className={player.score >= 50 ? "match-winner-row" : ""}>
-                <td>{player.score >= 50 ? <Trophy size={15} className="text-[#dbc18a]" aria-label="Winner" /> : index + 1}</td>
-                <td><div className="flex items-center gap-2 whitespace-nowrap"><PlayerAvatar name={player.player_name} avatarUrl={player.avatar_url} className="player-avatar" />
-                  <Link to={`/profile/${encodeURIComponent(player.player_name)}`} onClick={onClose} className="font-semibold hover:text-toxic-purple truncate max-w-44" title={player.logged_player_name}>{player.logged_player_name}</Link>
-                  <VerifiedBadge verified={player.is_verified} compact /></div>
-                  {player.logged_player_name !== player.player_name && <span className="block text-[10px] text-zinc-500 mt-1 pl-10">{player.player_name}</span>}
-                </td><td className="font-semibold">{player.score}</td><td>{player.deaths}</td><td>{metric(player.accuracy, 2)}%</td><td>{metric(player.kpm, 2)}</td><td>{metric(player.kdr, 2)}</td>
-                <td>{player.crouches}</td><td>{formatLobbyTime(player.time_in_lobby)}</td><td className="text-toxic-purple font-semibold">{metric(player.performance_score)}<RatingWeight match={player} /></td>
-              </tr>)}</tbody>
+              <thead><tr><th>#</th><th>Player</th><th>Kills</th><th>Deaths</th><th>Accuracy</th><th>KPM</th><th>K/D</th><th>Crouches</th><th>Joined</th><th>Left</th><th>Active</th><th>Round rating</th></tr></thead>
+              <tbody>{groups.sort((a, b) => aggregateSessions(b).score - aggregateSessions(a).score).map((sessions, index) => {
+                const player = aggregateSessions(sessions);
+                const won = sessions.some(session => session.score >= 50) || player.score >= 50;
+                const expanded = open.includes(player.player_name);
+                const stats = (session: Participant) => <><td className="font-semibold">{session.score}</td><td>{session.deaths}</td><td>{metric(session.accuracy, 2)}%</td><td>{metric(session.kpm, 2)}</td><td>{metric(session.kdr, 2)}</td>
+                  <td>{session.crouches}</td><td>{formatLobbyTime(session.join_time)}</td><td>{formatLobbyTime(session.end_time)}</td><td>{formatLobbyTime(session.active_time ?? session.time_in_lobby)}</td><td className="text-toxic-purple font-semibold">{metric(session.performance_score)}<RatingWeight match={session} /></td></>;
+                return <Fragment key={player.player_name}><tr className={won ? "match-winner-row" : ""}>
+                  <td>{won ? <Trophy size={15} className="text-[#dbc18a]" aria-label="Winner" /> : index + 1}</td>
+                  <td><div className="flex items-center gap-2 whitespace-nowrap"><PlayerAvatar name={player.player_name} avatarUrl={player.avatar_url} className="player-avatar" />
+                    <Link to={`/profile/${encodeURIComponent(player.player_name)}`} onClick={onClose} className="font-semibold hover:text-toxic-purple truncate max-w-44" title={player.logged_player_name}>{player.logged_player_name}</Link>
+                    <VerifiedBadge verified={player.is_verified} compact /></div>
+                    {player.logged_player_name !== player.player_name && <span className="block text-[10px] text-zinc-500 mt-1 pl-10">{player.player_name}</span>}
+                    {sessions.length > 1 && <button type="button" aria-expanded={expanded} className="flex items-center gap-1 text-[10px] text-toxic-purple mt-1 pl-10 hover:underline"
+                      onClick={() => setOpen(names => expanded ? names.filter(name => name !== player.player_name) : [...names, player.player_name])}>
+                      {sessions.length} sessions <ChevronDown size={12} className={expanded ? "rotate-180" : ""} /></button>}
+                  </td>{stats(player)}
+                </tr>
+                {expanded && byJoinTime(sessions).map((session, sessionIndex) => <tr key={sessionIndex} className="bg-white/[0.015] border-t border-dashed border-white/5">
+                  <td /><td><span className="pl-10 text-zinc-400">Session {sessionIndex + 1}</span></td>{stats(session)}
+                </tr>)}</Fragment>;
+              })}</tbody>
             </table>
           </div></>}
       </div>
