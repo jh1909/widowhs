@@ -1,9 +1,10 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.39.3";
 import Papa from "npm:papaparse@5.4.1";
-import { normalizeMatchLog, parseMatchRows, type MatchData } from "./parser.ts";
+import { normalizeMatchLog } from "./parser.ts";
 import { buildMatchImport, type ImportPlayer } from "../_shared/import-stats.ts";
-import { readMatchSources, assignMatchId } from "../_shared/match-upload.ts";
+import { readMatchSources } from "../_shared/match-upload.ts";
+import { prepareRound, type PreparedRound } from "../_shared/log-ingest.ts";
 
 
 
@@ -61,8 +62,8 @@ serve(async (req) => {
     }
 
     // Parse each file separately (including its own header), then import the
-    // combined matches once so overlapping players accumulate every file.
-    const matches: (MatchData & { played_at: string | null; match_id: string })[] = [];
+    // combined rounds once so overlapping players accumulate every file.
+    const rounds: PreparedRound[] = [];
     let fileCount = 0;
     try {
       const sources = await readMatchSources(req);
@@ -75,9 +76,7 @@ serve(async (req) => {
           if (parsedData.errors.length > 0) {
             throw new Error(parsedData.errors.map((error: { message: string }) => error.message).join("; "));
           }
-          const parsedMatches = parseMatchRows(parsedData.data);
-          if (!parsedMatches.length) throw new Error("No match records found.");
-          matches.push(...assignMatchId(parsedMatches.map((match) => ({ ...match, played_at: source.played_at }))));
+          rounds.push(await prepareRound(source, parsedData.data));
         } catch (error) {
           throw new Error(`${source.name}: ${error instanceof Error ? error.message : String(error)}`);
         }
@@ -94,17 +93,31 @@ serve(async (req) => {
       .select("total_match_time, played_at, match_id, logged_player_name").limit(0);
     if (schemaErr) throw schemaErr;
 
-    // Retry optimistic concurrency conflicts (SQLSTATE 40001) when another
+    // A file whose hash is already stored was imported before and changes
+    // nothing; a file repeated within this upload counts once.
+    const hashes = new Set<string>();
+    const unique = rounds.filter((round) => !hashes.has(round.raw_log.sha256) && hashes.add(round.raw_log.sha256));
+
+    // Retry optimistic concurrency conflicts (SQLSTATE PT409) when another
     // upload, profile claim, or moderation action changed the leaderboard
-    // while players were being read and calculated.
+    // while players were being read and calculated. PT409, not 40001:
+    // PostgREST would retry 40001 itself, resending the same stale revision.
     const maxAttempts = 5;
     let imported!: ReturnType<typeof buildMatchImport>;
+    let fresh: PreparedRound[] = [];
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       // Capture the revision before reading players. A reset or another import
       // invalidates this snapshot; the transactional write will reject it.
       const { data: state, error: stateErr } = await supabaseClient
         .from("leaderboard_state").select("revision").eq("singleton", true).single();
       if (stateErr) throw stateErr;
+
+      const { data: stored, error: storedErr } = await supabaseClient.from("raw_logs")
+        .select("sha256").in("sha256", [...hashes]);
+      if (storedErr) throw storedErr;
+      const known = new Set((stored ?? []).map((row: { sha256: string }) => row.sha256));
+      fresh = unique.filter((round) => !known.has(round.raw_log.sha256));
+      if (!fresh.length) break;
 
       // Read every profile, beyond PostgREST's default page size.
       const dbPlayers: ImportPlayer[] = [];
@@ -115,7 +128,7 @@ serve(async (req) => {
         dbPlayers.push(...(data ?? []));
         if (!data || data.length < 1000) break;
       }
-      imported = buildMatchImport(dbPlayers, matches);
+      imported = buildMatchImport(dbPlayers, fresh.flatMap((round) => round.matches));
       const { error: importErr } = await supabaseClient.rpc("apply_match_import", {
         p_expected_revision: state.revision,
         p_players: imported.players,
@@ -123,10 +136,12 @@ serve(async (req) => {
         p_history: imported.history,
         p_matches: imported.matches,
         p_admin_user: apiKey ? "API_AUTOMATION" : "ADMIN_DASHBOARD",
-        p_details: `Imported ${imported.roundCount} round(s) with ${imported.matches.length} player participation(s) from ${fileCount} file(s), updated ${imported.players.length} players. Skipped ${imported.skippedBanned} banned participation(s).`,
+        p_details: `Imported ${imported.roundCount} round(s) with ${imported.matches.length} player participation(s) from ${fresh.length} file(s), updated ${imported.players.length} players. Skipped ${imported.skippedBanned} banned participation(s) and ${fileCount - fresh.length} already imported file(s).`,
+        p_raw_logs: fresh.map((round) => round.raw_log),
+        p_kill_pairs: fresh.flatMap((round) => round.kill_pairs),
       });
       if (!importErr) break;
-      if (importErr.code === "40001") {
+      if (importErr.code === "PT409") {
         if (attempt < maxAttempts) {
           await new Promise((resolve) => setTimeout(resolve, 100 * attempt));
           continue;
@@ -138,10 +153,17 @@ serve(async (req) => {
       throw importErr;
     }
 
+    const freshRounds = new Set(fresh);
+    const alreadyImported = rounds.filter((round) => !freshRounds.has(round)).map((round) => round.name);
+    const skipped = alreadyImported.length
+      ? ` ${alreadyImported.length} file(s) were already imported and changed nothing.` : "";
     return new Response(
       JSON.stringify({
         success: true,
-        message: `Successfully imported ${imported.roundCount} round(s) with ${imported.matches.length} player participation(s) from ${fileCount} file(s).${imported.skippedBanned ? ` Skipped ${imported.skippedBanned} banned participation(s).` : ""}`,
+        already_imported: alreadyImported,
+        message: fresh.length
+          ? `Successfully imported ${imported.roundCount} round(s) with ${imported.matches.length} player participation(s) from ${fresh.length} file(s).${imported.skippedBanned ? ` Skipped ${imported.skippedBanned} banned participation(s).` : ""}${skipped}`
+          : `Nothing imported: ${fileCount === 1 ? "this file was" : `all ${fileCount} files were`} already imported.`,
       }),
       {
         status: 200,

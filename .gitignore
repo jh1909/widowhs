@@ -6,3 +6,11 @@ coverage/
 *.log
 .env*
 !.env.example
+
+# Host PC uploader config and state
+tools/uploader/uploader.json
+tools/uploader/uploader-state.json
+tools/uploader/uploader-state.tmp
+
+# Supabase CLI state (linked project, CLI version)
+supabase/.temp/

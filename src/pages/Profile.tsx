@@ -191,18 +191,10 @@ export default function Profile() {
           }
           setBnetAccounts(loadedBnet);
 
-          // Fetch personal best (use stored PB column if present, otherwise query player_matches)
-          if (mainPlayer.personal_best_time != null && Number(mainPlayer.personal_best_time) > 0) {
-            setPersonalBestTime(Number(mainPlayer.personal_best_time));
-          } else {
-            const bestWinResult = await supabase.from("player_matches").select("time_in_lobby")
-              .eq("player_name", mainPlayer.name).gte("score", 50)
-              .gt("time_in_lobby", 0)
-              .order("time_in_lobby", { ascending: true }).limit(1);
-            if (!active) return;
-            if (bestWinResult.error) console.warn("Could not load personal best", bestWinResult.error);
-            setPersonalBestTime(bestWinResult.data?.[0]?.time_in_lobby ?? null);
-          }
+          // The database derives active-time PBs from actual winning sessions.
+          // A null PB must not fall back to a summed rejoin score or elapsed time.
+          setPersonalBestTime(mainPlayer.personal_best_time != null && Number(mainPlayer.personal_best_time) > 0
+            ? Number(mainPlayer.personal_best_time) : null);
         } else if (
           user &&
           user.username.toLowerCase() === targetId.toLowerCase()

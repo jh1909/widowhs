@@ -14,15 +14,15 @@ test("keeps every file in a mixed CSV/TXT upload, including Unicode text", async
   const sources = await readMatchSources(requestWithFiles([
     new File([csv], "match1.csv"), new File([txt], "match2.TXT"),
   ]));
-  assert.deepEqual(sources, [{ name: "match1.csv", text: csv, played_at: null }, { name: "match2.TXT", text: txt, played_at: null }]);
+  assert.deepEqual(sources, [{ name: "match1.csv", text: csv, played_at: null, host_name: null }, { name: "match2.TXT", text: txt, played_at: null, host_name: null }]);
 });
 
 test("single-file automation and raw-text uploads remain compatible", async () => {
   const text = "NZT,50,18,43.9,11.04,2.78,41,271,271";
   assert.deepEqual(await readMatchSources(requestWithFiles([new File([text], "match.csv")])),
-    [{ name: "match.csv", text, played_at: null }]);
+    [{ name: "match.csv", text, played_at: null, host_name: null }]);
   assert.deepEqual(await readMatchSources(new Request("https://example.test/upload", { method: "POST", body: text })),
-    [{ name: "Request body", text, played_at: null }]);
+    [{ name: "Request body", text, played_at: null, host_name: null }]);
 });
 
 test("rejects a batch containing an unsupported file instead of silently skipping it", async () => {

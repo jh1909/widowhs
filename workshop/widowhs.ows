@@ -1,0 +1,1181 @@
+settings
+{
+	main
+	{
+		Description: "WIDOWHS.COM\n\r\n\rChange HP in Workshop Settings.\n\rCustom spawns and no damage falloff.\n\rCompatible with every map.\n\rEnd scene on Castillo, Château Guillard, and Necropolis.\n\r\n\rv3.7.0 - more info on workshop.codes/widowhs\n\rCode: TCG2W"
+		Mode Name: "Widow HS 2.0"
+	}
+
+	lobby
+	{
+		Allow Players Who Are In Queue: Yes
+		Match Voice Chat: Enabled
+		Max Spectators: 6
+		Return To Lobby: Never
+	}
+
+	modes
+	{
+		Deathmatch
+		{
+			enabled maps
+			{
+				Necropolis 972777519512068153
+			}
+		}
+
+		General
+		{
+			Game Mode Start: Immediately
+			Kill Cam: Off
+			Respawn As Random Hero: On
+			Respawn Time Scalar: 0%
+			Score To Win: 50
+			Self Initiated Respawn: Off
+			Spawn Health Packs: Disabled
+		}
+	}
+
+	heroes	
+	{
+		General
+		{
+			Torbjörn
+			{
+				Deploy Turret: Off
+				Spawn With Ultimate Ready: On
+				Weapons Enabled: Forge Hammer Only
+			}
+
+			Widowmaker
+			{
+				Grappling Hook Cooldown Time: 35%
+				No Ammunition Requirement: On
+				No Automatic Fire: On
+				Passive Health Regeneration: Off
+				Receive Headshots Only: On
+				Role Passives: Off
+				Ultimate Duration: 65%
+				Ultimate Generation - Combat Infra-Sight: 0%
+				Ultimate Generation - Passive Infra-Sight: 0%
+				Venom Mine: Off
+			}
+
+			enabled heroes
+			{
+				Widowmaker
+			}
+		}
+	}
+}
+
+variables
+{
+	global:
+		0: winScore
+		1: endlessToggle
+		2: crouchToggle
+		3: spawnToggle
+		4: healthSetting
+		5: healthPercent
+		6: targetHP
+		7: endSceneSupported
+		8: posWinner
+		9: posLoser
+		10: posText
+		11: posLink
+		12: posCamera
+		13: winner
+		14: gameComplete
+		15: topAcc
+		16: topAccPlayer
+		17: topKPMPlayer
+		18: spawnPlayer
+		19: spawnPoints
+		20: spawnRanks
+		21: ranked
+		22: endTime
+		23: respawnQueue
+		24: testBots
+		25: bots
+		26: bot
+		27: botIndex
+		28: topKPM
+		29: topAccName
+		30: topKPMName
+		31: bigHUDPlayers
+		32: roundStart
+		33: sessionCount
+		34: sessionPlayer
+		35: sessionName
+		36: sessionSlot
+		37: sessionStart
+		38: sessionEnd
+		39: sessionStatus
+		40: sessionKills
+		41: sessionDeaths
+		42: sessionShots
+		43: sessionHits
+		44: sessionCrouches
+		45: sessionAfk
+		46: sessionAfkStart
+		47: killCodes
+		48: winnerSession
+		49: leftSessions
+		50: logSession
+		51: logIndex
+		52: scoreSessions
+		53: scoreTimes
+		54: scoreValues
+		55: afkSessions
+		56: afkStarts
+		57: afkEnds
+		58: afkTerminal
+
+	player:
+		0: startTime
+		1: hasUlt
+		2: hudID
+		3: hudIndex
+		4: acc
+		5: KD
+		6: KPM
+		7: crouched
+		8: currentKS
+		9: dist
+		10: actualHP
+		11: actualDamage
+		12: killfeedToggle
+		13: playerTime
+		14: playerTimeSeconds
+		15: playerTimeMinutes
+		16: playerTimeSecondsFormatted
+		17: deathTime
+		18: lastSpawn
+		19: lastDeath
+		20: spawnIndex
+		21: shots
+		22: hits
+		23: idCount
+		24: afk
+		25: afkDeadline
+		26: afkHUD
+		27: afkReturn
+		28: botTarget
+		29: session
+}
+
+subroutines
+{
+	0: _createHelpHUD
+	1: _createSmallHUD
+	2: _createBigHUD
+	3: _destroyHUD
+	4: _calcSpawns
+}
+
+rule("Global init")
+{
+	event
+	{
+		Ongoing - Global;
+	}
+
+	actions
+	{
+		Disable Inspector Recording;
+		Disable Built-In Game Mode Completion;
+		Disable Built-In Game Mode Scoring;
+		Global.healthSetting = Workshop Setting Combo(Custom String("Config"), Custom String("Set Widow HP"), 0, Array(Custom String(
+			"Default"), Custom String("175 HP"), Custom String("200 HP"), Custom String("225 HP")), 0);
+		Global.spawnToggle = Workshop Setting Toggle(Custom String("Config"), Custom String("Custom spawns"), True, 1);
+		Global.crouchToggle = Workshop Setting Toggle(Custom String("Config"), Custom String("Disable crouching"), False, 2);
+		Global.winScore = Workshop Setting Integer(Custom String("Game Completion"), Custom String("kills to win"), 50, 1, 200, 0);
+		Global.endlessToggle = Workshop Setting Toggle(Custom String("Game Completion"), Custom String("endless mode"), False, 1);
+		Global.ranked = Workshop Setting Toggle(Custom String("Ranked"), Custom String("Ranked mode - match logs and forced 175HP"), False,
+			0);
+		"announcer works correctly at the default 50 kill target, disable if kill target differs"
+		If(Global.winScore != 50 || Global.endlessToggle);
+			Disable Built-In Game Mode Announcer;
+			Disable Built-In Game Mode Music;
+		End;
+		Global.targetHP = Global.ranked ? 175 : Array(Null, 175, 200, 225)[Global.healthSetting];
+		"match time zero for the log, the offset the v1 log used for the round length"
+		Global.roundStart = 7.020;
+		"start empty: appending to an unset variable keeps its default 0 as a first element"
+		Global.killCodes = Empty Array;
+		Global.scoreSessions = Empty Array;
+		Global.scoreTimes = Empty Array;
+		Global.scoreValues = Empty Array;
+		Global.afkSessions = Empty Array;
+		Global.afkStarts = Empty Array;
+		Global.afkEnds = Empty Array;
+		Global.afkTerminal = Empty Array;
+		"testing only: bots are never added to a ranked match"
+		Global.testBots = !Global.ranked && Workshop Setting Toggle(Custom String("Testing"), Custom String(
+			"Fill empty slots with bots"), False, 1);
+		If(Workshop Setting Toggle(Custom String("Testing"), Custom String("Show server load"), False, 0));
+			Create HUD Text(Host Player, Null, Null, Custom String("Server load: {0}\nAverage (2s): {1}\nPeak (2s): {2}", Server Load,
+				Server Load Average, Server Load Peak), Right, 10, Null, Null, Color(Yellow), Visible To and String, Default Visibility);
+		End;
+		"one shared #1 panel for every player on the big HUD, kept in bigHUDPlayers"
+		Create HUD Text(Global.bigHUDPlayers, Null, Null, Custom String(
+			"#1 Accuracy:　{0}% by {1}\n#1 Kills / min:   {2}", Global.topAcc, Global.topAccName, Custom String("{0} by {1}\n",
+			Global.topKPM, Global.topKPMName)), Right, False, Null, Null, Color(Orange), Visible To and String,
+			Default Visibility);
+		Wait Until(Is Game In Progress, 10);
+		Pause Match Time;
+		Set Match Time(False);
+	}
+}
+
+rule("Map init")
+{
+	event
+	{
+		Ongoing - Global;
+	}
+
+	actions
+	{
+		Global.spawnPoints = Spawn Points(All Teams);
+		If(Current Map == Map(Necropolis));
+			Global.posWinner = Vector(-20, 3, 0);
+			Global.posCamera = Vector(-4, 1.250, 0);
+			Global.posLoser = Vector(-9, 2.500, 0);
+			Global.posText = Vector(-18, 5.500, 0);
+			Global.posLink = Vector(-9, 1.500, 0);
+			Global.endSceneSupported = True;
+		Else If(Current Map == Map(Château Guillard) || Current Map == Map(Château Guillard Halloween));
+			Global.posWinner = Vector(206.250, 9, 81.500);
+			Global.posCamera = Vector(206.250, 8.100, 69);
+			Global.posLoser = Vector(206.250, 9.500, 73);
+			Global.posText = Vector(206.250, 11, 81);
+			Global.posLink = Vector(206.250, 8.500, 75);
+			Global.endSceneSupported = True;
+		Else If(Current Map == Map(Castillo));
+			Global.posWinner = Vector(-81, 32.570, 54.250);
+			Global.posCamera = Vector(-68, 35.500, 51.750);
+			Global.posLoser = Vector(-75, 33.500, 53);
+			Global.posText = Vector(-80.500, 35.500, 54.250);
+			Global.posLink = Vector(-75, 32.500, 53);
+			Global.endSceneSupported = True;
+	}
+}
+
+rule("Player init")
+{
+	event
+	{
+		Player Joined Match;
+		All;
+		All;
+	}
+
+	conditions
+	{
+		Global.gameComplete == False;
+	}
+
+	actions
+	{
+		"each join opens a new session at once, never reused; stats are written to it as they change, so a leaver keeps them"
+		Global.sessionCount += 1;
+		Event Player.session = Global.sessionCount;
+		Global.sessionPlayer[Event Player.session] = Event Player;
+		Global.sessionName[Event Player.session] = Custom String("{0}", Event Player);
+		Global.sessionSlot[Event Player.session] = Slot Of(Event Player);
+		Global.sessionStart[Event Player.session] = Max(0, Total Time Elapsed - 1 - Global.roundStart);
+		Wait Until(Has Spawned(Event Player), 10);
+		If(Global.spawnToggle);
+			Event Player.lastSpawn = Position Of(Event Player);
+		Else;
+			Start Forcing Player To Be Hero(Event Player, Hero(Widowmaker));
+		End;
+		"convert health only once at match start"
+		If(Global.targetHP);
+			Global.healthPercent = !Global.healthPercent ? Global.targetHP / Max Health(Event Player) * 100 : Global.healthPercent;
+			Set Max Health(Event Player, Global.healthPercent);
+		End;
+		If(!Is Game In Progress);
+			Call Subroutine(_createHelpHUD);
+			Wait Until(Is Game In Progress, 10);
+		End;
+		"1s offset to match built in timer"
+		Event Player.startTime = Total Time Elapsed - 1;
+		"the session's time starts with the player's timer, as time in lobby did in v1"
+		If(!Global.gameComplete);
+			Global.sessionStart[Event Player.session] = Max(0, Event Player.startTime - Global.roundStart);
+		End;
+		If(Event Player.hudIndex != 2);
+			Call Subroutine(_createSmallHUD);
+		End;
+		Big Message(Event Player, Custom String("widowhs.com"));
+		If(Global.crouchToggle);
+			Disallow Button(Event Player, Button(Crouch));
+			Big Message(Event Player, Custom String("NO CROUCHING!"));
+		End;
+		If(Global.targetHP);
+			Big Message(Event Player, Custom String("{0} HP!", Round To Integer(Max Health(Event Player), To Nearest)));
+		End;
+		If(Is Dummy Bot(Event Player));
+			"test bots use the big HUD, the worst case for per-player texts"
+			Event Player.hudIndex = 1;
+			Modify Global Variable(bigHUDPlayers, Append To Array, Event Player);
+			Call Subroutine(_destroyHUD);
+			Call Subroutine(_createBigHUD);
+			Start Holding Button(Event Player, Button(Secondary Fire));
+			Start Facing(Event Player, Direction Towards(Eye Position(Event Player), Eye Position(Event Player.botTarget)), 720, To World,
+				Direction and Turn Rate);
+			Start Throttle In Direction(Event Player, Forward, 1, To Player, Replace existing throttle, Direction and Magnitude);
+	}
+}
+
+rule("Per player timer")
+{
+	event
+	{
+		Ongoing - Each Player;
+		All;
+		All;
+	}
+
+	conditions
+	{
+		Is Game In Progress == True;
+		Global.gameComplete == False;
+	}
+
+	actions
+	{
+		"active time: completed AFK periods plus the open period, frozen at the winning event"
+		Event Player.playerTime = Max(0, (Global.sessionAfkStart[Event Player.session] ? Min(
+			Global.sessionAfkStart[Event Player.session], Global.gameComplete ? Global.endTime : Total Time Elapsed) : (
+			Global.gameComplete ? Global.endTime : Total Time Elapsed)) - Event Player.startTime - Global.sessionAfk[Event Player.session]);
+		Event Player.playerTimeMinutes = Round To Integer(Event Player.playerTime / 60, Down);
+		Event Player.playerTimeSeconds = Round To Integer(Event Player.playerTime % 60, Down);
+		Event Player.playerTimeSecondsFormatted = Event Player.playerTimeSeconds >= 10 ? Event Player.playerTimeSeconds : Custom String(
+			"0{0}", Event Player.playerTimeSeconds);
+		Event Player.KPM = Event Player.playerTime > 0 ? Score Of(Event Player) / (Event Player.playerTime / 60) : 0;
+		If(!Global.gameComplete);
+			Wait(Event Player.afk ? 1 : 1 - Event Player.playerTime % 1, Ignore Condition);
+			Loop;
+	}
+}
+
+rule("Crouch counter")
+{
+	event
+	{
+		Ongoing - Each Player;
+		All;
+		Widowmaker;
+	}
+
+	conditions
+	{
+		Global.gameComplete == False;
+		Is Crouching(Event Player) == True;
+	}
+
+	actions
+	{
+		Event Player.crouched += 1;
+		Global.sessionCrouches[Event Player.session] = Event Player.crouched;
+	}
+}
+
+rule("Accuracy tracking")
+{
+	event
+	{
+		Ongoing - Each Player;
+		All;
+		Widowmaker;
+	}
+
+	conditions
+	{
+		Is Firing Primary(Event Player) == True;
+	}
+
+	actions
+	{
+		Event Player.shots += 1;
+		Global.sessionShots[Event Player.session] = Event Player.shots;
+		Wait(False, Ignore Condition);
+		Event Player.acc = Event Player.hits / Event Player.shots * 100;
+	}
+}
+
+rule("Top stats")
+{
+	event
+	{
+		Ongoing - Global;
+	}
+
+	conditions
+	{
+		Is Game In Progress == True;
+		Global.gameComplete == False;
+	}
+
+	actions
+	{
+		"once a second during the match, Final top stats takes over at the win"
+		Wait(1, Abort When False);
+		"only players above zero, so the panel stays empty until someone hits or kills"
+		Global.topAccPlayer = Last Of(Sorted Array(Filtered Array(All Players(All Teams), Current Array Element.acc > 0),
+			Current Array Element.acc));
+		Global.topAcc = Global.topAccPlayer.acc;
+		Global.topKPMPlayer = Last Of(Sorted Array(Filtered Array(All Players(All Teams), Current Array Element.KPM > 0),
+			Current Array Element.KPM));
+		Global.topKPM = Global.topKPMPlayer.KPM;
+		"names are kept as text so a leader who leaves after the win stays on the panel"
+		Global.topAccName = Custom String("{0}", Global.topAccPlayer);
+		Global.topKPMName = Custom String("{0}", Global.topKPMPlayer);
+		Loop If Condition Is True;
+	}
+}
+
+rule("Final top stats")
+{
+	event
+	{
+		Ongoing - Global;
+	}
+
+	conditions
+	{
+		Global.gameComplete == True;
+	}
+
+	actions
+	{
+		"fix the result at the win, after the winning shot's accuracy update"
+		Wait(0.048, Ignore Condition);
+		Global.topAccPlayer = Last Of(Sorted Array(Filtered Array(All Players(All Teams), Current Array Element.acc > 0),
+			Current Array Element.acc));
+		Global.topAcc = Global.topAccPlayer.acc;
+		"exact active KPM at the win, even before the player's next timer tick or after the log closes AFK"
+		Global.topKPMPlayer = Last Of(Sorted Array(Filtered Array(All Players(All Teams), Score Of(Current Array Element) > 0), Score Of(
+			Current Array Element) / (Max(0.001, (Global.sessionAfkStart[Current Array Element.session] ? Min(
+			Global.sessionAfkStart[Current Array Element.session], Global.endTime) : Global.endTime) - Current Array Element.startTime
+			- Global.sessionAfk[Current Array Element.session]) / 60)));
+		Global.topKPM = Score Of(Global.topKPMPlayer) / (Max(0.001, (Global.sessionAfkStart[Global.topKPMPlayer.session] ? Min(
+			Global.sessionAfkStart[Global.topKPMPlayer.session], Global.endTime) : Global.endTime) - Global.topKPMPlayer.startTime
+			- Global.sessionAfk[Global.topKPMPlayer.session]) / 60);
+		Global.topAccName = Custom String("{0}", Global.topAccPlayer);
+		Global.topKPMName = Custom String("{0}", Global.topKPMPlayer);
+	}
+}
+
+rule("On hit")
+{
+	event
+	{
+		Player Dealt Damage;
+		All;
+		All;
+	}
+
+	actions
+	{
+		Event Player.hits += 1;
+		Global.sessionHits[Event Player.session] = Event Player.hits;
+		If(Is Alive(Victim));
+			Event Player.dist = Distance Between(Position Of(Event Player), Position Of(Victim));
+			If(Event Player.dist > 50);
+				"calculate victim HP before damage and % required to return normal damage without falloff"
+				Event Player.actualHP = Min(Health(Victim) + Event Damage, Max Health(Victim));
+				Event Player.actualDamage = Event Player.dist <= 70 ? Event Damage / (1 - (Event Player.dist - 50) * 0.025) : Event Damage * 2;
+				If(Event Player.actualDamage >= Event Player.actualHP);
+					Kill(Victim, Event Player);
+				Else;
+					Set Player Health(Victim, Event Player.actualHP - Event Player.actualDamage);
+	}
+}
+
+rule("On kill")
+{
+	event
+	{
+		Player Dealt Final Blow;
+		All;
+		All;
+	}
+
+	conditions
+	{
+		Global.gameComplete == False;
+	}
+
+	actions
+	{
+		Set Player Health(Event Player, Max Health(Event Player));
+		Modify Player Score(Event Player, 1);
+		Global.sessionKills[Event Player.session] = Score Of(Event Player);
+		Modify Global Variable(scoreSessions, Append To Array, Event Player.session);
+		Modify Global Variable(scoreTimes, Append To Array, Max(Global.sessionStart[Event Player.session], Total Time Elapsed - Global.roundStart));
+		Modify Global Variable(scoreValues, Append To Array, Score Of(Event Player));
+		"one code per kill, killer session x 100 + victim session; codes need both sessions between 1 and 99"
+		If(Event Player.session && Victim.session && Event Player.session < 100 && Victim.session < 100);
+			Modify Global Variable(killCodes, Append To Array, Event Player.session * 100 + Victim.session);
+		End;
+		Event Player.currentKS += 1;
+		Event Player.KD = Score Of(Event Player) / Max(Player Hero Stat(Event Player, Hero(Widowmaker), Deaths), 1);
+		If(Event Player.currentKS % 10 == 0);
+			Small Message(All Players(All Teams), Custom String("{0} earned a {1} killstreak!", Event Player, Event Player.currentKS));
+		End;
+		If(!(Is Using Ultimate(Event Player) || Event Player.hasUlt));
+			Set Ultimate Charge(Event Player, Ultimate Charge Percent(Event Player) + 10);
+			If(Ultimate Charge Percent(Event Player) >= 100);
+				Event Player.hasUlt = True;
+	}
+}
+
+rule("On ult")
+{
+	event
+	{
+		Ongoing - Each Player;
+		All;
+		Widowmaker;
+	}
+
+	conditions
+	{
+		Is Using Ultimate(Event Player) == True;
+	}
+
+	actions
+	{
+		Small Message(All Players(All Teams), Custom String("{0} {1} has Infra-Sight!", Ability Icon String(Hero(Widowmaker), Button(
+			Ultimate)), Event Player));
+		Event Player.hasUlt = False;
+	}
+}
+
+rule("On death")
+{
+	event
+	{
+		Player Died;
+		All;
+		All;
+	}
+
+	actions
+	{
+		If(Global.spawnToggle);
+			Event Player.lastDeath = Position Of(Event Player);
+			Event Player.deathTime = Total Time Elapsed;
+			Global.respawnQueue = Append To Array(Global.respawnQueue, Event Player);
+		End;
+		If(!Global.gameComplete && Event Was Environment && Attacker == Event Player && Score Of(Event Player) > 0);
+			Modify Player Score(Event Player, -1);
+			Global.sessionKills[Event Player.session] = Score Of(Event Player);
+			Modify Global Variable(scoreSessions, Append To Array, Event Player.session);
+			Modify Global Variable(scoreTimes, Append To Array, Max(Global.sessionStart[Event Player.session], Total Time Elapsed - Global.roundStart));
+			Modify Global Variable(scoreValues, Append To Array, Score Of(Event Player));
+		End;
+		Global.sessionDeaths[Event Player.session] += 1;
+		Event Player.currentKS = 0;
+		Event Player.KD = Score Of(Event Player) / Max(Player Hero Stat(Event Player, Hero(Widowmaker), Deaths), 1);
+		If(Global.spawnToggle);
+			"cache widowmaker, otherwise having mythic weapon equipped may cause blackscreen on respawn"
+			Preload Hero(Event Player, Hero(Widowmaker));
+			If(Event Player.hasUlt);
+				Wait Until(Has Spawned(Event Player) && Is Alive(Event Player), 2);
+				Wait(0.048, Ignore Condition);
+				Set Ultimate Charge(Event Player, 100);
+			End;
+		Else If(!Event Player.hasUlt);
+			Set Ultimate Charge(Event Player, 0);
+	}
+}
+
+rule("AFK enter")
+{
+	event
+	{
+		Ongoing - Each Player;
+		All;
+		All;
+	}
+
+	conditions
+	{
+		Is Game In Progress == True;
+		Global.gameComplete == False;
+		Is Firing Secondary(Event Player) == False;
+		Magnitude Of(Throttle Of(Event Player)) == 0;
+	}
+
+	actions
+	{
+		Wait(15, Abort When False);
+		Wait Until(Has Spawned(Event Player) && Is Alive(Event Player), 5);
+		"the spawn wait must not start AFK after the win or after activity resumes"
+		If(Global.gameComplete || Is Firing Secondary(Event Player) || Magnitude Of(Throttle Of(Event Player)) > 0);
+			Abort;
+		End;
+		Event Player.afk = True;
+		Global.sessionAfkStart[Event Player.session] = Total Time Elapsed;
+		Set Status(Event Player, Null, Phased Out, 9999);
+		Set Invisible(Event Player, All);
+		Set Gravity(Event Player, 0);
+		Disallow Button(Event Player, Button(Secondary Fire));
+		Disallow Button(Event Player, Button(Ability 1));
+		Disallow Button(Event Player, Button(Ultimate));
+		Teleport(Event Player, Position Of(Event Player) + Vector(0, 50, 0));
+		Set Facing(Event Player, Direction Towards(Eye Position(Event Player), Position Of(First Of(Spawn Points(All Teams)))), To World);
+		Create HUD Text(Event Player, Custom String("AFK - Move to return"), Null, Null, Top, 2, Color(Orange), Color(White), Color(White),
+			None, Default Visibility);
+		Event Player.afkHUD[0] = Last Text ID;
+		If(Global.ranked);
+			Event Player.afkDeadline = Total Time Elapsed + 60;
+			Create HUD Text(Event Player, Custom String("Kicked in {0}s", Round To Integer(Max(Event Player.afkDeadline - Total Time Elapsed,
+				0), Up)), Null, Null, Top, 2, Color(Orange), Color(White), Color(White), String, Default Visibility);
+			Event Player.afkHUD[1] = Last Text ID;
+		End;
+		"until the player returns, the round ends or, in Ranked, the kick deadline passes"
+		Wait Until(!Event Player.afk || Global.gameComplete || Global.ranked && Total Time Elapsed >= Event Player.afkDeadline, 99999);
+		If(Event Player.afk && Global.gameComplete);
+			"restore the player for the end scene; Match log closes AFK timing at the winning event"
+			Destroy HUD Text(First Of(Event Player.afkHUD));
+			Destroy HUD Text(Event Player.afkHUD[1]);
+			Set Gravity(Event Player, 100);
+			Clear Status(Event Player, Phased Out);
+			Set Invisible(Event Player, None);
+		Else If(Event Player.afk && Global.ranked);
+			"2: kicked, kept when Player leaves closes the session"
+			Global.sessionStatus[Event Player.session] = 2;
+			Remove Player(Event Player);
+		End;
+	}
+}
+
+rule("AFK return")
+{
+	event
+	{
+		Ongoing - Each Player;
+		All;
+		All;
+	}
+
+	conditions
+	{
+		Global.gameComplete == False;
+		Event Player.afk == True;
+		Magnitude Of(Throttle Of(Event Player)) > 0;
+	}
+
+	actions
+	{
+		Destroy HUD Text(First Of(Event Player.afkHUD));
+		Destroy HUD Text(Event Player.afkHUD[1]);
+		Event Player.afk = False;
+		Modify Global Variable(afkTerminal, Append To Array, 0);
+		Modify Global Variable(afkSessions, Append To Array, Event Player.session);
+		Modify Global Variable(afkStarts, Append To Array, Global.sessionAfkStart[Event Player.session] - Global.roundStart);
+		Modify Global Variable(afkEnds, Append To Array, Total Time Elapsed - Global.roundStart);
+		Global.sessionAfk[Event Player.session] += Total Time Elapsed - Global.sessionAfkStart[Event Player.session];
+		Global.sessionAfkStart[Event Player.session] = 0;
+		Event Player.afkReturn = True;
+		If(Global.spawnToggle);
+			Global.respawnQueue = Append To Array(Global.respawnQueue, Event Player);
+			Wait Until(!Event Player.afkReturn, 5);
+		Else;
+			Global.spawnPlayer = Event Player;
+			Call Subroutine(_calcSpawns);
+			Set Facing(Event Player, Facing Direction Of(Global.spawnPoints[Event Player.spawnIndex]), To World);
+		End;
+		Set Gravity(Event Player, 100);
+		Allow Button(Event Player, Button(Secondary Fire));
+		Allow Button(Event Player, Button(Ability 1));
+		Allow Button(Event Player, Button(Ultimate));
+		Clear Status(Event Player, Phased Out);
+		Set Invisible(Event Player, None);
+		Event Player.afkReturn = False;
+	}
+}
+
+rule("Custom spawns")
+{
+	event
+	{
+		Ongoing - Global;
+	}
+
+	conditions
+	{
+		Global.spawnToggle == True;
+		Global.gameComplete == False;
+		Count Of(Global.respawnQueue) > 0;
+	}
+
+	actions
+	{
+		"serialized respawn queue to avoid spawn collisions"
+		Global.spawnPlayer = First Of(Global.respawnQueue);
+		Modify Global Variable(respawnQueue, Remove From Array By Index, 0);
+		If(!Global.spawnPlayer.afkReturn);
+			Wait Until(Total Time Elapsed - Global.spawnPlayer.deathTime >= 0.960, 0.960);
+			Respawn(Global.spawnPlayer);
+			Wait Until(Has Spawned(Global.spawnPlayer) && Is Alive(Global.spawnPlayer), 0.250);
+		End;
+		"override spawns only if repeated"
+		If(Global.spawnPlayer.afkReturn || Distance Between(Global.spawnPlayer, Global.spawnPlayer.lastSpawn) < 1 || Distance Between(
+			Global.spawnPlayer, Global.spawnPlayer.lastDeath) < 3);
+			Call Subroutine(_calcSpawns);
+			"recalculate once on collision"
+			If(Is True For Any(Remove From Array(All Living Players(All Teams), Global.spawnPlayer), Distance Between(Global.spawnPlayer,
+				Current Array Element) < 2));
+				Call Subroutine(_calcSpawns);
+			End;
+			Set Facing(Global.spawnPlayer, Facing Direction Of(Global.spawnPoints[Global.spawnPlayer.spawnIndex]), To World);
+		End;
+		Global.spawnPlayer.afkReturn = False;
+		Global.spawnPlayer.lastSpawn = Position Of(Global.spawnPlayer);
+		Loop If Condition Is True;
+	}
+}
+
+rule("Player leaves")
+{
+	event
+	{
+		Player Left Match;
+		All;
+		All;
+	}
+
+	actions
+	{
+		"remove leaver from respawn queue"
+		If(Global.spawnToggle);
+			Modify Global Variable(respawnQueue, Remove From Array By Value, Event Player);
+		End;
+		Modify Global Variable(bigHUDPlayers, Remove From Array By Value, Event Player);
+		"close the open sessions whose player is gone; after the win, Match log closes them as present"
+		If(!Global.gameComplete);
+			Global.leftSessions = Filtered Array(Mapped Array(Global.sessionPlayer, Current Array Index),
+				Global.sessionPlayer[Current Array Element] != Null && (Global.sessionPlayer[Current Array Element] == Event Player || !Array Contains(
+				All Players(All Teams), Global.sessionPlayer[Current Array Element])));
+			For Global Variable(logIndex, 0, Count Of(Global.leftSessions), 1);
+				Global.logSession = Global.leftSessions[Global.logIndex];
+				"never before the start, for a leaver in the countdown"
+				Global.sessionEnd[Global.logSession] = Max(Global.sessionStart[Global.logSession], Total Time Elapsed - Global.roundStart);
+				"1: left, unless the AFK kick marked it 2: kicked"
+				Global.sessionStatus[Global.logSession] = Max(Global.sessionStatus[Global.logSession], 1);
+				If(Global.sessionAfkStart[Global.logSession]);
+					Modify Global Variable(afkTerminal, Append To Array, 1);
+					Modify Global Variable(afkSessions, Append To Array, Global.logSession);
+					Modify Global Variable(afkStarts, Append To Array, Global.sessionAfkStart[Global.logSession] - Global.roundStart);
+					Modify Global Variable(afkEnds, Append To Array, Total Time Elapsed - Global.roundStart);
+					Global.sessionAfk[Global.logSession] += Total Time Elapsed - Global.sessionAfkStart[Global.logSession];
+					Global.sessionAfkStart[Global.logSession] = 0;
+				End;
+				Global.sessionPlayer[Global.logSession] = Null;
+			End;
+		End;
+		If(Event Player == Global.winner);
+			Declare Player Victory(Last Of(Sorted Array(All Players(All Teams), Score Of(Current Array Element))));
+	}
+}
+
+rule("Match completion")
+{
+	event
+	{
+		Player Dealt Final Blow;
+		All;
+		All;
+	}
+
+	conditions
+	{
+		Global.endlessToggle == False;
+		Global.gameComplete == False;
+		Score Of(Event Player) == Global.winScore;
+	}
+
+	actions
+	{
+		Global.endTime = Total Time Elapsed;
+		Global.winnerSession = Event Player.session;
+		If(Global.ranked);
+			Enable Inspector Recording;
+		End;
+		Global.gameComplete = True;
+		If(Global.endSceneSupported);
+			Global.winner = Event Player;
+			Wait(0.160, Ignore Condition);
+			Start Forcing Player To Be Hero(Event Player, Hero(Torbjörn));
+			"force respawn if winner died"
+			If(Is Dead(Event Player));
+				Respawn(Event Player);
+				Wait Until(Has Spawned(Event Player) && Is Alive(Event Player), 1);
+			End;
+			Teleport(Event Player, Global.posWinner);
+			Wait(0.256, Ignore Condition);
+			Set Facing(Event Player, Direction Towards(Eye Position(Event Player), Global.posCamera), To World);
+			Start Camera(All Players(All Teams), Global.posCamera, Eye Position(Event Player), 4);
+			Disable Game Mode HUD(All Players(All Teams));
+			Create HUD Text(All Players(All Teams), Custom String("Active time: {0} min - {1} sec", Event Player.playerTimeMinutes,
+				Event Player.playerTimeSeconds), Null, Null, Top, 0, Color(Sky Blue), Null, Null, String, Default Visibility);
+			Create In-World Text(All Players(All Teams), Custom String("{0} wins!", Event Player), Global.posText, 3, Clip Against Surfaces,
+				Visible To Position and String, Color(Orange), Default Visibility);
+			Create In-World Text(All Players(All Teams), Custom String("Accuracy: {0}%", Event Player.acc), Global.posText - Vector(0, 0.750,
+				0), 2, Clip Against Surfaces, Visible To Position and String, Color(White), Default Visibility);
+			Create In-World Text(All Players(All Teams), Custom String("Join the community: widowhs.com :)"), Global.posLink, 2,
+				Clip Against Surfaces, Visible To Position and String, Color(White), Default Visibility);
+			Wait(6, Ignore Condition);
+		End;
+		Declare Player Victory(Event Player);
+	}
+}
+
+rule("Match log")
+{
+	event
+	{
+		Ongoing - Global;
+	}
+
+	conditions
+	{
+		Global.ranked == True;
+		Global.gameComplete == True;
+	}
+
+	actions
+	{
+		"v4 log, docs/workshop-log-format.md: written once, after the winning kill's stats as in Final top stats"
+		Wait(0.048, Ignore Condition);
+		Log To Inspector(Custom String("#V,4,3.7.0"));
+		Log To Inspector(Custom String("#R,{0},{1}", Global.endTime - Global.roundStart, Global.sessionName[Global.winnerSession]));
+		For Global Variable(logIndex, 1, Global.sessionCount + 1, 1);
+			"sessions still open were present at the end"
+			If(Global.sessionPlayer[Global.logIndex] != Null);
+				Global.sessionEnd[Global.logIndex] = Global.endTime - Global.roundStart;
+				If(Global.sessionAfkStart[Global.logIndex]);
+					Modify Global Variable(afkTerminal, Append To Array, 1);
+					Modify Global Variable(afkSessions, Append To Array, Global.logIndex);
+					Modify Global Variable(afkStarts, Append To Array, Global.sessionAfkStart[Global.logIndex] - Global.roundStart);
+					Modify Global Variable(afkEnds, Append To Array, Global.endTime - Global.roundStart);
+					Global.sessionAfk[Global.logIndex] += Global.endTime - Global.sessionAfkStart[Global.logIndex];
+					Global.sessionAfkStart[Global.logIndex] = 0;
+				End;
+			End;
+			Log To Inspector(Custom String("#P,{0},{1},{2}", Custom String("{0},{1},{2}", Global.logIndex, Global.sessionName[Global.logIndex],
+				Global.sessionSlot[Global.logIndex]), Custom String("{0},{1},{2}", Global.sessionStart[Global.logIndex],
+				Global.sessionEnd[Global.logIndex], Global.sessionStatus[Global.logIndex]), Custom String("{0},{1}", Custom String(
+				"{0},{1},{2}", Global.sessionKills[Global.logIndex], Global.sessionDeaths[Global.logIndex], Global.sessionShots[Global.logIndex]),
+				Custom String("{0},{1},{2}", Global.sessionHits[Global.logIndex], Global.sessionCrouches[Global.logIndex],
+				Global.sessionAfk[Global.logIndex]))));
+		End;
+		"one AFK break per line; no padding; globals retain leavers' final periods"
+		For Global Variable(logIndex, 0, Count Of(Global.afkSessions), 1);
+			Log To Inspector(Custom String("#A,{0},{1},{2}", Global.afkSessions[Global.logIndex], Global.afkStarts[Global.logIndex],
+				Custom String("{0},{1}", Global.afkEnds[Global.logIndex], Global.afkTerminal[Global.logIndex])));
+		End;
+		"ten codes per line; pad with 0, which is never a real code"
+		While(Count Of(Global.killCodes) % 10);
+			Modify Global Variable(killCodes, Append To Array, 0);
+		End;
+		For Global Variable(logIndex, 0, Count Of(Global.killCodes), 10);
+			Log To Inspector(Custom String("#K,{0},{1}", Custom String("{0},{1},{2}", Custom String("{0},{1},{2}", Global.killCodes[Global.logIndex],
+				Global.killCodes[Global.logIndex + 1], Global.killCodes[Global.logIndex + 2]), Custom String("{0},{1},{2}",
+				Global.killCodes[Global.logIndex + 3], Global.killCodes[Global.logIndex + 4], Global.killCodes[Global.logIndex + 5]),
+				Custom String("{0},{1},{2}", Global.killCodes[Global.logIndex + 6], Global.killCodes[Global.logIndex + 7],
+				Global.killCodes[Global.logIndex + 8])), Global.killCodes[Global.logIndex + 9]));
+		End;
+		"timestamped score changes: three session/time/score triples per line, padded with zero triples"
+		While(Count Of(Global.scoreSessions) % 3);
+			Modify Global Variable(scoreSessions, Append To Array, 0);
+			Modify Global Variable(scoreTimes, Append To Array, 0);
+			Modify Global Variable(scoreValues, Append To Array, 0);
+		End;
+		For Global Variable(logIndex, 0, Count Of(Global.scoreSessions), 3);
+			Log To Inspector(Custom String("#S,{0},{1},{2}", Custom String("{0},{1},{2}", Global.scoreSessions[Global.logIndex],
+				Global.scoreTimes[Global.logIndex], Global.scoreValues[Global.logIndex]), Custom String("{0},{1},{2}",
+				Global.scoreSessions[Global.logIndex + 1], Global.scoreTimes[Global.logIndex + 1], Global.scoreValues[Global.logIndex + 1]),
+				Custom String("{0},{1},{2}", Global.scoreSessions[Global.logIndex + 2], Global.scoreTimes[Global.logIndex + 2],
+				Global.scoreValues[Global.logIndex + 2])));
+		End;
+	}
+}
+
+rule("End scene TP losers")
+{
+	event
+	{
+		Ongoing - Each Player;
+		All;
+		All;
+	}
+
+	conditions
+	{
+		Global.gameComplete == True;
+		Global.endSceneSupported == True;
+		(Event Player == Global.winner) == False;
+	}
+
+	actions
+	{
+		"wait until camera init for tp"
+		Wait(0.320, Ignore Condition);
+		Wait Until(Has Spawned(Event Player) && Is Alive(Event Player), 2);
+		Teleport(Event Player, Global.posLoser + Vector(Random Real(-2, 2), 0, Random Real(-2, 2)));
+		Set Status(Event Player, Null, Knocked Down, 9999);
+		Set Move Speed(Event Player, False);
+		Disable Movement Collision With Players(Event Player);
+		Start Holding Button(Event Player, Button(Crouch));
+		Disallow Button(Event Player, Button(Primary Fire));
+		Disallow Button(Event Player, Button(Jump));
+		Disallow Button(Event Player, Button(Ability 1));
+		Disallow Button(Event Player, Button(Ultimate));
+		Disallow Button(Event Player, Button(Melee));
+	}
+}
+
+rule("Restart timer")
+{
+	event
+	{
+		Ongoing - Global;
+	}
+
+	conditions
+	{
+		(Global.gameComplete || Total Time Elapsed >= 14400) == True;
+	}
+
+	actions
+	{
+		If(Global.gameComplete);
+			Wait(Global.endSceneSupported ? 28.500 : 22, Ignore Condition);
+		Else;
+			Big Message(All Players(All Teams), Custom String("Match will restart shortly to avoid automatic shutdown"));
+			Wait(5, Ignore Condition);
+			Declare Player Victory(Last Of(Sorted Array(All Players(All Teams), Score Of(Current Array Element))));
+			Wait(22, Ignore Condition);
+		End;
+		Restart Match;
+	}
+}
+
+rule("Test bots")
+{
+	event
+	{
+		Ongoing - Global;
+	}
+
+	conditions
+	{
+		Global.testBots == True;
+		Is Game In Progress == True;
+	}
+
+	actions
+	{
+		"fill empty slots, creation fails silently once the lobby is full"
+		For Global Variable(botIndex, 0, 12, 1);
+			Create Dummy Bot(Hero(Widowmaker), All Teams, -1, Position Of(Random Value In Array(Global.spawnPoints)), Vector(0, 0, 1));
+			Wait(0.250, Ignore Condition);
+		End;
+		"once a second each bot picks a target and fires about one time in three"
+		While(!Global.gameComplete);
+			Global.bots = Filtered Array(All Living Players(All Teams), Is Dummy Bot(Current Array Element));
+			For Global Variable(botIndex, 0, Count Of(Global.bots), 1);
+				Global.bot = Global.bots[Global.botIndex];
+				Global.bot.botTarget = Random Value In Array(Remove From Array(All Living Players(All Teams), Global.bot));
+				If(Random Integer(0, 2) == 0);
+					Press Button(Global.bot, Button(Primary Fire));
+				End;
+			End;
+			Wait(1, Ignore Condition);
+		End;
+	}
+}
+
+rule("HUD toggles")
+{
+	event
+	{
+		Ongoing - Each Player;
+		All;
+		All;
+	}
+
+	conditions
+	{
+		Global.gameComplete == False;
+		(Is Button Held(Event Player, Button(Interact)) || Is Button Held(Event Player, Button(Ability 2))) == True;
+	}
+
+	actions
+	{
+		If(Is Button Held(Event Player, Button(Interact)) && Is Game In Progress);
+			Event Player.hudIndex = (Event Player.hudIndex + 1) % 3;
+			Call Subroutine(_destroyHUD);
+			If(Event Player.hudIndex == Null);
+				Small Message(Event Player, Custom String("Small stats"));
+				Call Subroutine(_createSmallHUD);
+			Else If(Event Player.hudIndex == 1);
+				Small Message(Event Player, Custom String("Big stats"));
+				Call Subroutine(_createBigHUD);
+				Modify Global Variable(bigHUDPlayers, Append To Array, Event Player);
+			Else If(Event Player.hudIndex == 2);
+				Small Message(Event Player, Custom String("Stats off"));
+				Modify Global Variable(bigHUDPlayers, Remove From Array By Value, Event Player);
+			End;
+		Else If(Is Button Held(Event Player, Button(Ability 2)));
+			If(!Event Player.killfeedToggle);
+				Small Message(Event Player, Custom String("Killfeed off"));
+				Disable Kill Feed(Event Player);
+				Disable Game Mode HUD(Event Player);
+				Event Player.killfeedToggle = True;
+			Else;
+				Small Message(Event Player, Custom String("Killfeed on"));
+				Enable Kill Feed(Event Player);
+				Enable Game Mode HUD(Event Player);
+				Event Player.killfeedToggle = False;
+			End;
+		End;
+		Wait(0.256, Ignore Condition);
+	}
+}
+
+rule("Help HUD")
+{
+	event
+	{
+		Subroutine;
+		_createHelpHUD;
+	}
+
+	actions
+	{
+		Create HUD Text(Event Player, Null, Custom String("\n\nMode Controls:\n　[{0}]:　Toggle Stats\n　[{1}]:　Toggle Killfeed{2}",
+			Input Binding String(Button(Interact)), Input Binding String(Button(Ability 2)), !Global.targetHP ? Custom String(
+			"\n　[{0} + {1}]:　Set 175HP", Input Binding String(Button(Crouch)), Input Binding String(Button(Ultimate))) : Custom String(
+			"")), Null, Left, False, Null, Color(Sky Blue), Null, String, Default Visibility);
+		Event Player.hudID[0] = Last Text ID;
+		If(Event Player == Host Player);
+			Create HUD Text(Event Player, Null, Custom String(
+				"\n\nChange HP:\n　→ [escape]\n　→ Show Lobby\n　→ Settings (top right)\n　→ Workshop Settings (orange)"), Null, Right, False,
+				Null, Color(Orange), Null, None, Default Visibility);
+			Event Player.hudID[1] = Last Text ID;
+		End;
+		While(!Is Game In Progress);
+			If(Is Button Held(Event Player, Button(Interact)));
+				Event Player.hudIndex = 2;
+				Call Subroutine(_destroyHUD);
+				Small Message(Event Player, Custom String("Stats off"));
+				Break;
+			Else If(!Global.targetHP && Is Button Held(Event Player, Button(Crouch)) && Is Button Held(Event Player, Button(Ultimate)));
+				Global.targetHP = 175;
+				Global.healthPercent = Global.targetHP / Max Health(Event Player) * 100;
+				Set Max Health(All Players(All Teams), Global.healthPercent);
+				Small Message(All Players(All Teams), Custom String("175HP selected!"));
+			End;
+			Wait(False, Ignore Condition);
+		End;
+		Call Subroutine(_destroyHUD);
+	}
+}
+
+rule("Small HUD")
+{
+	event
+	{
+		Subroutine;
+		_createSmallHUD;
+	}
+
+	actions
+	{
+		Create HUD Text(Event Player, Null, Custom String("widowhs.com"), Null, Top, 1, Null, Color(Sky Blue), Null, None,
+			Default Visibility);
+		Event Player.hudID[0] = Last Text ID;
+		Create HUD Text(Event Player, Null, Custom String("\n\nActive time:　{0}:{1}\nKills / min:   {2}", Event Player.playerTimeMinutes,
+			Event Player.playerTimeSecondsFormatted, Custom String("{0}\n\nAccuracy:　{1}%\nKillstreak:    {2}", Event Player.KPM,
+			Event Player.acc, Custom String("{0}\nK/D:　　　　{1}{2}", Event Player.currentKS, Event Player.KD,
+			!Global.crouchToggle ? Custom String("\nCrouched:    {0}", Event Player.crouched) : Custom String("")))), Null, Left, False,
+			Null, Color(Sky Blue), Null, String, Default Visibility);
+		Event Player.hudID[1] = Last Text ID;
+		If(Global.ranked);
+			Create HUD Text(Event Player, Null, Custom String("RANKED MODE: ON"), Null, Right, False, Null, Color(Orange), Null, None,
+				Default Visibility);
+			Event Player.hudID[2] = Last Text ID;
+		End;
+		If(Global.crouchToggle);
+			Create HUD Text(Event Player, Null, Custom String("NO CROUCHING"), Null, Right, False, Null, Color(Orange), Null, None,
+				Default Visibility);
+			Event Player.hudID[3] = Last Text ID;
+	}
+}
+
+rule("Big HUD")
+{
+	event
+	{
+		Subroutine;
+		_createBigHUD;
+	}
+
+	actions
+	{
+		Create HUD Text(Event Player, Null, Custom String("widowhs.com"), Null, Top, 1, Null, Color(Green), Null, None,
+			Default Visibility);
+		Event Player.hudID[0] = Last Text ID;
+		Create HUD Text(Event Player, Null, Null, Custom String("\n\nActive time:　{0}:{1}\nKills / min:   {2}",
+			Event Player.playerTimeMinutes, Event Player.playerTimeSecondsFormatted, Custom String(
+			"{0}\n\nAccuracy:　{1}%\nKillstreak:    {2}", Event Player.KPM, Event Player.acc, Custom String("{0}\nK/D:　　　　{1}{2}",
+			Event Player.currentKS, Event Player.KD, !Global.crouchToggle ? Custom String("\nCrouched:    {0}", Event Player.crouched)
+			: Custom String("")))), Left, False, Null, Null, Color(Green), String, Default Visibility);
+		Event Player.hudID[1] = Last Text ID;
+	}
+}
+
+rule("Destroy HUD")
+{
+	event
+	{
+		Subroutine;
+		_destroyHUD;
+	}
+
+	actions
+	{
+		For Player Variable(Event Player, idCount, 0, Count Of(Event Player.hudID), 1);
+			Destroy HUD Text(Event Player.hudID[Event Player.idCount]);
+		End;
+	}
+}
+
+rule("Calculate spawn override")
+{
+	event
+	{
+		Subroutine;
+		_calcSpawns;
+	}
+
+	actions
+	{
+		Global.spawnRanks = Mapped Array(Global.spawnPoints, Distance Between(Position Of(Current Array Element), Closest Player To(
+			Position Of(Current Array Element), All Teams)));
+		Global.spawnPlayer.spawnIndex = Random Value In Array(Array Slice(Sorted Array(Mapped Array(Global.spawnRanks,
+			Current Array Index), Global.spawnRanks[Current Array Element]), Count Of(Global.spawnRanks) - 3, 3));
+		Teleport(Global.spawnPlayer, Position Of(Global.spawnPoints[Global.spawnPlayer.spawnIndex]));
+		Wait(False, Ignore Condition);
+	}
+}

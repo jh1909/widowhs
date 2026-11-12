@@ -7,10 +7,13 @@ the SR scale stays stable over time.
 
 ## Decisions
 
-- **Decay through uncertainty, not points.** Each day without a weighted round
-  increases a player's uncertainty. Their SR estimate is unchanged, but the
+- **Decay through uncertainty, not points.** After a 10-day grace period,
+  each further day without a weighted round increases a player's
+  uncertainty. Their SR estimate is unchanged, but the
   leaderboard ranks by SR minus twice the uncertainty, so an inactive player
   slides gradually.
+- **Grace period:** the first 10 days without playing change nothing, so a
+  short break, a busy week or a holiday costs no places.
 - **Pace:** after about 90 days without playing, uncertainty is back at the
   unplaced level, so the player drops off the leaderboard until they play
   again.
@@ -34,7 +37,8 @@ the SR scale stays stable over time.
 
 ## Done when
 
-- A player inactive for 30, 60 and 90 days ranks progressively lower and is
+- A player inactive for 10 days has an unchanged range. One inactive
+  for 30, 60 and 90 days ranks progressively lower and is
   unplaced at 90.
 - One round back moves an inactive player's range visibly more than an
   active player's.
