@@ -239,7 +239,7 @@ grant execute on function public.apply_match_import(bigint, jsonb, jsonb, jsonb,
 create or replace function public.get_global_matches(p_limit integer default 25, p_offset integer default 0)
 returns jsonb language sql stable security definer set search_path = '' as $$
   with rounds as (
-    select match_id, min(played_at) as played_at, count(*) as player_count,
+    select match_id, min(played_at) as played_at, count(distinct player_name) as player_count,
       max(total_match_time) as total_match_time, sum(score) as total_kills,
       (array_agg(coalesce(logged_player_name, player_name) order by score desc, coalesce(logged_player_name, player_name) collate "C")
         filter (where score >= 50))[1] as winner

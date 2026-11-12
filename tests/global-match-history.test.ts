@@ -46,7 +46,8 @@ test(`global history preserves all players and safely links imported profiles ($
     `);
     const migration = async (name: string) => readFile(new URL(`../supabase/migrations/${name}`, import.meta.url), "utf8");
     for (const name of ["20261005210000_admin_leaderboard_reset.sql", "20261012110000_preserve_player_history_on_rename.sql",
-      "20261012120000_add_match_date.sql", "20261012130000_count_imported_rounds.sql", "20261012140000_global_match_history.sql"]) {
+      "20261012120000_add_match_date.sql", "20261012130000_count_imported_rounds.sql", "20261012140000_global_match_history.sql",
+      "20261112190000_distinct_player_count_global_matches.sql"]) {
       await db.exec(await migration(name));
     }
     const asRole = async <T>(role: string, action: () => Promise<T>) => {
@@ -229,6 +230,20 @@ test(`global history preserves all players and safely links imported profiles ($
       assert.equal((await publicList()).total, 0);
       assert.deepEqual(await publicDetails(first[0].match_id), []);
       assert.equal((await profile(mainName)).user_id, alice);
+    });
+
+    await t.test("player_count counts unique players and not multiple sessions", async () => {
+      const multiSession = assignMatchId([
+        { player_name: "MultiSessionAlice", score: 25, deaths: 5, accuracy: 50, kpm: 10, kdr: 5, crouches: 20, time_in_lobby: 60, total_match_time: 120, played_at: "2026-10-13T20:00:00" },
+        { player_name: "MultiSessionAlice", score: 25, deaths: 5, accuracy: 50, kpm: 10, kdr: 5, crouches: 20, time_in_lobby: 60, total_match_time: 120, played_at: "2026-10-13T20:00:00" },
+        { player_name: "SingleSessionBob", score: 10, deaths: 10, accuracy: 40, kpm: 5, kdr: 1, crouches: 10, time_in_lobby: 120, total_match_time: 120, played_at: "2026-10-13T20:00:00" },
+      ]);
+      await importRound(multiSession);
+      const list = await publicList();
+      const latest = list.matches[0];
+      assert.equal(latest.match_id, multiSession[0].match_id);
+      assert.equal(latest.player_count, 2);
+      assert.equal(latest.total_kills, 60);
     });
   } finally { await db.close(); }
 });
