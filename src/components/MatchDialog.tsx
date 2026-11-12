@@ -11,7 +11,9 @@ import { formatMatchDate, type MatchSummary } from "../lib/match-history";
 type Participant = { player_name: string; logged_player_name: string; avatar_url?: string;
   is_verified: boolean; score: number; deaths: number; accuracy: number; kpm: number;
   kdr: number; crouches: number; time_in_lobby: number; total_match_time: number | null;
-  performance_score: number; played_at?: string };
+  performance_score: number; played_at?: string;
+  join_time?: number | null; end_time?: number | null; active_time?: number | null;
+  round_winner?: string | null };
 function metric(value: number | null, digits = 0) { return value == null ? "—" : Number(value).toFixed(digits); }
 
 export default function MatchDialog({ match, onClose }: { match: MatchSummary; onClose: () => void }) {
