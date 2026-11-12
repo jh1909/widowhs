@@ -1,3 +1,5 @@
+import { scoreWeight } from "../../supabase/functions/_shared/elo-weight";
+
 export type MatchSummary = {
   match_id: string;
   played_at: string;
@@ -34,6 +36,7 @@ export function aggregateSessions<T extends {
   end_time?: number | null;
   active_time?: number | null;
   time_in_lobby?: number;
+  total_match_time?: number | null;
   performance_score?: number;
 }>(sessions: T[]): T {
   if (sessions.length <= 1) return sessions[0];
@@ -60,6 +63,11 @@ export function aggregateSessions<T extends {
   const perfScores = sessions.map(s => Number(s.performance_score)).filter(Number.isFinite);
   const avgPerfScore = perfScores.length ? Math.round(perfScores.reduce((a, b) => a + b, 0) / perfScores.length) : undefined;
 
+  const totalMatchTime = sessions.reduce<number | null>(
+    (max, s) => s.total_match_time == null ? max : Math.max(max ?? 0, Number(s.total_match_time)),
+    null
+  );
+
   return {
     ...sessions[0],
     score: totalScore,
@@ -69,9 +77,23 @@ export function aggregateSessions<T extends {
     end_time: lastEnd,
     active_time: totalActive,
     time_in_lobby: totalLobbyTime,
+    total_match_time: totalMatchTime ?? sessions[0]?.total_match_time,
     kdr: Number(kdr.toFixed(2)),
     kpm: Number(kpm.toFixed(2)),
     accuracy: Number(accuracy.toFixed(2)),
     performance_score: avgPerfScore as any,
   };
+}
+
+// Determines if a player/session is completely ineligible (score weight 0).
+export function isFullyIneligible(
+  match: { score?: number; time_in_lobby?: number; total_match_time?: number | null },
+  fallbackTotalTime?: number | null
+): boolean {
+  const total = match.total_match_time ?? fallbackTotalTime ?? null;
+  return scoreWeight({
+    score: Number(match.score) || 0,
+    time_in_lobby: Number(match.time_in_lobby) || 0,
+    total_match_time: total == null ? null : Number(total),
+  }) === 0;
 }

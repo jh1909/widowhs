@@ -4,6 +4,7 @@ import {
   groupSessions,
   byJoinTime,
   aggregateSessions,
+  isFullyIneligible,
 } from "../src/lib/match-history.ts";
 
 test("groupSessions groups rows sharing key in first-seen order", () => {
@@ -156,3 +157,48 @@ test("aggregateSessions gracefully handles legacy records without active_time", 
   assert.equal(aggregated.accuracy, 52.0);
   assert.equal(aggregated.performance_score, 1300);
 });
+
+test("isFullyIneligible accurately identifies players with zero score weight", () => {
+  // 1. Full weight: normal full match participation
+  assert.equal(
+    isFullyIneligible({ score: 50, time_in_lobby: 144, total_match_time: 144 }),
+    false
+  );
+
+  // 2. Full weight: joined early (within 10s of start, e.g. lobby 140s in 144s round)
+  assert.equal(
+    isFullyIneligible({ score: 10, time_in_lobby: 135, total_match_time: 144 }),
+    false
+  );
+
+  // 3. Reduced weight: joined late (> 10s), but reached >= 15 kills (score 20, lobby 50s)
+  assert.equal(
+    isFullyIneligible({ score: 20, time_in_lobby: 50, total_match_time: 144 }),
+    false
+  );
+
+  // 4. Reduced weight: joined late (> 10s), reached >= 60s (score 2, lobby 70s)
+  assert.equal(
+    isFullyIneligible({ score: 2, time_in_lobby: 70, total_match_time: 144 }),
+    false
+  );
+
+  // 5. Ineligible: joined late (> 10s), < 15 kills AND < 60s lobby time (bot/noise)
+  assert.equal(
+    isFullyIneligible({ score: 0, time_in_lobby: 30, total_match_time: 144 }),
+    true
+  );
+
+  // 6. Ineligible using fallback match duration when participant total_match_time is null
+  assert.equal(
+    isFullyIneligible({ score: 1, time_in_lobby: 25, total_match_time: null }, 144),
+    true
+  );
+
+  // 7. Legacy match with no duration recorded anywhere: remains eligible (weight 1)
+  assert.equal(
+    isFullyIneligible({ score: 0, time_in_lobby: 20, total_match_time: null }, null),
+    false
+  );
+});
+
