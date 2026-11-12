@@ -121,9 +121,6 @@ export default function MatchDialog({ match, onClose }: { match: MatchSummary; o
                         >
                           <ChevronDown size={14} className={`text-zinc-500 transition-transform duration-200 ${isExpandedIneligible ? "rotate-180" : ""}`} />
                           <span>Ineligible players ({ineligibleGroups.length})</span>
-                          <span className="text-[10px] text-zinc-500 font-normal">
-                            · Late joins with &lt; 15 kills and &lt; 1 min
-                          </span>
                         </button>
                       </td>
                     </tr>
