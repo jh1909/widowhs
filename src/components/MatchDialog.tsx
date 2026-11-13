@@ -31,13 +31,13 @@ export default function MatchDialog({ match, onClose }: { match: MatchSummary; o
   ) ?? match.total_match_time;
 
   const sortedGroups = [...groups].sort(
-    (a, b) => aggregateSessions(b).score - aggregateSessions(a).score
+    (a, b) => aggregateSessions(b, lobbyTime).score - aggregateSessions(a, lobbyTime).score
   );
   const eligibleGroups = sortedGroups.filter(
-    sessions => !isFullyIneligible(aggregateSessions(sessions), lobbyTime)
+    sessions => !isFullyIneligible(aggregateSessions(sessions, lobbyTime), lobbyTime)
   );
   const ineligibleGroups = sortedGroups.filter(
-    sessions => isFullyIneligible(aggregateSessions(sessions), lobbyTime)
+    sessions => isFullyIneligible(aggregateSessions(sessions, lobbyTime), lobbyTime)
   );
   const isExpandedIneligible = showIneligible ?? (eligibleGroups.length === 0);
   const playerCount = !loading && !error && participants.length ? groups.length : match.player_count ?? null;
@@ -89,7 +89,7 @@ export default function MatchDialog({ match, onClose }: { match: MatchSummary; o
               <thead><tr><th>#</th><th>Player</th><th>Kills</th><th>Deaths</th><th>Accuracy</th><th>KPM</th><th>K/D</th><th>Crouches</th><th>Joined</th><th>Left</th><th>Active</th><th>Round rating</th></tr></thead>
               <tbody>
                 {eligibleGroups.map((sessions, index) => {
-                  const player = aggregateSessions(sessions);
+                  const player = aggregateSessions(sessions, lobbyTime);
                   const won = sessions.some(session => session.score >= 50) || player.score >= 50;
                   const expanded = open.includes(player.player_name);
                   const stats = (session: Participant) => <><td className="font-semibold">{session.score}</td><td>{session.deaths}</td><td>{metric(session.accuracy, 2)}%</td><td>{metric(session.kpm, 2)}</td><td>{metric(session.kdr, 2)}</td>
@@ -125,7 +125,7 @@ export default function MatchDialog({ match, onClose }: { match: MatchSummary; o
                       </td>
                     </tr>
                     {isExpandedIneligible && ineligibleGroups.map((sessions) => {
-                      const player = aggregateSessions(sessions);
+                      const player = aggregateSessions(sessions, lobbyTime);
                       const expanded = open.includes(player.player_name);
                       const stats = (session: Participant) => <><td className="font-semibold">{session.score}</td><td>{session.deaths}</td><td>{metric(session.accuracy, 2)}%</td><td>{metric(session.kpm, 2)}</td><td>{metric(session.kdr, 2)}</td>
                         <td>{session.crouches}</td><td>{formatLobbyTime(session.join_time)}</td><td>{formatLobbyTime(session.end_time)}</td><td>{formatLobbyTime(session.active_time ?? session.time_in_lobby)}</td><td className="text-zinc-500 font-semibold">{metric(session.performance_score)}<RatingWeight match={{ ...session, total_match_time: session.total_match_time ?? lobbyTime }} /></td></>;

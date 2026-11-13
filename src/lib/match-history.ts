@@ -24,7 +24,28 @@ export function byJoinTime<T extends { join_time?: number | null }>(sessions: T[
   return [...sessions].sort((a, b) => (a.join_time ?? 0) - (b.join_time ?? 0));
 }
 
+function sessionWeight(
+  session: {
+    score?: number;
+    time_in_lobby?: number;
+    active_time?: number | null;
+    total_match_time?: number | null;
+    elo_weight?: number | null;
+  },
+  fallbackTotalTime?: number | null
+): number {
+  if (session.elo_weight != null) return Number(session.elo_weight);
+  const total = session.total_match_time ?? fallbackTotalTime ?? null;
+  return scoreWeight({
+    score: Number(session.score) || 0,
+    time_in_lobby: Number(session.time_in_lobby) || 0,
+    active_time: session.active_time ?? null,
+    total_match_time: total == null ? null : Number(total),
+  });
+}
+
 // Combines several sessions of the same player into a single summary record for table display.
+// Eligibility and ELO weights are evaluated per session rather than on pre-summed stats.
 export function aggregateSessions<T extends {
   score?: number;
   deaths?: number;
@@ -38,7 +59,8 @@ export function aggregateSessions<T extends {
   time_in_lobby?: number;
   total_match_time?: number | null;
   performance_score?: number;
-}>(sessions: T[]): T {
+  elo_weight?: number | null;
+}>(sessions: T[], fallbackTotalTime?: number | null): T & { elo_weight?: number | null } {
   if (sessions.length <= 1) return sessions[0];
   const sorted = byJoinTime(sessions);
   const totalScore = sessions.reduce((sum, s) => sum + (Number(s.score) || 0), 0);
@@ -60,12 +82,29 @@ export function aggregateSessions<T extends {
   const accuracyWeight = sessions.reduce((sum, s) => sum + (Number(s.active_time ?? s.time_in_lobby) || 1), 0);
   const accuracy = accuracyWeight > 0 ? weightedAccSum / accuracyWeight : 0;
 
-  const perfScores = sessions.map(s => Number(s.performance_score)).filter(Number.isFinite);
-  const avgPerfScore = perfScores.length ? Math.round(perfScores.reduce((a, b) => a + b, 0) / perfScores.length) : undefined;
+  const sessionWeights = sessions.map(s => sessionWeight(s, fallbackTotalTime));
+  const eligibleSessions = sessions
+    .map((s, i) => ({ session: s, weight: sessionWeights[i] }))
+    .filter(({ weight }) => weight > 0);
+
+  const aggregatedWeight = eligibleSessions.length === 0
+    ? 0
+    : eligibleSessions.reduce((sum, { weight }) => sum + weight, 0) / eligibleSessions.length;
+
+  const perfSource = eligibleSessions.length > 0
+    ? eligibleSessions
+    : sessions.map(s => ({ session: s, weight: 1 }));
+  const weightedPerfPairs = perfSource
+    .map(({ session, weight }) => ({ score: Number(session.performance_score), weight }))
+    .filter(({ score }) => Number.isFinite(score));
+  const perfWeightSum = weightedPerfPairs.reduce((sum, { weight }) => sum + weight, 0);
+  const avgPerfScore = perfWeightSum > 0
+    ? Math.round(weightedPerfPairs.reduce((sum, { score, weight }) => sum + score * weight, 0) / perfWeightSum)
+    : undefined;
 
   const totalMatchTime = sessions.reduce<number | null>(
     (max, s) => s.total_match_time == null ? max : Math.max(max ?? 0, Number(s.total_match_time)),
-    null
+    fallbackTotalTime ?? null
   );
 
   return {
@@ -82,18 +121,27 @@ export function aggregateSessions<T extends {
     kpm: Number(kpm.toFixed(2)),
     accuracy: Number(accuracy.toFixed(2)),
     performance_score: avgPerfScore as any,
+    elo_weight: aggregatedWeight,
   };
 }
 
 // Determines if a player/session is completely ineligible (score weight 0).
 export function isFullyIneligible(
-  match: { score?: number; time_in_lobby?: number; total_match_time?: number | null },
+  match: {
+    score?: number;
+    time_in_lobby?: number;
+    active_time?: number | null;
+    total_match_time?: number | null;
+    elo_weight?: number | null;
+  },
   fallbackTotalTime?: number | null
 ): boolean {
+  if (match.elo_weight != null) return Number(match.elo_weight) === 0;
   const total = match.total_match_time ?? fallbackTotalTime ?? null;
   return scoreWeight({
     score: Number(match.score) || 0,
     time_in_lobby: Number(match.time_in_lobby) || 0,
+    active_time: match.active_time ?? null,
     total_match_time: total == null ? null : Number(total),
   }) === 0;
 }

@@ -23,6 +23,19 @@ test('participation thresholds include exactly 10s, 15 kills, 60s, 35 kills and 
   assert.equal(isQualified(fractional),false);
 });
 
+test('scoreWeight bases weighting on active_time with nullish fallback to time_in_lobby',()=>{
+  // Active time overrides a longer time_in_lobby (e.g. AFK/paused)
+  assert.equal(scoreWeight({score:10,time_in_lobby:200,active_time:30,total_match_time:300}),0);
+  assert.equal(scoreWeight({score:15,time_in_lobby:200,active_time:30,total_match_time:300}),15/35);
+  assert.equal(scoreWeight({score:5,time_in_lobby:200,active_time:90,total_match_time:300}),0.5);
+  assert.equal(scoreWeight({score:0,time_in_lobby:200,active_time:0,total_match_time:300}),0);
+  // Active time of 180s grants full weight even on late join
+  assert.equal(scoreWeight({score:10,time_in_lobby:220,active_time:180,total_match_time:300}),1);
+  // Null or undefined active_time falls back to time_in_lobby for legacy logs
+  assert.equal(scoreWeight({score:5,time_in_lobby:90,active_time:null,total_match_time:300}),0.5);
+  assert.equal(scoreWeight({score:5,time_in_lobby:90,total_match_time:300}),0.5);
+});
+
 const makeMatch=(name:string,kills=50,time=200,total:number|null=200,kpm=10,accuracy=60,kdr=2)=>assignMatchId([{
   player_name:name,score:kills,deaths:10,accuracy,kpm,kdr,crouches:100,
   time_in_lobby:time,total_match_time:total,played_at:'2026-10-13T12:00:00',
@@ -208,5 +221,94 @@ for(const accounts of ['text[]','jsonb']) test(`weighted ELO survives old import
       assert.equal((await profile('Again')).placement_matches,1);
       assert.equal((await profile('Again')).is_verified,true);
     });
+  } finally { await db.close(); }
+});
+
+test('active_time weights and unmerged multi-session ELO rules in Postgres',async()=>{
+  const db=new PGlite();
+  try {
+    await db.exec(`
+      create role anon; create role authenticated; create role service_role bypassrls;
+      create schema auth; grant usage on schema auth to anon,authenticated,service_role;
+      create function auth.uid() returns uuid language sql stable as $$select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid$$;
+      create table auth.users(id uuid primary key);
+      insert into auth.users values('${alice}'),('${admin}');
+      create table auth.identities(user_id uuid,provider text);
+      insert into auth.identities values('${alice}','discord'),('${admin}','discord');
+      create table public.players(name text primary key,user_id uuid,is_admin boolean default false,
+        bnet_accounts text[] default '{}',matches integer,score integer,deaths integer,
+        kdr text,accuracy text,kpm text,crouches integer,time_in_lobby numeric,elo text,rank integer,tag text);
+      create table public.player_matches(id bigint generated always as identity primary key,player_name text,
+        score integer,deaths integer,accuracy double precision,kpm double precision,kdr double precision,crouches integer,time_in_lobby double precision,
+        total_match_time integer,performance_score integer,created_at timestamptz default now());
+      create table public.player_history(id bigint generated always as identity primary key,player_name text,
+        elo integer,rank integer,created_at timestamptz default now());
+      create table public.audit_logs(id bigint generated always as identity primary key,action text,admin_user text,details text);
+      alter table public.players enable row level security;
+      create policy own_profile on public.players to authenticated using(user_id=auth.uid()) with check(user_id=auth.uid());
+      grant select,insert,update on public.players to authenticated;
+    `);
+    const allMigrations=[
+      '20261005210000_admin_leaderboard_reset.sql','20261012110000_preserve_player_history_on_rename.sql',
+      '20261012120000_add_match_date.sql','20261012130000_count_imported_rounds.sql','20261012140000_global_match_history.sql',
+      '20261012220000_battlenet_oauth.sql','20261013010000_battlenet_owned_profile_claims.sql',
+      '20261013140000_verified_battlenet_claim_priority.sql','20261013180000_pb_rankings_and_records.sql',
+      '20261013200000_profile_bio_and_setup.sql','20261013210000_public_elo_history.sql',
+      '20261013220000_admin_profile_details_moderation.sql','20261013230000_daily_average_elo_history.sql',
+      '20261013233000_weighted_elo_participation.sql','20261014010000_count_fully_eligible_placements.sql',
+      '20261015120000_admin_player_moderation.sql','20261023120000_recent_100_performance.sql',
+      '20261031171500_batch_match_import.sql','20261101182500_server_side_leaderboard_and_profile.sql',
+      '20261102024500_daily_match_average_elo_history.sql','20261108182500_three_battlenet_accounts.sql',
+      '20261108190000_admin_merge_unverified_players.sql','20261112020000_track_match_session_times.sql',
+      '20261112190000_distinct_player_count_global_matches.sql','20261113190000_elo_weight_use_active_time.sql',
+    ];
+    for(const name of allMigrations) await db.exec(await migration(name));
+
+    const asService=async<T>(action:()=>Promise<T>)=>{
+      await db.exec('set role service_role');
+      try{ return await action(); } finally{ await db.exec('reset role'); }
+    };
+    const profile=async(name:string)=>(await db.query<any>('select * from public.players where name=$1',[name])).rows[0];
+    const importRows=async(rows:any[])=>{
+      const payload=buildMatchImport((await db.query<ImportPlayer>('select * from public.players')).rows,assignMatchId(rows));
+      const revision=(await db.query<any>('select revision from public.leaderboard_state')).rows[0].revision;
+      await asService(()=>db.query("select public.apply_match_import($1,$2,$3,$4,$5,'TEST','active-time')",
+        [revision,...[payload.players,payload.ranks,payload.history,payload.matches].map(v=>JSON.stringify(v))]));
+    };
+
+    // Case 2: Both sessions ineligible -> stays ineligible (10+10=20 kills, 40+40=80s active, despite long lobby time)
+    await importRows([
+      {player_name:'BothIneligible',score:10,deaths:5,accuracy:50,kpm:15,kdr:2,crouches:0,time_in_lobby:200,active_time:40,total_match_time:300,played_at:'2026-11-13T12:00:00'},
+      {player_name:'BothIneligible',score:10,deaths:5,accuracy:50,kpm:15,kdr:2,crouches:0,time_in_lobby:200,active_time:40,total_match_time:300,played_at:'2026-11-13T12:00:00'},
+    ]);
+    assert.equal(Number((await profile('BothIneligible')).elo_weight_sum),0);
+    assert.equal((await profile('BothIneligible')).elo,'-');
+    assert.equal(Number((await db.query<any>("select count(*) n from public.player_history where player_name='BothIneligible'")).rows[0].n),0);
+
+    // Case 1: One ineligible (active=30, kills=5) + one full eligible (active=200, kills=50) -> only takes full session
+    await importRows([
+      {player_name:'OneIneligible',score:5,deaths:10,accuracy:10,kpm:10,kdr:0.5,crouches:0,time_in_lobby:200,active_time:30,total_match_time:300,played_at:'2026-11-13T12:05:00'},
+      {player_name:'OneIneligible',score:50,deaths:10,accuracy:60,kpm:15,kdr:5,crouches:0,time_in_lobby:200,active_time:200,total_match_time:300,played_at:'2026-11-13T12:05:00'},
+    ]);
+    assert.equal(Number((await profile('OneIneligible')).elo_weight_sum),1);
+    assert.equal((await profile('OneIneligible')).elo,String(calculateRating({kpm:15,accuracy:60,kdr:5})));
+    assert.equal((await profile('OneIneligible')).placement_matches,1);
+
+    // Case 3: One full (w=1) + one partial (active=90 -> w=0.5, kills=5) -> weighted sum
+    await importRows([
+      {player_name:'MixedWeight',score:40,deaths:10,accuracy:60,kpm:12,kdr:4,crouches:0,time_in_lobby:190,active_time:190,total_match_time:300,played_at:'2026-11-13T12:10:00'},
+      {player_name:'MixedWeight',score:5,deaths:5,accuracy:30,kpm:3,kdr:1,crouches:0,time_in_lobby:200,active_time:90,total_match_time:300,played_at:'2026-11-13T12:10:00'},
+    ]);
+    assert.ok(Math.abs(Number((await profile('MixedWeight')).elo_weight_sum)-1.5)<1e-12);
+    assert.equal((await profile('MixedWeight')).elo,String(calculateRating({kpm:(12*1+3*0.5)/1.5,accuracy:(60*1+30*0.5)/1.5,kdr:(4*1+1*0.5)/1.5})));
+
+    // Case 4: Both fully eligible -> summed (w=2)
+    await importRows([
+      {player_name:'BothFull',score:40,deaths:10,accuracy:60,kpm:16,kdr:4,crouches:0,time_in_lobby:190,active_time:190,total_match_time:300,played_at:'2026-11-13T12:15:00'},
+      {player_name:'BothFull',score:36,deaths:9,accuracy:40,kpm:12,kdr:4,crouches:0,time_in_lobby:180,active_time:180,total_match_time:300,played_at:'2026-11-13T12:15:00'},
+    ]);
+    assert.equal(Number((await profile('BothFull')).elo_weight_sum),2);
+    assert.equal((await profile('BothFull')).elo,String(calculateRating({kpm:14,accuracy:50,kdr:4})));
+    assert.equal((await profile('BothFull')).placement_matches,2);
   } finally { await db.close(); }
 });
