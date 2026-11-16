@@ -92,8 +92,8 @@ export default function MatchDialog({ match, onClose }: { match: MatchSummary; o
                   const player = aggregateSessions(sessions, lobbyTime);
                   const won = sessions.some(session => session.score >= 50) || player.score >= 50;
                   const expanded = open.includes(player.player_name);
-                  const stats = (session: Participant) => <><td className="font-semibold">{session.score}</td><td>{session.deaths}</td><td>{metric(session.accuracy, 2)}%</td><td>{metric(session.kpm, 2)}</td><td>{metric(session.kdr, 2)}</td>
-                    <td>{session.crouches}</td><td>{formatLobbyTime(session.join_time)}</td><td>{formatLobbyTime(session.end_time)}</td><td>{formatLobbyTime(session.active_time ?? session.time_in_lobby)}</td><td className="text-toxic-purple font-semibold">{metric(session.performance_score)}<RatingWeight match={{ ...session, total_match_time: session.total_match_time ?? lobbyTime }} /></td></>;
+                  const stats = (session: Participant, rated = true) => <><td className="font-semibold">{session.score}</td><td>{session.deaths}</td><td>{metric(session.accuracy, 2)}%</td><td>{metric(session.kpm, 2)}</td><td>{metric(session.kdr, 2)}</td>
+                    <td>{session.crouches}</td><td>{formatLobbyTime(session.join_time)}</td><td>{formatLobbyTime(session.end_time)}</td><td>{formatLobbyTime(session.active_time ?? session.time_in_lobby)}</td>{rated ? <td className="text-toxic-purple font-semibold">{metric(session.performance_score)}<RatingWeight match={{ ...session, total_match_time: session.total_match_time ?? lobbyTime }} /></td> : <td />}</>;
                   return <Fragment key={player.player_name}><tr className={won ? "match-winner-row" : ""}>
                     <td>{won ? <Trophy size={15} className="text-[#dbc18a]" aria-label="Winner" /> : index + 1}</td>
                     <td><div className="flex items-center gap-2 whitespace-nowrap"><PlayerAvatar name={player.player_name} avatarUrl={player.avatar_url} className="player-avatar" />
@@ -106,7 +106,7 @@ export default function MatchDialog({ match, onClose }: { match: MatchSummary; o
                     </td>{stats(player)}
                   </tr>
                   {expanded && byJoinTime(sessions).map((session, sessionIndex) => <tr key={sessionIndex} className="bg-white/[0.015] border-t border-dashed border-white/5">
-                    <td /><td><span className="pl-10 text-zinc-400">Session {sessionIndex + 1}</span></td>{stats(session)}
+                    <td /><td><span className="pl-10 text-zinc-400">Session {sessionIndex + 1}</span></td>{stats(session, false)}
                   </tr>)}</Fragment>;
                 })}
                 {ineligibleGroups.length > 0 && (
@@ -127,8 +127,8 @@ export default function MatchDialog({ match, onClose }: { match: MatchSummary; o
                     {isExpandedIneligible && ineligibleGroups.map((sessions) => {
                       const player = aggregateSessions(sessions, lobbyTime);
                       const expanded = open.includes(player.player_name);
-                      const stats = (session: Participant) => <><td className="font-semibold">{session.score}</td><td>{session.deaths}</td><td>{metric(session.accuracy, 2)}%</td><td>{metric(session.kpm, 2)}</td><td>{metric(session.kdr, 2)}</td>
-                        <td>{session.crouches}</td><td>{formatLobbyTime(session.join_time)}</td><td>{formatLobbyTime(session.end_time)}</td><td>{formatLobbyTime(session.active_time ?? session.time_in_lobby)}</td><td className="text-zinc-500 font-semibold">{metric(session.performance_score)}<RatingWeight match={{ ...session, total_match_time: session.total_match_time ?? lobbyTime }} /></td></>;
+                      const stats = (session: Participant, rated = true) => <><td className="font-semibold">{session.score}</td><td>{session.deaths}</td><td>{metric(session.accuracy, 2)}%</td><td>{metric(session.kpm, 2)}</td><td>{metric(session.kdr, 2)}</td>
+                        <td>{session.crouches}</td><td>{formatLobbyTime(session.join_time)}</td><td>{formatLobbyTime(session.end_time)}</td><td>{formatLobbyTime(session.active_time ?? session.time_in_lobby)}</td>{rated ? <td className="text-zinc-500 font-semibold">{metric(session.performance_score)}<RatingWeight match={{ ...session, total_match_time: session.total_match_time ?? lobbyTime }} /></td> : <td />}</>;
                       return (
                         <Fragment key={player.player_name}>
                           <tr className="text-zinc-400 bg-white/[0.01] hover:bg-white/[0.03] transition-colors border-t border-dashed border-white/5">
@@ -161,7 +161,7 @@ export default function MatchDialog({ match, onClose }: { match: MatchSummary; o
                             <tr key={sessionIndex} className="bg-white/[0.005] border-t border-dashed border-white/5 text-zinc-500">
                               <td />
                               <td><span className="pl-10 text-zinc-500">Session {sessionIndex + 1}</span></td>
-                              {stats(session)}
+                              {stats(session, false)}
                             </tr>
                           ))}
                         </Fragment>

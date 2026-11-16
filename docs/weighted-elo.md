@@ -4,6 +4,20 @@ Aktueller Stand: [Letzte 100 eligible Runden](recent-performance.md).
 Die neue Migration begrenzt ELO und angezeigte Leistungswerte auf dieses Fenster.
 Die folgende Dokumentation beschreibt die ursprüngliche Lifetime-Gewichtung.
 
+## Mehrere Sessions in einer Runde
+
+Seit `20261115200000_combine_round_sessions.sql` zählen alle Sessions eines
+Spielers in einer Runde als **eine** Teilnahme. Kills, Deaths und aktive Zeit
+werden summiert, Accuracy nach aktiver Zeit gewichtet; Gewicht und Rundenrating
+werden einmal aus diesen Summen berechnet (View `player_rounds`,
+`combineSessions()` in `supabase/functions/_shared/sessions.ts`). ELO, Placements,
+Tagesverlauf und `matches` verwenden diese Runden. Die Sessions bleiben einzeln in
+`player_matches` gespeichert; PB und Speedrunner werden weiterhin pro Session
+bestimmt. Runden mit nur einer Session bleiben unverändert.
+
+Die Migration korrigiert `matches` einmalig um die zusätzlich gezählten Sessions.
+Sie muss **vor** der neuen `upload-csv` Edge Function installiert werden.
+
 Migration `20261013233000_weighted_elo_participation.sql` nach PB-Rankings und
 täglichem ELO-Verlauf installieren, bevor das neue Frontend veröffentlicht wird.
 Ein Update der Edge Functions ist dafür nicht erforderlich. Die aktualisierte

@@ -6,6 +6,7 @@ import {
   aggregateSessions,
   isFullyIneligible,
 } from "../src/lib/match-history.ts";
+import { calculateRating } from "../supabase/functions/_shared/rating.ts";
 
 test("groupSessions groups rows sharing key in first-seen order", () => {
   const input = [
@@ -110,7 +111,7 @@ test("aggregateSessions combines multiple player sessions accurately", () => {
   assert.equal(aggregated.kpm, 10.0); // 50 kills in 300s (5 min) = 10.0
   // Accuracy: weighted by active_time: (50 * 120 + 60 * 180) / 300 = (6000 + 10800) / 300 = 16800 / 300 = 56.0
   assert.equal(aggregated.accuracy, 56.0);
-  assert.equal(aggregated.performance_score, 1500); // (1400 + 1600) / 2
+  assert.equal(aggregated.performance_score, calculateRating({ kpm: 10, accuracy: 56, kdr: 5 }));
 });
 
 test("aggregateSessions gracefully handles legacy records without active_time", () => {
@@ -155,7 +156,7 @@ test("aggregateSessions gracefully handles legacy records without active_time", 
   assert.equal(aggregated.kpm, 5.0); // 25 / (300/60) = 5.0
   // Accuracy: weighted by time_in_lobby fallback: (40 * 120 + 60 * 180) / 300 = 52.0
   assert.equal(aggregated.accuracy, 52.0);
-  assert.equal(aggregated.performance_score, 1300);
+  assert.equal(aggregated.performance_score, calculateRating({ kpm: 5, accuracy: 52, kdr: 5 }));
 });
 
 test("isFullyIneligible accurately identifies players with zero score weight", () => {
@@ -216,42 +217,29 @@ test("isFullyIneligible accurately identifies players with zero score weight", (
   );
 });
 
-test("aggregateSessions evaluates ELO eligibility and weighting per session without pre-combining", () => {
-  const lobbyTime = 300;
-
-  // Case 1: One ineligible (10 kills, 40s) + one fully eligible (40 kills, 190s) -> takes eligible session only
-  const oneIneligible = aggregateSessions([
-    { score: 10, deaths: 5, active_time: 40, time_in_lobby: 40, performance_score: 500 },
-    { score: 40, deaths: 8, active_time: 190, time_in_lobby: 190, performance_score: 1800 },
+test("aggregateSessions rates and weights the summed stats once", () => {
+  const lobbyTime = 236;
+  const combined = aggregateSessions([
+    { score: 1, deaths: 4, accuracy: 33.33, active_time: 25, time_in_lobby: 25, performance_score: 240 },
+    { score: 19, deaths: 12, accuracy: 35.71, active_time: 141, time_in_lobby: 141, performance_score: 517 },
   ], lobbyTime);
-  assert.equal(oneIneligible.elo_weight, 1);
-  assert.equal(oneIneligible.performance_score, 1800);
-  assert.equal(isFullyIneligible(oneIneligible, lobbyTime), false);
+  assert.equal(combined.performance_score, calculateRating({ kpm: 20 / (166 / 60), accuracy: combined.accuracy, kdr: 20 / 16 }));
+  assert.equal(combined.elo_weight, 166 / 180);
 
-  // Case 2: Two ineligible sessions (each <15 kills & <60s active) -> stays ineligible even though sum >=15 kills & >=60s
-  const bothIneligible = aggregateSessions([
-    { score: 10, deaths: 5, active_time: 40, time_in_lobby: 200, performance_score: 900 },
-    { score: 10, deaths: 5, active_time: 40, time_in_lobby: 200, performance_score: 1100 },
-  ], lobbyTime);
-  assert.equal(bothIneligible.elo_weight, 0);
-  assert.equal(isFullyIneligible(bothIneligible, lobbyTime), true);
+  // Each session alone is ineligible, but the summed stats are not.
+  const summed = aggregateSessions([
+    { score: 10, deaths: 5, active_time: 40, time_in_lobby: 40, performance_score: 900 },
+    { score: 10, deaths: 5, active_time: 40, time_in_lobby: 40, performance_score: 1100 },
+  ], 300);
+  assert.equal(summed.elo_weight, 20 / 35);
+  assert.equal(isFullyIneligible(summed, 300), false);
 
-  // Case 3: One full (w=1) + one partial (active=90 -> w=0.5) -> weighted average
-  const mixed = aggregateSessions([
-    { score: 40, deaths: 10, active_time: 190, time_in_lobby: 190, performance_score: 2000 },
-    { score: 5, deaths: 5, active_time: 90, time_in_lobby: 90, performance_score: 1400 },
-  ], lobbyTime);
-  assert.equal(mixed.elo_weight, 0.75);
-  assert.equal(mixed.performance_score, Math.round((2000 * 1 + 1400 * 0.5) / 1.5));
-  assert.equal(isFullyIneligible(mixed, lobbyTime), false);
-
-  // Case 4: Both fully eligible (w=1, w=1) -> full weight 1, equal sum/average
-  const bothFull = aggregateSessions([
-    { score: 40, deaths: 10, active_time: 190, time_in_lobby: 190, performance_score: 1600 },
-    { score: 36, deaths: 9, active_time: 180, time_in_lobby: 180, performance_score: 2000 },
-  ], lobbyTime);
-  assert.equal(bothFull.elo_weight, 1);
-  assert.equal(bothFull.performance_score, 1800);
-  assert.equal(isFullyIneligible(bothFull, lobbyTime), false);
+  // Ineligible session (29s, 1 kill) + partial session (175s, 23 kills) sums to 204s >= 180s -> 100% weight.
+  const fullFromPartialAndIneligible = aggregateSessions([
+    { score: 1, deaths: 4, accuracy: 20, active_time: 29, time_in_lobby: 29, performance_score: 172 },
+    { score: 23, deaths: 19, accuracy: 40.35, active_time: 175, time_in_lobby: 175, performance_score: 515 },
+  ], 224);
+  assert.equal(fullFromPartialAndIneligible.elo_weight, 1);
+  assert.equal(isFullyIneligible(fullFromPartialAndIneligible, 224), false);
 });
 

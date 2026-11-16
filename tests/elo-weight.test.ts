@@ -224,7 +224,7 @@ for(const accounts of ['text[]','jsonb']) test(`weighted ELO survives old import
   } finally { await db.close(); }
 });
 
-test('active_time weights and unmerged multi-session ELO rules in Postgres',async()=>{
+test('multi-session rounds count as one combined participation in Postgres',async()=>{
   const db=new PGlite();
   try {
     await db.exec(`
@@ -261,6 +261,7 @@ test('active_time weights and unmerged multi-session ELO rules in Postgres',asyn
       '20261102024500_daily_match_average_elo_history.sql','20261108182500_three_battlenet_accounts.sql',
       '20261108190000_admin_merge_unverified_players.sql','20261112020000_track_match_session_times.sql',
       '20261112190000_distinct_player_count_global_matches.sql','20261113190000_elo_weight_use_active_time.sql',
+      '20261115200000_combine_round_sessions.sql',
     ];
     for(const name of allMigrations) await db.exec(await migration(name));
 
@@ -276,39 +277,65 @@ test('active_time weights and unmerged multi-session ELO rules in Postgres',asyn
         [revision,...[payload.players,payload.ranks,payload.history,payload.matches].map(v=>JSON.stringify(v))]));
     };
 
-    // Case 2: Both sessions ineligible -> stays ineligible (10+10=20 kills, 40+40=80s active, despite long lobby time)
-    await importRows([
-      {player_name:'BothIneligible',score:10,deaths:5,accuracy:50,kpm:15,kdr:2,crouches:0,time_in_lobby:200,active_time:40,total_match_time:300,played_at:'2026-11-13T12:00:00'},
-      {player_name:'BothIneligible',score:10,deaths:5,accuracy:50,kpm:15,kdr:2,crouches:0,time_in_lobby:200,active_time:40,total_match_time:300,played_at:'2026-11-13T12:00:00'},
-    ]);
-    assert.equal(Number((await profile('BothIneligible')).elo_weight_sum),0);
-    assert.equal((await profile('BothIneligible')).elo,'-');
-    assert.equal(Number((await db.query<any>("select count(*) n from public.player_history where player_name='BothIneligible'")).rows[0].n),0);
+    const elo=(rating:number)=>rating.toLocaleString('en-US');
+    const sessionRows=async(name:string)=>Number((await db.query<any>('select count(*) n from public.player_matches where player_name=$1',[name])).rows[0].n);
+    const round=(name:string,time:string,sessions:any[])=>sessions.map(s=>({player_name:name,crouches:0,time_in_lobby:200,total_match_time:300,played_at:time,...s}));
 
-    // Case 1: One ineligible (active=30, kills=5) + one full eligible (active=200, kills=50) -> only takes full session
-    await importRows([
-      {player_name:'OneIneligible',score:5,deaths:10,accuracy:10,kpm:10,kdr:0.5,crouches:0,time_in_lobby:200,active_time:30,total_match_time:300,played_at:'2026-11-13T12:05:00'},
-      {player_name:'OneIneligible',score:50,deaths:10,accuracy:60,kpm:15,kdr:5,crouches:0,time_in_lobby:200,active_time:200,total_match_time:300,played_at:'2026-11-13T12:05:00'},
-    ]);
-    assert.equal(Number((await profile('OneIneligible')).elo_weight_sum),1);
-    assert.equal((await profile('OneIneligible')).elo,String(calculateRating({kpm:15,accuracy:60,kdr:5})));
-    assert.equal((await profile('OneIneligible')).placement_matches,1);
+    // Each session alone is ineligible, the summed 20 kills / 80s are not.
+    await importRows(round('SummedEligible','2026-11-13T12:00:00',[
+      {score:10,deaths:5,accuracy:50,kpm:15,kdr:2,active_time:40},
+      {score:10,deaths:5,accuracy:50,kpm:15,kdr:2,active_time:40},
+    ]));
+    let player=await profile('SummedEligible');
+    assert.equal(await sessionRows('SummedEligible'),2);
+    assert.ok(Math.abs(Number(player.elo_weight_sum)-20/35)<1e-12);
+    assert.equal(player.elo,elo(calculateRating({kpm:15,accuracy:50,kdr:2})));
+    assert.equal(player.recent_matches,1);
+    assert.equal(player.matches,1);
+    assert.equal(player.placement_matches,0);
+    assert.deepEqual((await db.query<any>("select elo from public.player_history where player_name='SummedEligible'")).rows.map(r=>r.elo),
+      [calculateRating({kpm:15,accuracy:50,kdr:2})]);
 
-    // Case 3: One full (w=1) + one partial (active=90 -> w=0.5, kills=5) -> weighted sum
-    await importRows([
-      {player_name:'MixedWeight',score:40,deaths:10,accuracy:60,kpm:12,kdr:4,crouches:0,time_in_lobby:190,active_time:190,total_match_time:300,played_at:'2026-11-13T12:10:00'},
-      {player_name:'MixedWeight',score:5,deaths:5,accuracy:30,kpm:3,kdr:1,crouches:0,time_in_lobby:200,active_time:90,total_match_time:300,played_at:'2026-11-13T12:10:00'},
-    ]);
-    assert.ok(Math.abs(Number((await profile('MixedWeight')).elo_weight_sum)-1.5)<1e-12);
-    assert.equal((await profile('MixedWeight')).elo,String(calculateRating({kpm:(12*1+3*0.5)/1.5,accuracy:(60*1+30*0.5)/1.5,kdr:(4*1+1*0.5)/1.5})));
+    // Stats are summed before rating: 55 kills, 20 deaths, 230s active, time-weighted accuracy.
+    await importRows(round('OneShort','2026-11-13T12:05:00',[
+      {score:5,deaths:10,accuracy:10,kpm:10,kdr:0.5,active_time:30},
+      {score:50,deaths:10,accuracy:60,kpm:15,kdr:5,active_time:200},
+    ]));
+    player=await profile('OneShort');
+    assert.equal(Number(player.elo_weight_sum),1);
+    assert.equal(player.elo,elo(calculateRating({kpm:55*60/230,accuracy:(10*30+60*200)/230,kdr:55/20})));
+    assert.equal(player.placement_matches,1);
+    assert.equal(player.speedrunner_count,0);
 
-    // Case 4: Both fully eligible -> summed (w=2)
+    // Two full sessions are still one placement match.
+    await importRows(round('BothFull','2026-11-13T12:15:00',[
+      {score:40,deaths:10,accuracy:60,kpm:16,kdr:4,time_in_lobby:190,active_time:190},
+      {score:36,deaths:9,accuracy:40,kpm:12,kdr:4,time_in_lobby:180,active_time:180},
+    ]));
+    player=await profile('BothFull');
+    assert.equal(Number(player.elo_weight_sum),1);
+    assert.equal(player.elo,elo(calculateRating({kpm:76*60/370,accuracy:(60*190+40*180)/370,kdr:4})));
+    assert.equal(player.placement_matches,1);
+
+    // A single-session round keeps its stored rating and weight.
+    await importRows(round('Single','2026-11-13T12:20:00',[{score:17,deaths:2,accuracy:90,kpm:17,kdr:8.5,time_in_lobby:60,active_time:60}]));
+    player=await profile('Single');
+    assert.ok(Math.abs(Number(player.elo_weight_sum)-17/35)<1e-12);
+    assert.equal(player.elo,elo(calculateRating({kpm:17,accuracy:90,kdr:8.5})));
+
+    // The migration corrects lifetime counts of earlier multi-session rounds (old importer counted 2).
+    await db.exec(`update public.players set matches=matches+1 where name='BothFull'`);
+    await db.exec(await migration('20261115200000_combine_round_sessions.sql'));
+    assert.equal((await profile('BothFull')).matches,1);
+
+    // Ineligible session (29s) + partial session (175s) sums to 204s >= 180s -> 100% weight (1.0) & 1 placement.
     await importRows([
-      {player_name:'BothFull',score:40,deaths:10,accuracy:60,kpm:16,kdr:4,crouches:0,time_in_lobby:190,active_time:190,total_match_time:300,played_at:'2026-11-13T12:15:00'},
-      {player_name:'BothFull',score:36,deaths:9,accuracy:40,kpm:12,kdr:4,crouches:0,time_in_lobby:180,active_time:180,total_match_time:300,played_at:'2026-11-13T12:15:00'},
+      {player_name:'Tokeinz',score:1,deaths:4,accuracy:20,kpm:2.07,kdr:0.25,crouches:8,time_in_lobby:29,active_time:29,total_match_time:224,played_at:'2026-11-16T12:00:00'},
+      {player_name:'Tokeinz',score:23,deaths:19,accuracy:40.35,kpm:7.87,kdr:1.21,crouches:45,time_in_lobby:175,active_time:175,total_match_time:224,played_at:'2026-11-16T12:00:00'},
     ]);
-    assert.equal(Number((await profile('BothFull')).elo_weight_sum),2);
-    assert.equal((await profile('BothFull')).elo,String(calculateRating({kpm:14,accuracy:50,kdr:4})));
-    assert.equal((await profile('BothFull')).placement_matches,2);
+    player=await profile('Tokeinz');
+    assert.equal(Number(player.elo_weight_sum),1);
+    assert.equal(player.placement_matches,1);
+    assert.equal(player.matches,1);
   } finally { await db.close(); }
 });

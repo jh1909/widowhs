@@ -894,7 +894,7 @@ export default function Profile() {
                         <tr key={session.id ?? sessionIndex} onClick={() => openMatch(session)}
                           className="h-[72px] border-b border-white/5 transition-colors hover:bg-white/[0.02] cursor-pointer bg-white/[0.015]">
                           <td className="py-3 px-4 pl-8 text-zinc-500 whitespace-nowrap">Session {sessionIndex + 1}</td>
-                          <MatchStatCells m={session} />
+                          <MatchStatCells m={session} rated={false} />
                         </tr>
                       ))}
                       </Fragment>
@@ -930,7 +930,7 @@ export default function Profile() {
   );
 }
 
-function MatchStatCells({ m }: { m: any }) {
+function MatchStatCells({ m, rated = true }: { m: any; rated?: boolean }) {
   const kdr = typeof m.kdr === "number" ? m.kdr.toFixed(2) : (parseFloat(m.kdr) ? parseFloat(m.kdr).toFixed(2) : (m.kdr || "-"));
   const kpm = typeof m.kpm === "number" ? m.kpm.toFixed(2) : (parseFloat(m.kpm) ? parseFloat(m.kpm).toFixed(2) : (m.kpm || "-"));
   const acc = typeof m.accuracy === "number" ? m.accuracy.toFixed(1) : (parseFloat(m.accuracy) ? parseFloat(m.accuracy).toFixed(1) : (m.accuracy || "-"));
@@ -944,10 +944,10 @@ function MatchStatCells({ m }: { m: any }) {
     <td className="py-3 px-4 whitespace-nowrap">{formatLobbyTime(m.end_time)}</td>
     <td className="py-3 px-4 whitespace-nowrap">{formatLobbyTime(m.active_time ?? m.time_in_lobby)}</td>
     <td className="py-3 px-4 whitespace-nowrap">{formatLobbyTime(m.total_match_time)}</td>
-    <td className="py-3 px-4 text-toxic-purple font-bold">
+    {rated ? <td className="py-3 px-4 text-toxic-purple font-bold">
       {m.performance_score != null ? Math.round(m.performance_score) : "-"}
       <div className="h-5"><RatingWeight match={m} /></div>
-    </td>
+    </td> : <td />}
   </>;
 }
 

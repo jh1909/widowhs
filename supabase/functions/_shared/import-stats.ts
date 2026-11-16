@@ -2,6 +2,7 @@ import { createPlayerMap } from "./player-map.ts";
 import { calculateRating } from "./rating.ts";
 import { scoreWeight, placementMatches } from "./elo-weight.ts";
 import { rankPlayers, personalBest } from "./leaderboard.ts";
+import { combineSessions } from "./sessions.ts";
 import type { MatchData } from "../upload-csv/parser.ts";
 
 export type ImportedMatch = MatchData & { played_at: string | null; match_id: string };
@@ -50,20 +51,30 @@ export function buildMatchImport(dbPlayers: ImportPlayer[], matches: ImportedMat
         weightedKpm: Number(player.elo_kpm_sum ?? ((parseFloat(String(player.kpm)) || 0) * count)), addedWeight: 0 };
       aggregates.set(player.name, stats);
     }
-    stats.matches++; stats.score += match.score; stats.deaths += match.deaths;
-    stats.crouches += match.crouches; stats.time += match.time_in_lobby;
-    stats.kdrSum += match.kdr; stats.accuracySum += match.accuracy; stats.kpmSum += match.kpm;
-    const weight = scoreWeight(match);
-    if (weight === 1) stats.placements++;
-    stats.weight += weight; stats.addedWeight += weight;
-    stats.weightedKdr += match.kdr * weight; stats.weightedAccuracy += match.accuracy * weight;
-    stats.weightedKpm += match.kpm * weight;
     if (match.score >= 50 && personalBest(match.time_in_lobby) !== null) {
       stats.best = Math.min(stats.best ?? Infinity, match.time_in_lobby);
     }
     return [{ ...match, player_name: player.name, logged_player_name: match.player_name,
-      performance_score: calculateRating(match), elo_weight: weight }];
+      performance_score: calculateRating(match), elo_weight: scoreWeight(match) }];
   });
+  // Sessions are stored separately, but a player's sessions in one round count as one participation.
+  const rounds = new Map<string, typeof matchRows>();
+  for (const row of matchRows) {
+    const key = `${row.player_name}\u0000${row.match_id}`;
+    rounds.set(key, [...(rounds.get(key) ?? []), row]);
+  }
+  for (const sessions of rounds.values()) {
+    const stats = aggregates.get(sessions[0].player_name)!;
+    const round = sessions.length === 1 ? sessions[0] : combineSessions(sessions);
+    const weight = sessions.length === 1 ? sessions[0].elo_weight : round.elo_weight;
+    stats.matches++; stats.score += round.score; stats.deaths += round.deaths;
+    stats.crouches += round.crouches; stats.time += round.time_in_lobby;
+    stats.kdrSum += round.kdr; stats.accuracySum += round.accuracy; stats.kpmSum += round.kpm;
+    if (weight === 1) stats.placements++;
+    stats.weight += weight; stats.addedWeight += weight;
+    stats.weightedKdr += round.kdr * weight; stats.weightedAccuracy += round.accuracy * weight;
+    stats.weightedKpm += round.kpm * weight;
+  }
   const players = [...aggregates.values()].map(stats => {
     const kdr = stats.kdrSum / stats.matches;
     const accuracy = stats.accuracySum / stats.matches;
