@@ -99,7 +99,7 @@ export default function ProfileDetails({ playerName, isOwner, isAdmin = false }:
               placeholder="A few words about you" value={draft.bio} onChange={event => setDraft({ ...draft, bio: event.target.value })} />
             <p className="text-xs text-zinc-500 text-right mt-1">{draft.bio.length}/{BIO_LIMIT}</p>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div>
               <label htmlFor={`${formId}-region`} className="block text-sm text-zinc-300 mb-2">Server / Region</label>
               <select
@@ -115,9 +115,9 @@ export default function ProfileDetails({ playerName, isOwner, isAdmin = false }:
                 ))}
               </select>
             </div>
-            <div>
+            <div className="sm:col-span-2">
               <label htmlFor={`${formId}-highest-rank`} className="block text-sm text-zinc-300 mb-2">Highest Rank</label>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              <div className="grid grid-cols-2 sm:grid-cols-[1.4fr_0.7fr_1.3fr_1.1fr] gap-2">
                 <select
                   id={`${formId}-highest-rank`}
                   aria-label="Highest rank tier"
@@ -182,7 +182,7 @@ export default function ProfileDetails({ playerName, isOwner, isAdmin = false }:
               </div>
             </div>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="border-t border-white/10 pt-5 grid grid-cols-1 sm:grid-cols-2 gap-4">
             {setupFields.map(field => (
               <div key={field.key} className={'multiline' in field ? 'sm:col-span-2' : ''}>
                 <label htmlFor={`${formId}-${field.key}`} className="block text-sm text-zinc-300 mb-2">{field.label}</label>
@@ -214,8 +214,8 @@ export default function ProfileDetails({ playerName, isOwner, isAdmin = false }:
       ) : (
         <div className="space-y-6">
           {details.bio && <p className="text-sm text-zinc-300 leading-relaxed whitespace-pre-wrap break-words">{details.bio}</p>}
-          {(regionText || highestRankText) && (
-            <dl className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-8 gap-y-5">
+          {(regionText || highestRankText || visibleFields.length > 0) && (
+            <dl className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-8 gap-y-5${details.bio ? ' border-t border-white/5 pt-5' : ''}`}>
               {regionText && (
                 <div>
                   <dt className="text-xs text-zinc-500 mb-1.5">Server / Region</dt>
@@ -228,14 +228,12 @@ export default function ProfileDetails({ playerName, isOwner, isAdmin = false }:
                   <dd className="text-sm text-zinc-200">{highestRankText}</dd>
                 </div>
               )}
+              {visibleFields.map(field => <div key={field.key} className={'multiline' in field ? 'sm:col-span-2 lg:col-span-3' : ''}>
+                <dt className="text-xs text-zinc-500 mb-1.5">{field.label}</dt>
+                <dd className="text-sm text-zinc-200 whitespace-pre-wrap break-words">{details.setup[field.key]}</dd>
+              </div>)}
             </dl>
           )}
-          {!!visibleFields.length && <dl className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-8 gap-y-5">
-            {visibleFields.map(field => <div key={field.key} className={'multiline' in field ? 'sm:col-span-2 lg:col-span-3' : ''}>
-              <dt className="text-xs text-zinc-500 mb-1.5">{field.label}</dt>
-              <dd className="text-sm text-zinc-200 whitespace-pre-wrap break-words">{details.setup[field.key]}</dd>
-            </div>)}
-          </dl>}
           {!error && !hasContent && <p className="text-sm text-zinc-500">{moderating ? 'This player has not added a bio or setup yet.' : 'Add a short bio or share your gear and settings.'}</p>}
         </div>
       )}
