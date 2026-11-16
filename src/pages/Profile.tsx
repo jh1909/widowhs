@@ -433,6 +433,9 @@ export default function Profile() {
 
   const inPlacements = placementMatches(player) < 10;
   const podiumRank = inPlacements || player.is_banned ? null : getPodiumRank(qualifiedRank);
+  const peakRank = player.highest_rank != null && Number.isFinite(Number(player.highest_rank)) && Number(player.highest_rank) > 0
+    ? (qualifiedRank != null ? Math.min(Number(player.highest_rank), qualifiedRank) : Number(player.highest_rank))
+    : qualifiedRank;
   const averageCrouches = crouchesPerMatch(player);
   const medalFor = (category: MedalCategory) => profileMedals[category]
     ? <StatMedal tier={profileMedals[category]} category={category} value={formatMedalValue(player, category)} /> : null;
@@ -540,6 +543,14 @@ export default function Profile() {
                 Rank #{qualifiedRank ?? "—"}{" "}
                 Global
               </span>}
+              {!player.is_banned && peakRank != null && (
+                <span
+                  className="font-mono text-[14px] text-on-surface-variant border-l border-[#4d4353] pl-3"
+                  title="Highest leaderboard rank reached"
+                >
+                  Highest Rank #{peakRank}
+                </span>
+              )}
             </div>
           </div>
 
