@@ -213,21 +213,38 @@ export default function ProfileDetails({ playerName, isOwner, isAdmin = false }:
         </form>
       ) : (
         <div className="space-y-6">
-          {details.bio && <p className="text-sm text-zinc-300 leading-relaxed whitespace-pre-wrap break-words">{details.bio}</p>}
-          {(regionText || highestRankText || visibleFields.length > 0) && (
-            <dl className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-8 gap-y-5${details.bio ? ' border-t border-white/5 pt-5' : ''}`}>
-              {regionText && (
-                <div>
-                  <dt className="text-xs text-zinc-500 mb-1.5">Server / Region</dt>
-                  <dd className="text-sm text-zinc-200">{regionText}</dd>
-                </div>
+          {(details.bio || regionText || highestRankText) && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-8 gap-y-6 items-start">
+              {details.bio && (
+                <p className={`text-sm text-zinc-300 leading-relaxed whitespace-pre-wrap break-words ${!regionText && !highestRankText ? 'sm:col-span-2 lg:col-span-3' : ''}`}>
+                  {details.bio}
+                </p>
               )}
-              {highestRankText && (
-                <div>
-                  <dt className="text-xs text-zinc-500 mb-1.5">Highest Rank</dt>
-                  <dd className="text-sm text-zinc-200">{highestRankText}</dd>
-                </div>
+              {(regionText || highestRankText) && (
+                <dl className={`grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-6 ${details.bio ? 'sm:col-span-1 lg:col-span-2' : 'sm:col-span-2 lg:col-span-3 lg:grid-cols-3'}`}>
+                  {regionText && (
+                    <div>
+                      <dt className="text-xs text-zinc-500 mb-1.5">Server / Region</dt>
+                      <dd className="text-sm text-zinc-200">{regionText}</dd>
+                    </div>
+                  )}
+                  {highestRankText && (
+                    <div>
+                      <dt className="text-xs text-zinc-500 mb-1.5">Highest Rank</dt>
+                      <dd className="text-sm text-zinc-200">{highestRankText}</dd>
+                    </div>
+                  )}
+                </dl>
               )}
+            </div>
+          )}
+          {!!visibleFields.length && (
+            <dl
+              className={[
+                'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-8 gap-y-7',
+                details.bio || regionText || highestRankText ? 'border-t border-white/5 pt-6' : '',
+              ].filter(Boolean).join(' ')}
+            >
               {visibleFields.map(field => <div key={field.key} className={'multiline' in field ? 'sm:col-span-2 lg:col-span-3' : ''}>
                 <dt className="text-xs text-zinc-500 mb-1.5">{field.label}</dt>
                 <dd className="text-sm text-zinc-200 whitespace-pre-wrap break-words">{details.setup[field.key]}</dd>
