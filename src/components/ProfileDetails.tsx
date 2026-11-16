@@ -1,7 +1,19 @@
 import { useEffect, useId, useState } from 'react';
 import { Edit2, LoaderCircle, Trash2 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
-import { BIO_LIMIT, emptyProfileDetails, setupFields, type ProfileDetails as Details } from '../lib/profile-details';
+import {
+  BIO_LIMIT,
+  RANK_DIVISIONS,
+  RANK_ROLES,
+  RANK_SEASONS,
+  RANK_TIERS,
+  REGION_OPTIONS,
+  emptyProfileDetails,
+  formatHighestRank,
+  formatRegion,
+  setupFields,
+  type ProfileDetails as Details,
+} from '../lib/profile-details';
 
 export default function ProfileDetails({ playerName, isOwner, isAdmin = false }: { playerName: string; isOwner: boolean; isAdmin?: boolean }) {
   const formId = useId();
@@ -58,10 +70,15 @@ export default function ProfileDetails({ playerName, isOwner, isAdmin = false }:
   }
 
   const visibleFields = setupFields.filter(field => details.setup[field.key]);
-  const hasContent = !!details.bio || visibleFields.length > 0;
+  const highestRankText = formatHighestRank(details.setup);
+  const regionText = formatRegion(details.setup.region);
+  const hasContent = !!details.bio || !!regionText || !!highestRankText || visibleFields.length > 0;
   if (!loading && !error && !editing && !canEdit && !hasContent) return null;
 
   const controlClass = 'w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2.5 text-sm text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-toxic-purple/60 disabled:opacity-60';
+  const selectClass = `${controlClass} [color-scheme:dark]`;
+  const hasRank = !!draft.setup.highest_rank;
+  const hasDivision = hasRank && draft.setup.highest_rank !== 'Top 500';
   return (
     <section className="panel p-5 sm:p-7" aria-label="Player bio and setup" aria-busy={loading || saving}>
       <div className="flex items-center justify-between gap-3 mb-5">
@@ -81,6 +98,89 @@ export default function ProfileDetails({ playerName, isOwner, isAdmin = false }:
             <textarea id={`${formId}-bio`} className={controlClass} rows={3} maxLength={BIO_LIMIT} disabled={saving}
               placeholder="A few words about you" value={draft.bio} onChange={event => setDraft({ ...draft, bio: event.target.value })} />
             <p className="text-xs text-zinc-500 text-right mt-1">{draft.bio.length}/{BIO_LIMIT}</p>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label htmlFor={`${formId}-region`} className="block text-sm text-zinc-300 mb-2">Server / Region</label>
+              <select
+                id={`${formId}-region`}
+                className={selectClass}
+                disabled={saving}
+                value={draft.setup.region ?? ''}
+                onChange={event => setDraft({ ...draft, setup: { ...draft.setup, region: event.target.value } })}
+              >
+                <option value="" className="bg-zinc-950 text-zinc-400">Not specified</option>
+                {REGION_OPTIONS.map(option => (
+                  <option key={option.value} value={option.value} className="bg-zinc-950 text-zinc-200">{option.label}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label htmlFor={`${formId}-highest-rank`} className="block text-sm text-zinc-300 mb-2">Highest Rank</label>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                <select
+                  id={`${formId}-highest-rank`}
+                  aria-label="Highest rank tier"
+                  className={selectClass}
+                  disabled={saving}
+                  value={draft.setup.highest_rank ?? ''}
+                  onChange={event => {
+                    const nextRank = event.target.value;
+                    setDraft({
+                      ...draft,
+                      setup: {
+                        ...draft.setup,
+                        highest_rank: nextRank,
+                        highest_rank_division: nextRank && nextRank !== 'Top 500' ? (draft.setup.highest_rank_division ?? '') : '',
+                        highest_rank_role: nextRank ? (draft.setup.highest_rank_role ?? '') : '',
+                        highest_rank_season: nextRank ? (draft.setup.highest_rank_season ?? '') : '',
+                      },
+                    });
+                  }}
+                >
+                  <option value="" className="bg-zinc-950 text-zinc-400">Rank</option>
+                  {RANK_TIERS.map(tier => (
+                    <option key={tier} value={tier} className="bg-zinc-950 text-zinc-200">{tier}</option>
+                  ))}
+                </select>
+                <select
+                  aria-label="Highest rank division"
+                  className={selectClass}
+                  disabled={saving || !hasDivision}
+                  value={hasDivision ? (draft.setup.highest_rank_division ?? '') : ''}
+                  onChange={event => setDraft({ ...draft, setup: { ...draft.setup, highest_rank_division: event.target.value } })}
+                >
+                  <option value="" className="bg-zinc-950 text-zinc-400">Div</option>
+                  {RANK_DIVISIONS.map(div => (
+                    <option key={div} value={div} className="bg-zinc-950 text-zinc-200">{div}</option>
+                  ))}
+                </select>
+                <select
+                  aria-label="Highest rank role"
+                  className={selectClass}
+                  disabled={saving || !hasRank}
+                  value={hasRank ? (draft.setup.highest_rank_role ?? '') : ''}
+                  onChange={event => setDraft({ ...draft, setup: { ...draft.setup, highest_rank_role: event.target.value } })}
+                >
+                  <option value="" className="bg-zinc-950 text-zinc-400">Role</option>
+                  {RANK_ROLES.map(role => (
+                    <option key={role.value} value={role.value} className="bg-zinc-950 text-zinc-200">{role.label}</option>
+                  ))}
+                </select>
+                <select
+                  aria-label="Highest rank season"
+                  className={selectClass}
+                  disabled={saving || !hasRank}
+                  value={hasRank ? (draft.setup.highest_rank_season ?? '') : ''}
+                  onChange={event => setDraft({ ...draft, setup: { ...draft.setup, highest_rank_season: event.target.value } })}
+                >
+                  <option value="" className="bg-zinc-950 text-zinc-400">Season</option>
+                  {RANK_SEASONS.map(season => (
+                    <option key={season} value={season} className="bg-zinc-950 text-zinc-200">{season}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {setupFields.map(field => (
@@ -114,6 +214,22 @@ export default function ProfileDetails({ playerName, isOwner, isAdmin = false }:
       ) : (
         <div className="space-y-6">
           {details.bio && <p className="text-sm text-zinc-300 leading-relaxed whitespace-pre-wrap break-words">{details.bio}</p>}
+          {(regionText || highestRankText) && (
+            <dl className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-8 gap-y-5">
+              {regionText && (
+                <div>
+                  <dt className="text-xs text-zinc-500 mb-1.5">Server / Region</dt>
+                  <dd className="text-sm text-zinc-200">{regionText}</dd>
+                </div>
+              )}
+              {highestRankText && (
+                <div>
+                  <dt className="text-xs text-zinc-500 mb-1.5">Highest Rank</dt>
+                  <dd className="text-sm text-zinc-200">{highestRankText}</dd>
+                </div>
+              )}
+            </dl>
+          )}
           {!!visibleFields.length && <dl className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-8 gap-y-5">
             {visibleFields.map(field => <div key={field.key} className={'multiline' in field ? 'sm:col-span-2 lg:col-span-3' : ''}>
               <dt className="text-xs text-zinc-500 mb-1.5">{field.label}</dt>
